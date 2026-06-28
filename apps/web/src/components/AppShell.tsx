@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
-import { IconDashboard, IconWebsite, IconArticles, IconBranding, IconSettings } from './icons'
+import { IconDashboard, IconWebsite, IconArticles, IconBranding } from './icons'
 
 type Workspace = { id: string; name: string; slug: string }
 type Me = { id: string; email: string }
@@ -12,7 +12,6 @@ const NAV: { label: string; Icon: (p: { size?: number }) => React.JSX.Element }[
   { label: 'Website', Icon: IconWebsite },
   { label: 'Articles', Icon: IconArticles },
   { label: 'Branding', Icon: IconBranding },
-  { label: 'Settings', Icon: IconSettings },
 ]
 const PROFILE_ITEMS = ['Settings', 'Integrations', 'Email Setup', 'Billing']
 
@@ -47,7 +46,6 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children }:
               : !current ? undefined
               : label === 'Website' ? `/w/${current.slug}`
               : label === 'Branding' ? `/w/${current.slug}/branding`
-              : label === 'Settings' ? `/w/${current.slug}/settings`
               : undefined
             const cls = `sidebar-link${label === active ? ' active' : ''}`
             const inner = <><Icon size={18} />{label}</>
@@ -56,9 +54,6 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children }:
               : <div key={label} className={cls}>{inner}</div>
           })}
         </nav>
-        <div className="sidebar-foot">
-          <div className="sidebar-link" onClick={logout}>Sign out</div>
-        </div>
       </aside>
 
       <main className="main">
