@@ -41,6 +41,15 @@ export default function PageEditor() {
     })
   }
   function remove(i: number) { setBlocks((bs) => bs.filter((_, idx) => idx !== i)) }
+  async function aiRewrite(i: number) {
+    const block = blocks[i]; if (!block) return
+    const instruction = window.prompt('How should AI rewrite this section?', 'Make it shorter and more energetic.')
+    if (!instruction) return
+    try {
+      const r = await api<{ props: Record<string, any> }>('/ai/rewrite-block', { method: 'POST', body: JSON.stringify({ block, instruction }) })
+      setBlocks((bs) => bs.map((b, idx) => (idx === i ? { ...b, props: { ...b.props, ...r.props } } : b)))
+    } catch (e: any) { alert(e.message || 'Rewrite failed') }
+  }
   function add(type: string) {
     const props = type === 'hero' ? { heading: '', sub: '' } : { html: '' }
     setBlocks((bs) => [...bs, { type, props }])
@@ -79,6 +88,7 @@ export default function PageEditor() {
             <div className="block-head">
               <span className="block-type">{b.type}</span>
               <div className="block-ctrls">
+                <button onClick={() => aiRewrite(i)} title="Rewrite with AI">↻</button>
                 <button onClick={() => move(i, -1)} disabled={i === 0} title="Move up">↑</button>
                 <button onClick={() => move(i, 1)} disabled={i === blocks.length - 1} title="Move down">↓</button>
                 <button onClick={() => remove(i)} title="Delete">✕</button>
