@@ -58,7 +58,8 @@ jobs:
             rm -rf apps/web/.next/standalone/apps/web/.next/static
             cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
             [ -d apps/web/public ] && cp -r apps/web/public apps/web/.next/standalone/apps/web/public || true
-            pm2 reload uwebsites-api --update-env || pm2 start ecosystem.config.cjs --only uwebsites-api
-            pm2 reload uwebsites-web --update-env || pm2 start ecosystem.config.cjs --only uwebsites-web
+            # restart (not reload) so the Next standalone build is always swapped cleanly
+            pm2 restart uwebsites-api --update-env || pm2 start ecosystem.config.cjs --only uwebsites-api
+            pm2 restart uwebsites-web --update-env || pm2 start ecosystem.config.cjs --only uwebsites-web
             pm2 save
           REMOTE
