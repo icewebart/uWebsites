@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 
@@ -13,6 +13,15 @@ export default function Onboarding() {
   const [choice, setChoice] = useState<'import' | 'build'>('import')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [checking, setChecking] = useState(true)
+
+  // Onboarding is for new accounts only. If you already have a workspace, go
+  // straight to the dashboard instead of being asked to name one again.
+  useEffect(() => {
+    api<Workspace[]>('/workspaces')
+      .then((list) => { if (Array.isArray(list) && list.length > 0) router.replace('/'); else setChecking(false) })
+      .catch(() => setChecking(false))
+  }, [])
 
   // Step 1 — create the workspace, then advance.
   async function createWorkspace(e: React.FormEvent) {
@@ -32,6 +41,8 @@ export default function Onboarding() {
     if (choice === 'import') router.push(`/w/${workspace.slug}/import`)
     else router.push(`/w/${workspace.slug}`)
   }
+
+  if (checking) return <div className="empty">Loading…</div>
 
   return (
     <div className="ob">

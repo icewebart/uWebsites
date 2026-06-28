@@ -14,7 +14,7 @@ export default function Login() {
     e.preventDefault(); setErr(''); setBusy(true)
     try {
       await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
-      router.push('/')
+      router.push('/')  // returning users go straight to the dashboard, never onboarding
     } catch (e: any) { setErr(e.message || 'Login failed'); setBusy(false) }
   }
 

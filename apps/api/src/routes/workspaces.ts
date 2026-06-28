@@ -33,6 +33,7 @@ workspacesRouter.post('/', requireAuth, async (req: AuthRequest, res) => {
   if (!name) return res.status(400).json({ ok: false, error: 'name required' })
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
   const [ws] = await db.insert(workspaces).values({ accountId: req.user!.accountId, name, slug }).returning()
+  await db.insert(memberships).values({ userId: req.user!.id, workspaceId: ws.id, role: 'owner' })
   res.json({ ok: true, data: ws })
 })
 

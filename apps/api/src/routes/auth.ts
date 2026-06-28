@@ -19,14 +19,21 @@ authRouter.post('/signup', async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 12)
   const [user] = await db.insert(users).values({ accountId: account.id, email, name, passwordHash }).returning()
 
-  const wsName = workspace || 'My workspace'
-  const [ws] = await db.insert(workspaces)
-    .values({ accountId: account.id, name: wsName, slug: slugify(wsName) }).returning()
-  await db.insert(memberships).values({ userId: user.id, workspaceId: ws.id, role: 'owner' })
+  // No default workspace — the first workspace is created in onboarding so the
+  // user names it once (avoids a stray "My workspace"). Only create here if a
+  // workspace name was explicitly provided.
+  let workspaceOut: { id: string; name: string } | null = null
+  if (workspace && String(workspace).trim()) {
+    const wsName = String(workspace).trim()
+    const [ws] = await db.insert(workspaces)
+      .values({ accountId: account.id, name: wsName, slug: slugify(wsName) }).returning()
+    await db.insert(memberships).values({ userId: user.id, workspaceId: ws.id, role: 'owner' })
+    workspaceOut = { id: ws.id, name: ws.name }
+  }
 
   const token = await signSession({ id: user.id, accountId: account.id, email })
   setSessionCookie(res, token)
-  res.json({ ok: true, data: { user: { id: user.id, name, email }, workspace: { id: ws.id, name: wsName } } })
+  res.json({ ok: true, data: { user: { id: user.id, name, email }, workspace: workspaceOut } })
 })
 
 // POST /auth/login

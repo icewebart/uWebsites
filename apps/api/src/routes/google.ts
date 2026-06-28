@@ -56,8 +56,7 @@ googleRouter.get('/google/callback', async (req, res) => {
       const name = profile.name || profile.email.split('@')[0]
       const [account] = await db.insert(accounts).values({ name }).returning()
       ;[user] = await db.insert(users).values({ accountId: account.id, email: profile.email, name }).returning()
-      const [ws] = await db.insert(workspaces).values({ accountId: account.id, name: 'My workspace', slug: slugify('my-workspace') }).returning()
-      await db.insert(memberships).values({ userId: user.id, workspaceId: ws.id, role: 'owner' })
+      // No default workspace — new users create their first one in onboarding.
     }
 
     const token = await signSession({ id: user.id, accountId: user.accountId, email: user.email })
