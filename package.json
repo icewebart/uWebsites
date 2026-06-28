@@ -1,0 +1,19 @@
+{
+  "name": "uwebsites",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel --filter @uwebsites/* dev",
+    "build": "pnpm --filter @uwebsites/shared build && pnpm --filter @uwebsites/db build && pnpm --filter @uwebsites/* build",
+    "db:push": "pnpm --filter @uwebsites/db db:push",
+    "lint": "pnpm --filter @uwebsites/* lint"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp"
+    ]
+  }
+}

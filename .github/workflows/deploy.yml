@@ -1,0 +1,57 @@
+name: Deploy
+
+# Runner checks out the code, rsyncs the source to the VPS (75.119.159.89),
+# then installs + builds + reloads the API under PM2. The server needs no
+# GitHub access — only the VPS SSH key (secret). apps/api/.env on the server is
+# preserved (excluded from the sync). Schema changes are applied manually with
+# `pnpm --filter @uwebsites/db db:push` (not auto-run here, to avoid surprises).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'ecosystem.config.cjs'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Trust the VPS host key
+        run: ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Sync source to VPS
+        run: |
+          rsync -az --delete \
+            --exclude node_modules --exclude .next --exclude dist \
+            --exclude .git --exclude drizzle --exclude 'apps/api/.env' \
+            ./ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/www/wwwroot/uwebsites/"
+
+      - name: Install, build, reload (API)
+        run: |
+          ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" 'bash -s' <<'REMOTE'
+            set -e
+            export PATH="/usr/bin:/usr/local/bin:$PATH"
+            cd /www/wwwroot/uwebsites
+            pnpm install --config.verify-deps-before-run=false || true
+            pnpm --config.verify-deps-before-run=false --filter @uwebsites/shared build
+            pnpm --config.verify-deps-before-run=false --filter @uwebsites/db build
+            pnpm --config.verify-deps-before-run=false --filter @uwebsites/api build
+            pm2 reload uwebsites-api --update-env || pm2 start ecosystem.config.cjs --only uwebsites-api
+            pm2 save
+          REMOTE

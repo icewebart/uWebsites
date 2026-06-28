@@ -1,0 +1,166 @@
+// uWebsites schema — see "Websiterium - 02 Data Model". Workspace-as-tenant,
+// append-only credit ledger. Drizzle + Postgres.
+import {
+  pgTable, uuid, text, timestamp, boolean, integer, jsonb, pgEnum,
+} from 'drizzle-orm/pg-core'
+
+export const roleEnum = pgEnum('workspace_role', ['owner', 'editor', 'writer', 'viewer'])
+export const pageTypeEnum = pgEnum('page_type', [
+  'home', 'service', 'location', 'hub', 'blog_index', 'article', 'category',
+  'collection_item', 'about', 'contact', 'faq', 'lead_magnet', 'legal', 'thank_you',
+])
+export const pageStatusEnum = pgEnum('page_status', ['draft', 'published'])
+export const aiJobKindEnum = pgEnum('ai_job_kind', ['article', 'edit', 'image', 'import'])
+export const aiJobStatusEnum = pgEnum('ai_job_status', ['queued', 'running', 'done', 'failed'])
+export const buildStatusEnum = pgEnum('build_status', ['queued', 'building', 'deployed', 'failed'])
+
+// ---- tenancy & accounts ----
+export const accounts = pgTable('accounts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  plan: text('plan').notNull().default('trial'),
+  stripeCustomerId: text('stripe_customer_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+export const users = pgTable('users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash'),       // null for SSO-only users
+  name: text('name').notNull(),
+  googleId: text('google_id').unique(),
+  twofaSecret: text('twofa_secret'),          // mandatory 2FA for owners
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+export const workspaces = pgTable('workspaces', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  name: text('name').notNull(),
+  slug: text('slug').notNull(),
+  brandVoice: jsonb('brand_voice'),
+  status: text('status').notNull().default('active'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+export const memberships = pgTable('memberships', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
+  role: roleEnum('role').notNull().default('owner'),
+})
+
+// ---- domains & branding ----
+export const domains = pgTable('domains', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
+  hostname: text('hostname').notNull().unique(),
+  status: text('status').notNull().default('pending'),
+  dnsVerifiedAt: timestamp('dns_verified_at'),
+  sslStatus: text('ssl_status').notNull().default('none'),
+})
+
+export const brandingTokens = pgTable('branding_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
+  tokens: jsonb('tokens').notNull(),
+  version: integer('version').notNull().default(1),
+})
+
+export const menus = pgTable('menus', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
+  location: text('location').notNull(),       // header | footer | mega
+  tree: jsonb('tree').notNull(),
+})
+
+// ---- content ----
+export const pages = pgTable('pages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
+  type: pageTypeEnum('type').notNull(),
+  slug: text('slug').notNull(),
+  title: text('title').notNull(),
+  status: pageStatusEnum('status').notNull().default('draft'),
+  locale: text('locale').notNull().default('en'),
+  blocks: jsonb('blocks').notNull().default('[]'),
+  seo: jsonb('seo'),
+  publishedVersion: integer('published_version'),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+export const collections = pgTable('collections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
+  name: text('name').notNull(),
+  schema: jsonb('schema').notNull(),
+})
+
+export const collectionItems = pgTable('collection_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  collectionId: uuid('collection_id').notNull().references(() => collections.id),
+  fields: jsonb('fields').notNull(),
+  slug: text('slug').notNull(),
+  status: pageStatusEnum('status').notNull().default('draft'),
+})
+
+export const media = pgTable('media', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
+  url: text('url').notNull(),
+  alt: text('alt'),
+  width: integer('width'),
+  height: integer('height'),
+  source: text('source').notNull().default('upload'),  // upload | ai | stock
+})
+
+export const redirects = pgTable('redirects', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
+  fromPath: text('from_path').notNull(),
+  toPath: text('to_path').notNull(),
+  code: integer('code').notNull().default(301),
+})
+
+// ---- AI, builds, ledger, audit ----
+export const aiJobs = pgTable('ai_jobs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
+  kind: aiJobKindEnum('kind').notNull(),
+  input: jsonb('input'),
+  status: aiJobStatusEnum('status').notNull().default('queued'),
+  costCredits: integer('cost_credits').notNull().default(0),
+  outputRef: text('output_ref'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+export const builds = pgTable('builds', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
+  status: buildStatusEnum('status').notNull().default('queued'),
+  artifactRef: text('artifact_ref'),
+  deployedAt: timestamp('deployed_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// Append-only. balance = sum(delta). Debit in the same tx as the ai_job under
+// a per-account advisory lock (uPosty ADR-001 pattern).
+export const creditLedger = pgTable('credit_ledger', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  delta: integer('delta').notNull(),
+  reason: text('reason').notNull(),
+  ref: text('ref'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+export const auditLog = pgTable('audit_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  actor: text('actor').notNull(),
+  action: text('action').notNull(),
+  target: text('target'),
+  meta: jsonb('meta'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})

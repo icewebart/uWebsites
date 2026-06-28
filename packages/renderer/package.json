@@ -1,0 +1,10 @@
+{
+  "name": "@uwebsites/renderer",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": { "build": "tsc", "dev": "tsc --watch" },
+  "dependencies": { "@uwebsites/shared": "workspace:*" },
+  "devDependencies": { "typescript": "^5.7.0" }
+}
