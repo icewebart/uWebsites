@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
+import { ChatPanel } from '@/components/ChatPanel'
 
 type Block = { type: string; props: Record<string, any> }
 type PageData = {
@@ -152,6 +153,7 @@ export default function PageEditor() {
           )}
         </div>
       </div>
+      <ChatPanel slug={slug} pageContext={{ type: page?.type || '', title, blocks }} />
     </AppShell>
   )
 }

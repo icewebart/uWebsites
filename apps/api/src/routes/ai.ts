@@ -75,6 +75,42 @@ aiRouter.post('/generate-page', requireAuth, async (req: AuthRequest, res) => {
   }
 })
 
+// POST /ai/chat — conversational endpoint for the site-builder chat panel.
+// Single-turn (no streaming yet). Grounded in the workspace context: pages,
+// branding tokens, and the current page (if any). Returns a plain reply.
+aiRouter.post('/chat', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured.' })
+  const { slug, messages, pageContext } = req.body ?? {}
+  if (!slug || !Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ ok: false, error: 'slug and messages[] required' })
+  }
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+
+  // Build a compact context block — keeps prompt cheap while letting Claude
+  // reason about the actual site.
+  const ctx = pageContext
+    ? `Current page: type=${pageContext.type}, title="${pageContext.title}", blocks=${(pageContext.blocks || []).map((b: any) => b.type).join(',')}`
+    : 'No specific page is being edited.'
+
+  try {
+    const r = await a.messages.create({
+      model: MODEL,
+      max_tokens: 800,
+      system: `You are the uWebsites site-building assistant for workspace "${ws.name}". You help the operator plan, rewrite, and structure their website. Be concise (2–4 short paragraphs max). Suggest concrete next actions, but do not invent capabilities. When the user asks to change something, propose what you would do and ask them to confirm. ${ctx}`,
+      messages: messages
+        .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+        .slice(-12)
+        .map((m: any) => ({ role: m.role, content: m.content })),
+    })
+    const reply = r.content.map((b: any) => (b.type === 'text' ? b.text : '')).join('')
+    res.json({ ok: true, data: { reply } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Chat failed: ' + (e?.message || 'unknown') })
+  }
+})
+
 // POST /ai/rewrite-block — rewrite a single block's content
 aiRouter.post('/rewrite-block', requireAuth, async (req: AuthRequest, res) => {
   const a = ai()
