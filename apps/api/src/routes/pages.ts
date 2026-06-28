@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
 import { db, pages, workspaces } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
+import { renderPreview } from './publish.js'
 
 // Single-page load/save for the block editor. Account-scoped via the page's
 // workspace (page → workspace → account).
@@ -19,6 +20,14 @@ async function loadOwned(id: string, accountId: string) {
     .limit(1)
   return row
 }
+
+// GET /pages/:id/preview — text/html, rendered with the workspace's branding tokens
+pagesRouter.get('/:id/preview', requireAuth, async (req: AuthRequest, res) => {
+  const html = await renderPreview(String(req.params.id), req.user!.accountId)
+  if (!html) return res.status(404).send('not found')
+  res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  res.send(html)
+})
 
 // GET /pages/:id
 pagesRouter.get('/:id', requireAuth, async (req: AuthRequest, res) => {

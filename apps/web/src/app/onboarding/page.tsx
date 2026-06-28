@@ -72,7 +72,7 @@ export default function Onboarding() {
           <p className="muted">For <strong>{workspace?.name}</strong>.</p>
           <div className="choice">
             <div className={`choice-card${choice === 'import' ? ' sel' : ''}`} onClick={() => setChoice('import')}>
-              <div className="ic">📥</div><h3>Import a site</h3>
+              <div className="ic">⤓</div><h3>Import a site</h3>
               <p className="muted" style={{ fontSize: 13 }}>Pull in an existing WordPress (or other) site; we classify and rebuild it — keeping your URLs.</p>
             </div>
             <div className={`choice-card${choice === 'build' ? ' sel' : ''}`} onClick={() => setChoice('build')}>

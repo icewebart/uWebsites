@@ -2,11 +2,18 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import { IconDashboard, IconWebsite, IconArticles, IconBranding, IconSettings } from './icons'
 
 type Workspace = { id: string; name: string; slug: string }
 type Me = { id: string; email: string }
 
-const NAV = ['Dashboard', 'Website', 'Articles', 'Branding', 'Settings']
+const NAV: { label: string; Icon: (p: { size?: number }) => React.JSX.Element }[] = [
+  { label: 'Dashboard', Icon: IconDashboard },
+  { label: 'Website', Icon: IconWebsite },
+  { label: 'Articles', Icon: IconArticles },
+  { label: 'Branding', Icon: IconBranding },
+  { label: 'Settings', Icon: IconSettings },
+]
 const PROFILE_ITEMS = ['Settings', 'Integrations', 'Email Setup', 'Billing']
 
 export function AppShell({ title, currentSlug, active = 'Dashboard', children }: { title: string; currentSlug?: string; active?: string; children: React.ReactNode }) {
@@ -35,7 +42,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children }:
       <aside className="sidebar">
         <div className="sidebar-brand"><img className="logo-full" src="/uwebsites.svg" alt="uWebsites" /></div>
         <nav className="sidebar-nav">
-          {NAV.map((label) => {
+          {NAV.map(({ label, Icon }) => {
             const href = label === 'Dashboard' ? '/'
               : !current ? undefined
               : label === 'Website' ? `/w/${current.slug}`
@@ -43,9 +50,10 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children }:
               : label === 'Settings' ? `/w/${current.slug}/settings`
               : undefined
             const cls = `sidebar-link${label === active ? ' active' : ''}`
+            const inner = <><Icon size={18} />{label}</>
             return href
-              ? <a key={label} href={href} className={cls}>{label}</a>
-              : <div key={label} className={cls}>{label}</div>
+              ? <a key={label} href={href} className={cls}>{inner}</a>
+              : <div key={label} className={cls}>{inner}</div>
           })}
         </nav>
         <div className="sidebar-foot">

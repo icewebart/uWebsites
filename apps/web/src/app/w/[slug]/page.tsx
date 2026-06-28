@@ -25,6 +25,15 @@ export default function WorkspaceHome() {
       .finally(() => setLoading(false))
   }, [slug])
 
+  async function aiGenerate() {
+    const prompt = window.prompt('Describe the page you want (e.g. "An article about choosing the right summer camp for a 9-year-old, friendly tone, 4 sections")')
+    if (!prompt) return
+    try {
+      const r = await api<{ id: string; slug: string }>(`/ai/generate-page`, { method: 'POST', body: JSON.stringify({ slug, prompt }) })
+      router.push(`/w/${slug}/p/${r.id}`)
+    } catch (e: any) { alert(e.message || 'AI generation failed') }
+  }
+
   async function publish() {
     setPubErr(''); setPublishing(true); setPublishedUrl('')
     try {
@@ -46,8 +55,8 @@ export default function WorkspaceHome() {
         <div className="empty">
           <p>No pages in <strong>{data?.workspace.name}</strong> yet.</p>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 16 }}>
-            <a className="btn btn-primary" href={`/w/${slug}/import`}>📥 Import a site</a>
-            <button className="btn btn-secondary">Build from template</button>
+            <a className="btn btn-primary" href={`/w/${slug}/import`}>Import a site</a>
+            <button className="btn btn-secondary" onClick={() => alert('AI page generation lives on a page — open the editor on any page to use it.')}>Build with AI</button>
           </div>
         </div>
       ) : (
@@ -59,7 +68,8 @@ export default function WorkspaceHome() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <span className="muted">{pages.length} pages</span>
             <div style={{ display: 'flex', gap: 10 }}>
-              <a className="btn btn-secondary" href={`/w/${slug}/import`}>📥 Import more</a>
+              <button className="btn btn-secondary" onClick={aiGenerate}>Generate with AI</button>
+              <a className="btn btn-secondary" href={`/w/${slug}/import`}>Import more</a>
               <button className="btn btn-primary" onClick={publish} disabled={publishing}>{publishing ? 'Publishing…' : 'Publish'}</button>
             </div>
           </div>

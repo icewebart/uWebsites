@@ -134,6 +134,87 @@ export async function scanSite(rawUrl: string) {
   return { site, total: items.length, counts, redirects: redirectList, items }
 }
 
+// POST /import/branding — fetch a site's homepage + main CSS and extract
+// suggested branding tokens (colors, fonts, button radius). Heuristic but
+// useful as a starting point; the user reviews/adjusts in the Branding panel.
+importRouter.post('/branding', requireAuth, async (req, res) => {
+  const raw = req.body?.url
+  if (!raw) return res.status(400).json({ ok: false, error: 'url required' })
+  const site = String(raw).trim().replace(/\/+$/, '').replace(/^(?!https?:\/\/)/, 'https://')
+  try {
+    const home = await (await fetch(site, { headers: { 'User-Agent': UA } })).text()
+    // Collect CSS hrefs (same-origin) and Google Fonts families
+    const cssHrefs = Array.from(home.matchAll(/<link[^>]+rel=["']stylesheet["'][^>]*href=["']([^"']+)["']/gi)).map((m) => m[1])
+    const inlineCss = Array.from(home.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)).map((m) => m[1]).join('\n')
+    const googleFonts = Array.from(home.matchAll(/fonts\.googleapis\.com[^"']*family=([^"'&]+)/gi)).map((m) => decodeURIComponent(m[1].split(':')[0].replace(/\+/g, ' ')))
+
+    let css = inlineCss
+    for (const href of cssHrefs.slice(0, 4)) {
+      try {
+        const abs = href.startsWith('http') ? href : new URL(href, site).toString()
+        if (abs.includes('fonts.googleapis.com')) continue
+        const txt = await (await fetch(abs, { headers: { 'User-Agent': UA } })).text()
+        css += '\n' + txt.slice(0, 200000) // cap per file
+        if (css.length > 600000) break
+      } catch { /* skip */ }
+    }
+
+    // Color tally (hex only — fast & deterministic; rgb() converted on the fly)
+    const tally: Record<string, number> = {}
+    const bumpHex = (h: string) => {
+      h = h.toLowerCase()
+      if (h.length === 4) h = '#' + h[1] + h[1] + h[2] + h[2] + h[3] + h[3]
+      if (!/^#[0-9a-f]{6}$/.test(h)) return
+      // Drop near-white / near-black / common greys (they're not brand colors)
+      const r = parseInt(h.slice(1, 3), 16), g = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16)
+      const max = Math.max(r, g, b), min = Math.min(r, g, b)
+      const sat = max === 0 ? 0 : (max - min) / max
+      if (max > 245 || max < 15) return // pure white/black noise
+      if (sat < 0.18 && Math.abs(r - g) < 12 && Math.abs(g - b) < 12) return // grey
+      tally[h] = (tally[h] || 0) + 1
+    }
+    for (const m of css.matchAll(/#[0-9a-fA-F]{3,8}\b/g)) bumpHex(m[0].slice(0, 7))
+    for (const m of css.matchAll(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/g)) {
+      const h = '#' + [m[1], m[2], m[3]].map((v) => parseInt(v).toString(16).padStart(2, '0')).join('')
+      bumpHex(h)
+    }
+    const ranked = Object.entries(tally).sort((a, b) => b[1] - a[1]).map(([h]) => h)
+
+    // Font: first non-generic family from stack, else first Google font
+    const famMatch = css.match(/font-family\s*:\s*([^;}]+)/i)
+    let bodyFont: string | null = null
+    if (famMatch) {
+      const first = famMatch[1].split(',')[0].trim().replace(/^["']|["']$/g, '')
+      if (first && !/^(serif|sans-serif|monospace|system-ui|inherit|initial)$/i.test(first)) bodyFont = first
+    }
+    if (!bodyFont && googleFonts.length) bodyFont = googleFonts[0]
+    const headingFont = googleFonts.length > 1 ? googleFonts[0] : bodyFont || 'Inter'
+
+    // Button radius — first border-radius near a .btn/button selector
+    let btnRadius: string | null = null
+    const btnRule = css.match(/(?:button|\.btn|\[type=["']?button["']?\])[^{]*\{[^}]*border-radius\s*:\s*([0-9.]+)(px|rem|em)/i)
+    if (btnRule) {
+      const n = parseFloat(btnRule[1]); const u = btnRule[2]
+      btnRadius = `${u === 'rem' || u === 'em' ? Math.round(n * 16) : Math.round(n)}px`
+    }
+
+    const tokens = {
+      color: {
+        primary: ranked[0] || '#16324A',
+        accent: ranked[1] || '#8FD7F1',
+        surface: '#FFFFFF',
+        text: '#16242E',
+      },
+      font: { heading: headingFont, body: bodyFont || 'Inter', scale: 1.2, lineHeight: 1.6 },
+      shape: { buttonRadius: btnRadius || '12px', cardRadius: '16px', borderWidth: '1px' },
+      space: { sectionGap: '64px', sectionPaddingY: '48px', container: '1200px' },
+    }
+    res.json({ ok: true, data: { site, tokens, suggestions: { colors: ranked.slice(0, 8), fonts: [...new Set([headingFont, bodyFont].filter(Boolean) as string[])] } } })
+  } catch {
+    res.status(502).json({ ok: false, error: 'Could not read branding from that URL.' })
+  }
+})
+
 // POST /import/scan — preview only (no writes)
 importRouter.post('/scan', requireAuth, async (req, res) => {
   if (!req.body?.url) return res.status(400).json({ ok: false, error: 'url required' })

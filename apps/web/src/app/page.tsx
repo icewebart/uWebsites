@@ -8,15 +8,16 @@ type Workspace = { id: string; name: string; slug: string }
 type Overview = { workspaces: number; pages: number; articles: number; published: number }
 
 const FEATURES = [
-  { ic: '📥', title: 'Import & rebuild', desc: 'Pull a WordPress site in and rebuild it as clean, typed pages with redirects.', status: 'live' },
-  { ic: '🧩', title: 'Page editor', desc: 'Edit any page as on-brand blocks — hero, text and more.', status: 'live' },
-  { ic: '🎨', title: 'Branding', desc: 'Per-workspace colors, fonts, roundedness and spacing.', status: 'live' },
-  { ic: '🚀', title: 'Static publishing', desc: 'Compile a workspace to a fast, secure static site.', status: 'live' },
-  { ic: '✍️', title: 'AI content engine', desc: 'Search-Console-driven weekly articles with images and a learning loop.', status: 'soon' },
-  { ic: '🔑', title: 'Keyword & content gaps', desc: "Find what competitors rank for and you don't.", status: 'soon' },
-  { ic: '🔗', title: 'Backlink network', desc: 'Matched link partners with AI-drafted outreach.', status: 'soon' },
-  { ic: '🩺', title: 'Site audit', desc: 'Crawl-based health checks with AI prioritisation.', status: 'soon' },
-  { ic: '🗓️', title: 'Content calendar', desc: 'Plan and schedule publishing across workspaces.', status: 'soon' },
+  { title: 'Import & rebuild', desc: 'Pull a WordPress site in and rebuild it as clean, typed pages with redirects.', status: 'live' },
+  { title: 'Page editor', desc: 'Edit any page as on-brand blocks — hero, text and more.', status: 'live' },
+  { title: 'Branding', desc: 'Per-workspace colors, fonts, roundedness and spacing — importable from any site.', status: 'live' },
+  { title: 'Static publishing', desc: 'Compile a workspace to a fast, secure static site.', status: 'live' },
+  { title: 'AI page generation', desc: 'Generate full pages and rewrite sections with Claude.', status: 'live' },
+  { title: 'AI content engine', desc: 'Search-Console-driven weekly articles with images and a learning loop.', status: 'soon' },
+  { title: 'Keyword & content gaps', desc: "Find what competitors rank for and you don't.", status: 'soon' },
+  { title: 'Backlink network', desc: 'Matched link partners with AI-drafted outreach.', status: 'soon' },
+  { title: 'Site audit', desc: 'Crawl-based health checks with AI prioritisation.', status: 'soon' },
+  { title: 'Content calendar', desc: 'Plan and schedule publishing across workspaces.', status: 'soon' },
 ]
 
 export default function Dashboard() {
@@ -62,7 +63,6 @@ export default function Dashboard() {
         {FEATURES.map((f) => (
           <div className="feat" key={f.title}>
             <span className={`fbadge ${f.status}`}>{f.status === 'live' ? 'Live' : 'Soon'}</span>
-            <div className="ic">{f.ic}</div>
             <h3>{f.title}</h3>
             <p>{f.desc}</p>
           </div>

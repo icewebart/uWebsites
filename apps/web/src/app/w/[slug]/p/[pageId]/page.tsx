@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { api } from '@/lib/api'
+import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
 type Block = { type: string; props: Record<string, any> }
@@ -21,6 +21,7 @@ export default function PageEditor() {
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<string>('')
   const [err, setErr] = useState('')
+  const [previewKey, setPreviewKey] = useState(0)
 
   useEffect(() => {
     api<PageData>(`/pages/${pageId}`)
@@ -50,6 +51,7 @@ export default function PageEditor() {
     try {
       await api(`/pages/${pageId}`, { method: 'PUT', body: JSON.stringify({ title, blocks, status }) })
       setSavedAt(new Date().toLocaleTimeString())
+      setPreviewKey((k) => k + 1)
     } catch (e: any) { setErr(e.message || 'Save failed') } finally { setSaving(false) }
   }
 
@@ -58,6 +60,7 @@ export default function PageEditor() {
   return (
     <AppShell title={title || 'Edit page'} currentSlug={slug} active="Website">
       <div className="editor">
+        <div className="editor-col">
         <div style={{ marginBottom: 14 }}>
           <a className="btn btn-ghost" href={`/w/${slug}`}>← {page?.wsName}</a>
           <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>{page?.type} · /{page?.slug}</span>
@@ -103,6 +106,15 @@ export default function PageEditor() {
         <div className="save-row">
           <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
           {savedAt && <span className="saved-tag">Saved {savedAt}</span>}
+        </div>
+        </div>
+
+        <div className="editor-col">
+          <div className="pv-controls">
+            <span className="label">Preview</span>
+            <button className="btn btn-ghost" onClick={() => setPreviewKey((k) => k + 1)}>Refresh</button>
+          </div>
+          <iframe key={previewKey} className="preview-frame" src={`${API_URL}/pages/${pageId}/preview?t=${previewKey}`} title="Preview" />
         </div>
       </div>
     </AppShell>

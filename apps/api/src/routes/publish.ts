@@ -74,6 +74,20 @@ function renderPage(page: any, body: string, t: any, ws: any, base: string) {
 </body></html>`
 }
 
+// Renderer is exported so the pages router can serve a single-page preview.
+export const renderPreview = async (id: string, accountId: string) => {
+  const [row] = await db.select({
+    title: pages.title, blocks: pages.blocks, wsId: pages.workspaceId,
+    wsName: workspaces.name, accId: workspaces.accountId,
+  }).from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id))
+    .where(eq(pages.id, id)).limit(1)
+  if (!row || row.accId !== accountId) return null
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, row.wsId)).limit(1)
+  const t = (tok?.tokens as any) ?? DEFAULT_TOKENS
+  const blocks = Array.isArray(row.blocks) ? (row.blocks as any[]) : []
+  return renderPage({ title: row.title }, blocks.map(renderBlock).join('\n'), t, { name: row.wsName }, '#')
+}
+
 // POST /workspaces/:slug/publish
 publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) => {
   const [ws] = await db.select().from(workspaces)

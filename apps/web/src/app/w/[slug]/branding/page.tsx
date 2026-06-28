@@ -14,6 +14,37 @@ type Tokens = {
 const FONTS = ['Space Grotesk', 'Inter', 'Poppins', 'Georgia', 'system-ui']
 const px = (v: string) => parseInt(String(v)) || 0
 
+function BrandImport({ onImported }: { onImported: (t: Tokens) => void }) {
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [picked, setPicked] = useState<{ tokens: Tokens; suggestions: { colors: string[]; fonts: string[] } } | null>(null)
+  async function run(e: React.FormEvent) {
+    e.preventDefault(); setErr(''); setBusy(true); setPicked(null)
+    try {
+      const r = await api<{ tokens: Tokens; suggestions: { colors: string[]; fonts: string[] } }>('/import/branding', { method: 'POST', body: JSON.stringify({ url }) })
+      setPicked(r); onImported(r.tokens)
+    } catch (e: any) { setErr(e.message || 'Could not read branding') } finally { setBusy(false) }
+  }
+  return (
+    <div className="ctl-group" style={{ padding: 16, border: '1px solid var(--border)', borderRadius: 'var(--r-md)' }}>
+      <h3 style={{ marginTop: 0 }}>Import from a website</h3>
+      <p className="muted" style={{ fontSize: 13, marginTop: -6, marginBottom: 12 }}>Fetches a site's CSS to suggest brand colors, fonts and button radius. Review and tweak below.</p>
+      <form onSubmit={run} style={{ display: 'flex', gap: 8 }}>
+        <input className="inp" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://your-brand.com" style={{ flex: 1 }} />
+        <button className="btn btn-secondary" disabled={busy}>{busy ? 'Reading…' : 'Import'}</button>
+      </form>
+      {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
+      {picked && (
+        <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-faint)' }}>
+          Suggested colors: {picked.suggestions.colors.slice(0, 6).map((c) => (<span key={c} style={{ display: 'inline-block', width: 14, height: 14, background: c, border: '1px solid var(--border)', borderRadius: 3, marginRight: 4, verticalAlign: 'middle' }} />))}
+          {picked.suggestions.fonts.length > 0 && <> · fonts: {picked.suggestions.fonts.join(', ')}</>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Branding() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
@@ -62,6 +93,8 @@ export default function Branding() {
       <div className="brand-wrap">
         {/* controls */}
         <div>
+          <BrandImport onImported={(tk) => setT(tk)} />
+
           <div className="ctl-group">
             <h3>Colors</h3>
             <div className="ctl-row"><label>Primary</label><Swatch k="primary" /></div>
