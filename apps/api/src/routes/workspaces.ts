@@ -1,6 +1,6 @@
 import { Router } from 'express'
-import { eq } from 'drizzle-orm'
-import { db, workspaces, memberships } from '@uwebsites/db'
+import { and, eq } from 'drizzle-orm'
+import { db, workspaces, memberships, pages } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 
 export const workspacesRouter = Router()
@@ -20,4 +20,14 @@ workspacesRouter.post('/', requireAuth, async (req: AuthRequest, res) => {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
   const [ws] = await db.insert(workspaces).values({ accountId: req.user!.accountId, name, slug }).returning()
   res.json({ ok: true, data: ws })
+})
+
+// GET /workspaces/:slug/pages — list pages in a workspace (account-scoped)
+workspacesRouter.get('/:slug/pages', requireAuth, async (req: AuthRequest, res) => {
+  const [ws] = await db.select().from(workspaces)
+    .where(and(eq(workspaces.slug, String(req.params.slug)), eq(workspaces.accountId, req.user!.accountId))).limit(1)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const rows = await db.select({ id: pages.id, type: pages.type, slug: pages.slug, title: pages.title, status: pages.status })
+    .from(pages).where(eq(pages.workspaceId, ws.id)).orderBy(pages.type)
+  res.json({ ok: true, data: { workspace: { id: ws.id, name: ws.name, slug: ws.slug }, pages: rows } })
 })

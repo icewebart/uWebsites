@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
@@ -9,8 +9,10 @@ type ScanResult = { site: string; total: number; counts: Record<string, number>;
 
 export default function ImportPage() {
   const { slug } = useParams<{ slug: string }>()
+  const router = useRouter()
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [err, setErr] = useState('')
   const [result, setResult] = useState<ScanResult | null>(null)
 
@@ -19,6 +21,14 @@ export default function ImportPage() {
     try {
       setResult(await api<ScanResult>('/import/scan', { method: 'POST', body: JSON.stringify({ url }) }))
     } catch (e: any) { setErr(e.message || 'Scan failed') } finally { setBusy(false) }
+  }
+
+  async function commit() {
+    setErr(''); setImporting(true)
+    try {
+      const r = await api<{ created: number; redirects: number }>('/import/commit', { method: 'POST', body: JSON.stringify({ slug, url }) })
+      router.push(`/w/${slug}?imported=${r.created}`)
+    } catch (e: any) { setErr(e.message || 'Import failed'); setImporting(false) }
   }
 
   const sortedCounts = result ? Object.entries(result.counts).sort((a, b) => b[1] - a[1]) : []
@@ -58,9 +68,12 @@ export default function ImportPage() {
               </tbody>
             </table>
           </div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-            <button className="btn btn-primary" onClick={() => alert('Next: write these pages into the workspace (importer write-back).')}>Import {result.total} pages →</button>
+          <div style={{ display: 'flex', gap: 10, marginTop: 18, alignItems: 'center' }}>
+            <button className="btn btn-primary" onClick={commit} disabled={importing}>
+              {importing ? 'Importing…' : `Import into workspace →`}
+            </button>
             <a className="btn btn-ghost" href={`/w/${slug}`}>Cancel</a>
+            <span className="muted" style={{ fontSize: 12 }}>Commerce &amp; unclassified pages are skipped; redirects are created for dropped URLs.</span>
           </div>
         </div>
       )}

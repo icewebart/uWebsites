@@ -84,6 +84,7 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 .card h3{font-size:16px;margin-bottom:4px}
 .card .meta{font-size:12px;color:var(--text-faint)}
 .muted{color:var(--text-muted)}
+.banner-ok{background:var(--lime-light);border:1px solid var(--lime);color:var(--forest);border-radius:var(--r-sm);padding:11px 14px;font-size:13px;font-weight:600;margin-bottom:18px}
 .empty{text-align:center;padding:60px 20px;color:var(--text-muted)}
 
 /* ===== auth ===== */
