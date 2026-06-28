@@ -19,7 +19,7 @@ app.use(cors({
 app.use(express.json())
 app.use(cookieParser())
 
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'uwebsites-api', ts: new Date().toISOString() }))
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'uwebsites-api', version: '0.1.0', ts: new Date().toISOString() }))
 
 app.use('/auth', authRouter)
 app.use('/workspaces', workspacesRouter)
