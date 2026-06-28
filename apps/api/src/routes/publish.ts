@@ -47,6 +47,8 @@ section + section{padding-top:0}
 .btn{display:inline-block;background:var(--primary);color:#fff;border-radius:var(--btn-r);padding:12px 22px;text-decoration:none;font-weight:600;font-family:'${t.font.heading}',sans-serif}
 .rt{font-size:1rem}
 .rt :where(p,ul,ol){margin-bottom:1em}
+.rt img{max-width:100%;height:auto;border-radius:var(--card-r)}
+.img img{display:block;width:100%;height:auto;border-radius:var(--card-r)}
 .site-header{border-bottom:var(--bw) solid rgba(0,0,0,.08)}
 .site-header .container{display:flex;align-items:center;justify-content:space-between;padding-top:16px;padding-bottom:16px}
 .brand{font-family:'${t.font.heading}',sans-serif;font-weight:700;font-size:18px;color:var(--text);text-decoration:none}
@@ -62,6 +64,10 @@ function renderBlock(b: any) {
   }
   if (b.type === 'richtext') {
     return `<section class="rt"><div class="container">${p.html || ''}</div></section>`
+  }
+  if (b.type === 'image') {
+    if (!p.url) return ''
+    return `<section class="img"><div class="container"><img src="${esc(p.url)}" alt="${esc(p.alt || '')}" loading="lazy"></div></section>`
   }
   return `<!-- ${esc(b.type)} block not rendered -->`
 }

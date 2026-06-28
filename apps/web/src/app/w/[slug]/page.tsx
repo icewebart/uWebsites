@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
-type Page = { id: string; type: string; slug: string; title: string; status: string }
+type Page = { id: string; type: string; slug: string; title: string; status: string; seo?: { import_source?: { url: string } } }
 type PagesResp = { workspace: { id: string; name: string; slug: string }; pages: Page[] }
 
 export default function WorkspaceHome() {
@@ -24,6 +24,15 @@ export default function WorkspaceHome() {
       .catch(() => router.push('/'))
       .finally(() => setLoading(false))
   }, [slug])
+
+  async function importRest(url: string) {
+    if (!window.confirm(`Import remaining pages from ${url}?`)) return
+    try {
+      const r = await api<{ created: number }>('/import/commit', { method: 'POST', body: JSON.stringify({ slug, url, mode: 'rest' }) })
+      router.replace(`/w/${slug}?imported=${r.created}`)
+      setTimeout(() => window.location.reload(), 50)
+    } catch (e: any) { alert(e.message || 'Import failed') }
+  }
 
   async function aiGenerate() {
     const prompt = window.prompt('Describe the page you want (e.g. "An article about choosing the right summer camp for a 9-year-old, friendly tone, 4 sections")')
@@ -50,6 +59,18 @@ export default function WorkspaceHome() {
       {imported && (
         <div className="banner-ok">✓ Imported {imported} pages into this workspace.</div>
       )}
+
+      {(() => {
+        // Suggest importing the rest when only one page exists and it came from an import.
+        const onlyOne = pages.length === 1
+        const src = onlyOne ? pages[0].seo?.import_source?.url : null
+        return src ? (
+          <div className="banner-ok" style={{ background: 'var(--bg-subtle)', borderColor: 'var(--border)', color: 'var(--text)' }}>
+            <strong>Homepage imported.</strong> <span className="muted" style={{ fontWeight: 400 }}>Continue and pull in the remaining pages from {src}.</span>
+            <button className="btn btn-primary" style={{ marginLeft: 12 }} onClick={() => importRest(src)}>Import the rest →</button>
+          </div>
+        ) : null
+      })()}
 
       {pages.length === 0 ? (
         <div className="empty">

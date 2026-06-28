@@ -83,10 +83,44 @@ function starterBlocks(title: string) {
   ]
 }
 
-async function fetchAll(site: string, endpoint: string, fields: string): Promise<any[]> {
+// Light HTML sanitiser — strips scripts/styles/iframes/event handlers + js: URIs.
+// Imported HTML still goes through the editor for review.
+function safeHtml(html: string): string {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<link\b[^>]*>/gi, '')
+    .replace(/<meta\b[^>]*>/gi, '')
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
+    .replace(/javascript:/gi, '#')
+    .trim()
+}
+
+// Build the block tree for an imported page: featured image (if any) -> hero
+// (title only) -> richtext (the real WP body). The hero+image combo gives a
+// natural look; user can edit/reorder.
+function importedBlocks(title: string, contentHtml: string, featuredImg?: { url: string; alt?: string }) {
+  const blocks: any[] = []
+  blocks.push({ type: 'hero', props: { heading: title || '', sub: '' } })
+  if (featuredImg?.url) blocks.push({ type: 'image', props: { url: featuredImg.url, alt: featuredImg.alt || title || '' } })
+  if (contentHtml && contentHtml.trim()) blocks.push({ type: 'richtext', props: { html: safeHtml(contentHtml) } })
+  return blocks
+}
+
+function snapshotUrl(sourceUrl: string): string {
+  // thum.io — free screenshot service, no key, returns a real image (cached).
+  // We just store the URL; the browser fetches it on demand in the editor.
+  return `https://image.thum.io/get/width/1200/crop/900/${sourceUrl}`
+}
+
+async function fetchAll(site: string, endpoint: string, fields: string, opts: { embed?: boolean } = {}): Promise<any[]> {
   const out: any[] = []
+  const embed = opts.embed ? '&_embed=1' : ''
   for (let page = 1; page <= 20; page++) {
-    const url = `${site}/wp-json/wp/v2/${endpoint}?per_page=100&page=${page}&_fields=${fields}&status=publish`
+    const url = `${site}/wp-json/wp/v2/${endpoint}?per_page=100&page=${page}&_fields=${fields}&status=publish${embed}`
     const r = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json' } })
     if (r.status === 400) break
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -97,6 +131,13 @@ async function fetchAll(site: string, endpoint: string, fields: string): Promise
     if (page >= totalPages) break
   }
   return out
+}
+
+// Extract featured image from a WP _embedded response
+function featuredFromEmbed(p: any): { url: string; alt?: string } | null {
+  const media = p?._embedded?.['wp:featuredmedia']?.[0]
+  if (!media?.source_url) return null
+  return { url: media.source_url, alt: media.alt_text || '' }
 }
 
 export async function scanSite(rawUrl: string) {
@@ -225,9 +266,14 @@ importRouter.post('/scan', requireAuth, async (req, res) => {
   }
 })
 
-// POST /import/commit — scan + persist pages + redirects into a workspace
+// POST /import/commit — scan + persist pages + redirects into a workspace.
+// Body: { slug, url, mode? = 'all' | 'home' | 'rest' }
+//   home  — only the page classified as 'home' (great first step)
+//   rest  — everything except the home (or anything already in the workspace)
+//   all   — full import (default for back-compat)
 importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
   const { slug, url } = req.body ?? {}
+  const mode: 'all' | 'home' | 'rest' = ['home', 'rest', 'all'].includes(req.body?.mode) ? req.body.mode : 'all'
   if (!slug || !url) return res.status(400).json({ ok: false, error: 'slug and url required' })
 
   const [ws] = await db.select().from(workspaces)
@@ -238,29 +284,53 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
   try { scan = await scanSite(url) }
   catch { return res.status(502).json({ ok: false, error: 'Could not scan site — is it WordPress with the REST API enabled?' }) }
 
+  // Re-fetch with content + embedded media so each page gets its real body + featured image
+  const site = String(url).trim().replace(/\/+$/, '').replace(/^(?!https?:\/\/)/, 'https://')
+  const [pagesFull, postsFull] = await Promise.all([
+    fetchAll(site, 'pages', 'id,slug,link,title,content,featured_media', { embed: true }).catch(() => []),
+    fetchAll(site, 'posts', 'id,slug,link,title,content,featured_media', { embed: true }).catch(() => []),
+  ])
+  const bySlug = new Map<string, any>()
+  for (const p of [...pagesFull, ...postsFull]) if (p?.slug) bySlug.set(p.slug, p)
+
   const existing = new Set(
     (await db.select({ slug: pages.slug }).from(pages).where(eq(pages.workspaceId, ws.id))).map((r) => r.slug),
   )
 
   let created = 0, skipped = 0
   for (const item of scan.items) {
+    // mode filter
+    if (mode === 'home' && item.type !== 'home') { skipped++; continue }
+    if (mode === 'rest' && item.type === 'home') { skipped++; continue }
+
     const type = toPageType(item.type)
     if (!type) { skipped++; continue }
     const pslug = slugFromPath(item.path)
     if (existing.has(pslug)) { skipped++; continue }
     existing.add(pslug)
+
+    const src = bySlug.get(item.slug)
+    const contentHtml = src?.content?.rendered ?? ''
+    const featured = src ? featuredFromEmbed(src) : null
+    const blocks = importedBlocks(item.title, contentHtml, featured || undefined)
+    const sourceUrl = src?.link || (site + item.path)
+
     await db.insert(pages).values({
       workspaceId: ws.id, type: type as any, slug: pslug,
-      title: item.title || pslug, status: 'draft', blocks: starterBlocks(item.title) as any,
+      title: item.title || pslug, status: 'draft', blocks: blocks as any,
+      seo: { import_source: { url: sourceUrl, snapshot_url: snapshotUrl(sourceUrl), imported_at: new Date().toISOString() } } as any,
     })
     created++
   }
 
+  // redirects only on first import (avoid duplicates on staged runs)
   let redirectCount = 0
-  for (const r of scan.redirects) {
-    await db.insert(redirects).values({ workspaceId: ws.id, fromPath: r.from, toPath: r.to, code: r.code })
-    redirectCount++
+  if (mode === 'home' || mode === 'all') {
+    for (const r of scan.redirects) {
+      await db.insert(redirects).values({ workspaceId: ws.id, fromPath: r.from, toPath: r.to, code: r.code })
+      redirectCount++
+    }
   }
 
-  res.json({ ok: true, data: { created, skipped, redirects: redirectCount, total: scan.total, slug: ws.slug } })
+  res.json({ ok: true, data: { created, skipped, redirects: redirectCount, total: scan.total, slug: ws.slug, mode } })
 })

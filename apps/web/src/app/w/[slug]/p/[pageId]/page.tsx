@@ -8,6 +8,7 @@ type Block = { type: string; props: Record<string, any> }
 type PageData = {
   id: string; type: string; slug: string; title: string; status: string
   blocks: Block[]; wsSlug: string; wsName: string
+  seo?: { import_source?: { url: string; snapshot_url: string; imported_at: string } }
 }
 
 export default function PageEditor() {
@@ -22,6 +23,7 @@ export default function PageEditor() {
   const [savedAt, setSavedAt] = useState<string>('')
   const [err, setErr] = useState('')
   const [previewKey, setPreviewKey] = useState(0)
+  const [pvTab, setPvTab] = useState<'preview' | 'original'>('preview')
 
   useEffect(() => {
     api<PageData>(`/pages/${pageId}`)
@@ -51,7 +53,9 @@ export default function PageEditor() {
     } catch (e: any) { alert(e.message || 'Rewrite failed') }
   }
   function add(type: string) {
-    const props = type === 'hero' ? { heading: '', sub: '' } : { html: '' }
+    const props = type === 'hero' ? { heading: '', sub: '' }
+      : type === 'image' ? { url: '', alt: '' }
+      : { html: '' }
     setBlocks((bs) => [...bs, { type, props }])
   }
 
@@ -101,7 +105,12 @@ export default function PageEditor() {
             {b.type === 'richtext' && (
               <div className="field" style={{ marginBottom: 0 }}><label>Content</label><textarea className="inp" value={b.props.html || ''} onChange={(e) => upd(i, { html: e.target.value })} placeholder="Write content…" /></div>
             )}
-            {b.type !== 'hero' && b.type !== 'richtext' && (
+            {b.type === 'image' && (<>
+              <div className="field"><label>Image URL</label><input className="inp" value={b.props.url || ''} onChange={(e) => upd(i, { url: e.target.value })} placeholder="https://…" /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>Alt text</label><input className="inp" value={b.props.alt || ''} onChange={(e) => upd(i, { alt: e.target.value })} placeholder="What's in this image?" /></div>
+              {b.props.url && <img src={b.props.url} alt={b.props.alt || ''} style={{ marginTop: 10, maxWidth: '100%', borderRadius: 8 }} />}
+            </>)}
+            {b.type !== 'hero' && b.type !== 'richtext' && b.type !== 'image' && (
               <div className="muted" style={{ fontSize: 13 }}>No editor for "{b.type}" blocks yet.</div>
             )}
           </div>
@@ -110,6 +119,7 @@ export default function PageEditor() {
         <div className="add-block">
           <button className="btn btn-secondary" onClick={() => add('hero')}>＋ Hero</button>
           <button className="btn btn-secondary" onClick={() => add('richtext')}>＋ Text</button>
+          <button className="btn btn-secondary" onClick={() => add('image')}>＋ Image</button>
         </div>
 
         <div className="err" style={{ marginTop: 16 }}>{err}</div>
@@ -121,10 +131,25 @@ export default function PageEditor() {
 
         <div className="editor-col">
           <div className="pv-controls">
-            <span className="label">Preview</span>
-            <button className="btn btn-ghost" onClick={() => setPreviewKey((k) => k + 1)}>Refresh</button>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className={`btn ${pvTab === 'preview' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPvTab('preview')}>Live preview</button>
+              {page?.seo?.import_source && (
+                <button className={`btn ${pvTab === 'original' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPvTab('original')}>Original</button>
+              )}
+            </div>
+            {pvTab === 'preview'
+              ? <button className="btn btn-ghost" onClick={() => setPreviewKey((k) => k + 1)}>Refresh</button>
+              : <a className="btn btn-ghost" href={page?.seo?.import_source?.url} target="_blank" rel="noreferrer">Open source ↗</a>}
           </div>
-          <iframe key={previewKey} className="preview-frame" src={`${API_URL}/pages/${pageId}/preview?t=${previewKey}`} title="Preview" />
+          {pvTab === 'preview' ? (
+            <iframe key={previewKey} className="preview-frame" src={`${API_URL}/pages/${pageId}/preview?t=${previewKey}`} title="Preview" />
+          ) : (
+            <div className="preview-frame" style={{ overflow: 'auto', padding: 0 }}>
+              {page?.seo?.import_source?.snapshot_url && (
+                <img src={page.seo.import_source.snapshot_url} alt="Original page" style={{ display: 'block', width: '100%', height: 'auto' }} />
+              )}
+            </div>
+          )}
         </div>
       </div>
     </AppShell>

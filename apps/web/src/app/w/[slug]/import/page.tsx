@@ -23,10 +23,10 @@ export default function ImportPage() {
     } catch (e: any) { setErr(e.message || 'Scan failed') } finally { setBusy(false) }
   }
 
-  async function commit() {
+  async function commit(mode: 'home' | 'all') {
     setErr(''); setImporting(true)
     try {
-      const r = await api<{ created: number; redirects: number }>('/import/commit', { method: 'POST', body: JSON.stringify({ slug, url }) })
+      const r = await api<{ created: number; redirects: number }>('/import/commit', { method: 'POST', body: JSON.stringify({ slug, url, mode }) })
       router.push(`/w/${slug}?imported=${r.created}`)
     } catch (e: any) { setErr(e.message || 'Import failed'); setImporting(false) }
   }
@@ -68,13 +68,18 @@ export default function ImportPage() {
               </tbody>
             </table>
           </div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 18, alignItems: 'center' }}>
-            <button className="btn btn-primary" onClick={commit} disabled={importing}>
-              {importing ? 'Importing…' : `Import into workspace →`}
+          <div style={{ display: 'flex', gap: 10, marginTop: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" onClick={() => commit('home')} disabled={importing}>
+              {importing ? 'Importing…' : 'Import homepage first'}
+            </button>
+            <button className="btn btn-secondary" onClick={() => commit('all')} disabled={importing}>
+              Import all {result.total} pages
             </button>
             <a className="btn btn-ghost" href={`/w/${slug}`}>Cancel</a>
-            <span className="muted" style={{ fontSize: 12 }}>Commerce &amp; unclassified pages are skipped; redirects are created for dropped URLs.</span>
           </div>
+          <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+            Imports include each page's content and featured image. Commerce &amp; unclassified pages are skipped; 301 redirects are created for dropped URLs. We recommend starting with the homepage so you can review the look before pulling the rest.
+          </p>
         </div>
       )}
     </AppShell>
