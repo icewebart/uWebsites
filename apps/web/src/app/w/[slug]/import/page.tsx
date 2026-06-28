@@ -1,0 +1,69 @@
+'use client'
+import { useState } from 'react'
+import { useParams } from 'next/navigation'
+import { api } from '@/lib/api'
+import { AppShell } from '@/components/AppShell'
+
+type Item = { source: string; path: string; title: string; type: string; confidence: number; note: string }
+type ScanResult = { site: string; total: number; counts: Record<string, number>; redirects: any[]; items: Item[] }
+
+export default function ImportPage() {
+  const { slug } = useParams<{ slug: string }>()
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [result, setResult] = useState<ScanResult | null>(null)
+
+  async function scan(e: React.FormEvent) {
+    e.preventDefault(); setErr(''); setBusy(true); setResult(null)
+    try {
+      setResult(await api<ScanResult>('/import/scan', { method: 'POST', body: JSON.stringify({ url }) }))
+    } catch (e: any) { setErr(e.message || 'Scan failed') } finally { setBusy(false) }
+  }
+
+  const sortedCounts = result ? Object.entries(result.counts).sort((a, b) => b[1] - a[1]) : []
+
+  return (
+    <AppShell title="Import a site">
+      <form onSubmit={scan} style={{ display: 'flex', gap: 10, maxWidth: 600 }}>
+        <input className="inp" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://your-old-site.com" autoFocus required />
+        <button className="btn btn-primary" disabled={busy} style={{ whiteSpace: 'nowrap' }}>{busy ? 'Scanning…' : 'Scan site'}</button>
+      </form>
+      <p className="muted" style={{ fontSize: 13, margin: '10px 0 20px' }}>
+        We read the site's WordPress REST API, classify every page, and propose redirects. Nothing on the source site is changed.
+      </p>
+      <div className="err">{err}</div>
+
+      {result && (
+        <div>
+          <div className="stat-row">
+            <div className="s"><b>{result.total}</b><span>URLs found</span></div>
+            <div className="s"><b>{sortedCounts.length}</b><span>page types</span></div>
+            <div className="s"><b>{result.redirects.length}</b><span>redirects proposed</span></div>
+          </div>
+          <div className="chips">
+            {sortedCounts.map(([t, n]) => <span className="chip" key={t}><b>{n}</b>{t}</span>)}
+          </div>
+          <div className="tblwrap">
+            <table className="tbl">
+              <thead><tr><th>Type</th><th>Path</th><th>Title</th></tr></thead>
+              <tbody>
+                {result.items.map((i, idx) => (
+                  <tr key={idx}>
+                    <td><span className="ty">{i.type}</span>{i.confidence < 0.65 && <span className="lowconf">review</span>}</td>
+                    <td className="muted">{i.path}</td>
+                    <td>{i.title}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+            <button className="btn btn-primary" onClick={() => alert('Next: write these pages into the workspace (importer write-back).')}>Import {result.total} pages →</button>
+            <a className="btn btn-ghost" href={`/w/${slug}`}>Cancel</a>
+          </div>
+        </div>
+      )}
+    </AppShell>
+  )
+}

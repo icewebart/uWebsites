@@ -3,6 +3,7 @@ import cors from 'cors'
 import cookieParser from 'cookie-parser'
 import { authRouter } from './routes/auth.js'
 import { workspacesRouter } from './routes/workspaces.js'
+import { importRouter } from './routes/import.js'
 
 const app = express()
 app.set('trust proxy', 1) // Cloudflare is the first hop in prod
@@ -23,5 +24,6 @@ app.get('/health', (_req, res) => res.json({ ok: true, service: 'uwebsites-api',
 
 app.use('/auth', authRouter)
 app.use('/workspaces', workspacesRouter)
+app.use('/import', importRouter)
 
 app.listen(PORT, () => console.log(`[uwebsites-api] listening on :${PORT}`))
