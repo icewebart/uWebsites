@@ -35,7 +35,7 @@ export default function Onboarding() {
 
   return (
     <div className="ob">
-      <div className="auth-logo" style={{ justifyContent: 'center', marginBottom: 24 }}><span className="mk">u</span> uWebsites</div>
+      <img className="auth-logo-img" src="/uwebsites.svg" alt="uWebsites" />
 
       <div className="steps">
         <span className={`dot${step >= 1 ? ' on' : ''}`}>1</span>

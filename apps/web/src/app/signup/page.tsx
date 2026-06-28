@@ -22,7 +22,7 @@ export default function Signup() {
   return (
     <div className="auth">
       <div className="auth-card">
-        <div className="auth-logo"><span className="mk">u</span> uWebsites</div>
+        <img className="auth-logo-img" src="/uwebsites.svg" alt="uWebsites" />
         <h1>Create your account</h1>
         <p className="auth-sub">Start free — 1 workspace, no credit card.</p>
         <a className="oauth" href={`${API_URL}/auth/google`}>Continue with Google</a>

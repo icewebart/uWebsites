@@ -21,7 +21,7 @@ export default function Login() {
   return (
     <div className="auth">
       <div className="auth-card">
-        <div className="auth-logo"><span className="mk">u</span> uWebsites</div>
+        <img className="auth-logo-img" src="/uwebsites.svg" alt="uWebsites" />
         <h1>Welcome back</h1>
         <p className="auth-sub">Log in to your dashboard.</p>
         <a className="oauth" href={`${API_URL}/auth/google`}>Continue with Google</a>
