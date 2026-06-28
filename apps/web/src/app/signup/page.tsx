@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { api } from '@/lib/api'
+import { api, API_URL } from '@/lib/api'
 
 export default function Signup() {
   const router = useRouter()
@@ -25,6 +25,8 @@ export default function Signup() {
         <div className="auth-logo"><span className="mk">u</span> uWebsites</div>
         <h1>Create your account</h1>
         <p className="auth-sub">Start free — 1 workspace, no credit card.</p>
+        <a className="oauth" href={`${API_URL}/auth/google`}>Continue with Google</a>
+        <div className="divider">or</div>
         <form onSubmit={submit}>
           <div className="field"><label>Full name</label><input type="text" value={name} onChange={(e) => setName(e.target.value)} required /></div>
           <div className="field"><label>Work email</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>

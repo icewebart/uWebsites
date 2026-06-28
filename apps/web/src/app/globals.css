@@ -69,6 +69,10 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 .auth-card h1{font-size:23px;text-align:center;margin-bottom:6px}
 .auth-sub{text-align:center;color:var(--text-muted);font-size:13px;margin-bottom:24px}
 .auth-foot{text-align:center;margin-top:18px;font-size:13px;color:var(--text-muted)}
+.oauth{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-full);padding:11px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer}
+.oauth:hover{background:var(--bg-subtle)}
+.divider{display:flex;align-items:center;gap:12px;margin:16px 0;color:var(--text-faint);font-size:12px}
+.divider:before,.divider:after{content:"";flex:1;height:1px;background:var(--border)}
 .field{margin-bottom:14px}
 .field label{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
 .field input{width:100%;font-family:inherit;font-size:14px;color:var(--text);background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--r-sm);padding:11px 13px}

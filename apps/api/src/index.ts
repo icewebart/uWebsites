@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser'
 import { authRouter } from './routes/auth.js'
 import { workspacesRouter } from './routes/workspaces.js'
 import { importRouter } from './routes/import.js'
+import { googleRouter } from './routes/google.js'
 
 const app = express()
 app.set('trust proxy', 1) // Cloudflare is the first hop in prod
@@ -23,6 +24,7 @@ app.use(cookieParser())
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'uwebsites-api', version: '0.1.0', ts: new Date().toISOString() }))
 
 app.use('/auth', authRouter)
+app.use('/auth', googleRouter)
 app.use('/workspaces', workspacesRouter)
 app.use('/import', importRouter)
 
