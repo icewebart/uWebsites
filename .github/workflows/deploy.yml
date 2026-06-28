@@ -42,16 +42,23 @@ jobs:
             --exclude .git --exclude drizzle --exclude 'apps/api/.env' \
             ./ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/www/wwwroot/uwebsites/"
 
-      - name: Install, build, reload (API)
+      - name: Install, build, reload (API + Web)
         run: |
           ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" 'bash -s' <<'REMOTE'
             set -e
             export PATH="/usr/bin:/usr/local/bin:$PATH"
             cd /www/wwwroot/uwebsites
-            pnpm install --config.verify-deps-before-run=false || true
-            pnpm --config.verify-deps-before-run=false --filter @uwebsites/shared build
-            pnpm --config.verify-deps-before-run=false --filter @uwebsites/db build
-            pnpm --config.verify-deps-before-run=false --filter @uwebsites/api build
+            FLAG="--config.verify-deps-before-run=false"
+            pnpm install $FLAG || true
+            pnpm $FLAG --filter @uwebsites/shared build
+            pnpm $FLAG --filter @uwebsites/db build
+            pnpm $FLAG --filter @uwebsites/api build
+            # Web (Next standalone): build, then copy static/public into the standalone tree
+            pnpm $FLAG --filter @uwebsites/web build
+            rm -rf apps/web/.next/standalone/apps/web/.next/static
+            cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
+            [ -d apps/web/public ] && cp -r apps/web/public apps/web/.next/standalone/apps/web/public || true
             pm2 reload uwebsites-api --update-env || pm2 start ecosystem.config.cjs --only uwebsites-api
+            pm2 reload uwebsites-web --update-env || pm2 start ecosystem.config.cjs --only uwebsites-web
             pm2 save
           REMOTE

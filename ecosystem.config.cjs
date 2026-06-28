@@ -13,7 +13,7 @@ module.exports = {
       name: 'uwebsites-web',
       script: 'apps/web/.next/standalone/apps/web/server.js',
       cwd: '/www/wwwroot/uwebsites',
-      env: { PORT: '3014', NODE_ENV: 'production' },
+      env: { PORT: '3014', HOSTNAME: '127.0.0.1', NODE_ENV: 'production' },
     },
     {
       name: 'uwebsites-admin',
