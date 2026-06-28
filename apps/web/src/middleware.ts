@@ -8,16 +8,15 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
   const isAuthPage = pathname === '/login' || pathname === '/signup'
 
-  if (!hasSession && !isAuthPage) {
-    const url = req.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
-  }
-  if (hasSession && isAuthPage) {
-    const url = req.nextUrl.clone()
-    url.pathname = '/'
-    return NextResponse.redirect(url)
-  }
+  // Behind the nginx/Cloudflare proxy, req.nextUrl resolves to the upstream
+  // host (localhost:3014). Build redirects from the forwarded host so the
+  // browser is sent to app.uwebsites.net, not the origin port.
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host')
+  const proto = req.headers.get('x-forwarded-proto') || 'https'
+  const base = host ? `${proto}://${host}` : req.nextUrl.origin
+
+  if (!hasSession && !isAuthPage) return NextResponse.redirect(new URL('/login', base))
+  if (hasSession && isAuthPage) return NextResponse.redirect(new URL('/', base))
   return NextResponse.next()
 }
 
