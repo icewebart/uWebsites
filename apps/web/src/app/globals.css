@@ -218,6 +218,21 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .tbl tr:last-child td{border-bottom:0}
 .ty{font-weight:600;color:var(--forest);white-space:nowrap}
 .lowconf{color:#9a6a00;font-size:11px;margin-left:6px}
+
+/* domains */
+.dom-row{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:16px 18px;margin-bottom:12px}
+.dom-row .head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.dom-row .host{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px}
+.dom-status{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:var(--r-full)}
+.dom-status.pending{background:var(--bg-subtle);color:var(--text-faint)}
+.dom-status.verified{background:#FFF4E2;color:#9a6a00}
+.dom-status.connected{background:var(--lime-light);color:var(--forest)}
+.dns-help{margin-top:12px;padding:12px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--r-sm);font-size:12px}
+.dns-help table{width:100%;border-collapse:collapse}
+.dns-help th{text-align:left;padding:6px 8px;color:var(--text-faint);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.dns-help td{padding:6px 8px;border-top:1px solid var(--border);font-family:'SF Mono','Fira Code',monospace}
+.copy-tag{cursor:pointer;color:var(--text-faint);font-size:11px;margin-left:6px}
+.copy-tag:hover{color:var(--forest)}
 @media(max-width:760px){
   .layout{flex-direction:column;padding:8px}
   .sidebar{width:auto;height:auto;position:static;flex-direction:row;align-items:center;overflow-x:auto}

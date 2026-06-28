@@ -52,6 +52,12 @@ export default function WorkspaceSettings() {
           <button className="btn btn-primary" onClick={save} disabled={saving || !name.trim()}>{saving ? 'Saving…' : 'Save changes'}</button>
           {savedAt && <span className="saved-tag">Saved {savedAt}</span>}
         </div>
+
+        <div className="ctl-group" style={{ marginTop: 32 }}>
+          <h3>Domains</h3>
+          <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>Connect a custom domain so your published site lives at your own URL with HTTPS.</p>
+          <a className="btn btn-secondary" href={`/w/${slug}/domains`}>Manage domains</a>
+        </div>
       </div>
     </AppShell>
   )
