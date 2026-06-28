@@ -6,10 +6,10 @@ import { api } from '@/lib/api'
 type Workspace = { id: string; name: string; slug: string }
 type Me = { id: string; email: string }
 
-const NAV = ['Workspaces', 'Imports', 'Articles', 'Branding', 'Settings']
+const NAV = ['Dashboard', 'Website', 'Articles', 'Branding', 'Settings']
 const PROFILE_ITEMS = ['Settings', 'Integrations', 'Email Setup', 'Billing']
 
-export function AppShell({ title, currentSlug, active = 'Workspaces', children }: { title: string; currentSlug?: string; active?: string; children: React.ReactNode }) {
+export function AppShell({ title, currentSlug, active = 'Dashboard', children }: { title: string; currentSlug?: string; active?: string; children: React.ReactNode }) {
   const router = useRouter()
   const [me, setMe] = useState<Me | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
@@ -36,10 +36,11 @@ export function AppShell({ title, currentSlug, active = 'Workspaces', children }
         <div className="sidebar-brand"><img className="logo-full" src="/uwebsites.svg" alt="uWebsites" /></div>
         <nav className="sidebar-nav">
           {NAV.map((label) => {
-            const href = !current ? (label === 'Workspaces' ? '/' : undefined)
-              : label === 'Workspaces' ? '/'
-              : label === 'Imports' ? `/w/${current.slug}/import`
+            const href = label === 'Dashboard' ? '/'
+              : !current ? undefined
+              : label === 'Website' ? `/w/${current.slug}`
               : label === 'Branding' ? `/w/${current.slug}/branding`
+              : label === 'Settings' ? `/w/${current.slug}/settings`
               : undefined
             const cls = `sidebar-link${label === active ? ' active' : ''}`
             return href
@@ -95,7 +96,9 @@ export function AppShell({ title, currentSlug, active = 'Workspaces', children }
                 <div className="profile-menu">
                   <div className="profile-head"><b>{displayName}</b><span>{current?.name || ''}</span></div>
                   {PROFILE_ITEMS.map((label) => (
-                    <button key={label} className="profile-item" onClick={() => { /* TODO: route */ }}>{label}</button>
+                    label === 'Settings' && current
+                      ? <a key={label} className="profile-item" href={`/w/${current.slug}/settings`}>{label}</a>
+                      : <button key={label} className="profile-item" onClick={() => { /* TODO: route */ }}>{label}</button>
                   ))}
                   <button className="profile-item danger" onClick={logout}>Sign out</button>
                 </div>

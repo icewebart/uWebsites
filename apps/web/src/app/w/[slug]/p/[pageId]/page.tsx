@@ -56,7 +56,7 @@ export default function PageEditor() {
   if (loading) return <div className="empty">Loading…</div>
 
   return (
-    <AppShell title={title || 'Edit page'} currentSlug={slug}>
+    <AppShell title={title || 'Edit page'} currentSlug={slug} active="Website">
       <div className="editor">
         <div style={{ marginBottom: 14 }}>
           <a className="btn btn-ghost" href={`/w/${slug}`}>← {page?.wsName}</a>

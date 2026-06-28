@@ -34,7 +34,7 @@ export default function ImportPage() {
   const sortedCounts = result ? Object.entries(result.counts).sort((a, b) => b[1] - a[1]) : []
 
   return (
-    <AppShell title="Import a site" currentSlug={slug}>
+    <AppShell title="Import a site" currentSlug={slug} active="Website">
       <form onSubmit={scan} style={{ display: 'flex', gap: 10, maxWidth: 600 }}>
         <input className="inp" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://your-old-site.com" autoFocus required />
         <button className="btn btn-primary" disabled={busy} style={{ whiteSpace: 'nowrap' }}>{busy ? 'Scanning…' : 'Scan site'}</button>

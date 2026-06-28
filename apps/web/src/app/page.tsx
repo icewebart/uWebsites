@@ -4,62 +4,70 @@ import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
-type Workspace = { id: string; name: string; slug: string; status?: string }
-type Me = { id: string; email: string }
+type Workspace = { id: string; name: string; slug: string }
+type Overview = { workspaces: number; pages: number; articles: number; published: number }
+
+const FEATURES = [
+  { ic: '📥', title: 'Import & rebuild', desc: 'Pull a WordPress site in and rebuild it as clean, typed pages with redirects.', status: 'live' },
+  { ic: '🧩', title: 'Page editor', desc: 'Edit any page as on-brand blocks — hero, text and more.', status: 'live' },
+  { ic: '🎨', title: 'Branding', desc: 'Per-workspace colors, fonts, roundedness and spacing.', status: 'live' },
+  { ic: '🚀', title: 'Static publishing', desc: 'Compile a workspace to a fast, secure static site.', status: 'live' },
+  { ic: '✍️', title: 'AI content engine', desc: 'Search-Console-driven weekly articles with images and a learning loop.', status: 'soon' },
+  { ic: '🔑', title: 'Keyword & content gaps', desc: "Find what competitors rank for and you don't.", status: 'soon' },
+  { ic: '🔗', title: 'Backlink network', desc: 'Matched link partners with AI-drafted outreach.', status: 'soon' },
+  { ic: '🩺', title: 'Site audit', desc: 'Crawl-based health checks with AI prioritisation.', status: 'soon' },
+  { ic: '🗓️', title: 'Content calendar', desc: 'Plan and schedule publishing across workspaces.', status: 'soon' },
+]
 
 export default function Dashboard() {
   const router = useRouter()
-  const [me, setMe] = useState<Me | null>(null)
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [ov, setOv] = useState<Overview | null>(null)
+  const [wss, setWss] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
 
-  async function load() {
-    try {
-      const user = await api<Me>('/auth/me')
-      setMe(user)
-      const ws = await api<Workspace[]>('/workspaces')
-      setWorkspaces(ws)
-    } catch {
-      router.push('/login')
-    } finally {
-      setLoading(false)
-    }
-  }
-  useEffect(() => { load() }, [])
-
-  async function createWorkspace() {
-    const name = window.prompt('New workspace name (e.g. Gutenberg)')
-    if (!name) return
-    try {
-      await api('/workspaces', { method: 'POST', body: JSON.stringify({ name }) })
-      load()
-    } catch (e: any) { alert(e.message || 'Could not create workspace') }
-  }
+  useEffect(() => {
+    (async () => {
+      try {
+        const [o, w] = await Promise.all([api<Overview>('/workspaces/overview'), api<Workspace[]>('/workspaces')])
+        setOv(o); setWss(w)
+      } catch { router.push('/login') } finally { setLoading(false) }
+    })()
+  }, [])
 
   if (loading) return <div className="empty">Loading…</div>
 
   return (
-    <AppShell title="Workspaces">
-      {workspaces.length === 0 ? (
-        <div className="empty">
-          <p>No workspaces yet.</p>
-          <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={createWorkspace}>+ Create your first workspace</button>
-        </div>
-      ) : (
-        <div className="grid">
-          {workspaces.map((w) => (
-            <div className="card" key={w.id}>
-              <div className="ws-ic">{w.name.slice(0, 1).toUpperCase()}</div>
-              <h3>{w.name}</h3>
-              <div className="meta">/{w.slug}</div>
-            </div>
-          ))}
-          <div className="card add" onClick={createWorkspace}>
-            <div style={{ fontSize: 24 }}>＋</div>
-            <div>New workspace</div>
+    <AppShell title="Dashboard" active="Dashboard">
+      <div className="dash-stats">
+        <div className="dstat"><b>{wss.length}</b><span>Workspaces</span></div>
+        <div className="dstat"><b>{ov?.pages ?? 0}</b><span>Pages</span></div>
+        <div className="dstat"><b>{ov?.articles ?? 0}</b><span>Articles</span></div>
+        <div className="dstat"><b>{ov?.published ?? 0}</b><span>Published sites</span></div>
+      </div>
+
+      <div className="dash-h">Your workspaces</div>
+      <div className="ws-cards">
+        {wss.map((w) => (
+          <a className="ws-card" key={w.id} href={`/w/${w.slug}`}>
+            <div className="ic">{w.name.slice(0, 1).toUpperCase()}</div>
+            <h3>{w.name}</h3>
+            <div className="meta">/{w.slug}</div>
+          </a>
+        ))}
+        <a className="ws-card add" href="/onboarding">＋ New workspace</a>
+      </div>
+
+      <div className="dash-h">Your platform</div>
+      <div className="feat-grid">
+        {FEATURES.map((f) => (
+          <div className="feat" key={f.title}>
+            <span className={`fbadge ${f.status}`}>{f.status === 'live' ? 'Live' : 'Soon'}</span>
+            <div className="ic">{f.ic}</div>
+            <h3>{f.title}</h3>
+            <p>{f.desc}</p>
           </div>
-        </div>
-      )}
+        ))}
+      </div>
     </AppShell>
   )
 }

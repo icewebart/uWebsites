@@ -1,6 +1,6 @@
 import { Router } from 'express'
-import { and, eq } from 'drizzle-orm'
-import { db, workspaces, memberships, pages, brandingTokens } from '@uwebsites/db'
+import { and, eq, inArray } from 'drizzle-orm'
+import { db, workspaces, memberships, pages, brandingTokens, builds } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 
 export const workspacesRouter = Router()
@@ -35,6 +35,33 @@ workspacesRouter.post('/', requireAuth, async (req: AuthRequest, res) => {
   const [ws] = await db.insert(workspaces).values({ accountId: req.user!.accountId, name, slug }).returning()
   await db.insert(memberships).values({ userId: req.user!.id, workspaceId: ws.id, role: 'owner' })
   res.json({ ok: true, data: ws })
+})
+
+// GET /workspaces/overview — account-level stats for the dashboard
+workspacesRouter.get('/overview', requireAuth, async (req: AuthRequest, res) => {
+  const acc = req.user!.accountId
+  const wss = await db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.accountId, acc))
+  const ids = wss.map((w) => w.id)
+  let pageCount = 0, articleCount = 0, published = 0
+  if (ids.length) {
+    const ps = await db.select({ id: pages.id, type: pages.type }).from(pages).where(inArray(pages.workspaceId, ids))
+    pageCount = ps.length
+    articleCount = ps.filter((p) => p.type === 'article').length
+    const bs = await db.select({ wid: builds.workspaceId }).from(builds)
+      .where(and(inArray(builds.workspaceId, ids), eq(builds.status, 'deployed')))
+    published = new Set(bs.map((b) => b.wid)).size
+  }
+  res.json({ ok: true, data: { workspaces: wss.length, pages: pageCount, articles: articleCount, published } })
+})
+
+// PUT /workspaces/:slug — rename a workspace (slug kept stable to preserve URLs)
+workspacesRouter.put('/:slug', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWorkspace(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const { name } = req.body ?? {}
+  if (!name || !String(name).trim()) return res.status(400).json({ ok: false, error: 'name required' })
+  const [updated] = await db.update(workspaces).set({ name: String(name).trim() }).where(eq(workspaces.id, ws.id)).returning()
+  res.json({ ok: true, data: updated })
 })
 
 // GET /workspaces/:slug/pages — list pages in a workspace (account-scoped)

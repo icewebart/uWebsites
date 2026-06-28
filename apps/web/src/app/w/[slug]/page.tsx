@@ -37,7 +37,7 @@ export default function WorkspaceHome() {
   const pages = data?.pages ?? []
 
   return (
-    <AppShell title={data?.workspace.name || 'Workspace'} currentSlug={slug}>
+    <AppShell title={data?.workspace.name || 'Workspace'} currentSlug={slug} active="Website">
       {imported && (
         <div className="banner-ok">✓ Imported {imported} pages into this workspace.</div>
       )}
