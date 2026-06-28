@@ -9,7 +9,7 @@ type Me = { id: string; email: string }
 const NAV = ['Workspaces', 'Imports', 'Articles', 'Branding', 'Settings']
 const PROFILE_ITEMS = ['Settings', 'Integrations', 'Email Setup', 'Billing']
 
-export function AppShell({ title, currentSlug, children }: { title: string; currentSlug?: string; children: React.ReactNode }) {
+export function AppShell({ title, currentSlug, active = 'Workspaces', children }: { title: string; currentSlug?: string; active?: string; children: React.ReactNode }) {
   const router = useRouter()
   const [me, setMe] = useState<Me | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
@@ -35,9 +35,17 @@ export function AppShell({ title, currentSlug, children }: { title: string; curr
       <aside className="sidebar">
         <div className="sidebar-brand"><img className="logo-full" src="/uwebsites.svg" alt="uWebsites" /></div>
         <nav className="sidebar-nav">
-          {NAV.map((label) => (
-            <div key={label} className={`sidebar-link${label === 'Workspaces' ? ' active' : ''}`}>{label}</div>
-          ))}
+          {NAV.map((label) => {
+            const href = !current ? (label === 'Workspaces' ? '/' : undefined)
+              : label === 'Workspaces' ? '/'
+              : label === 'Imports' ? `/w/${current.slug}/import`
+              : label === 'Branding' ? `/w/${current.slug}/branding`
+              : undefined
+            const cls = `sidebar-link${label === active ? ' active' : ''}`
+            return href
+              ? <a key={label} href={href} className={cls}>{label}</a>
+              : <div key={label} className={cls}>{label}</div>
+          })}
         </nav>
         <div className="sidebar-foot">
           <div className="sidebar-link" onClick={logout}>Sign out</div>
