@@ -6,6 +6,7 @@ import { workspacesRouter } from './routes/workspaces.js'
 import { importRouter } from './routes/import.js'
 import { googleRouter } from './routes/google.js'
 import { pagesRouter } from './routes/pages.js'
+import { publishRouter } from './routes/publish.js'
 
 const app = express()
 app.set('trust proxy', 1) // Cloudflare is the first hop in prod
@@ -27,6 +28,7 @@ app.get('/health', (_req, res) => res.json({ ok: true, service: 'uwebsites-api',
 app.use('/auth', authRouter)
 app.use('/auth', googleRouter)
 app.use('/workspaces', workspacesRouter)
+app.use('/workspaces', publishRouter)
 app.use('/import', importRouter)
 app.use('/pages', pagesRouter)
 

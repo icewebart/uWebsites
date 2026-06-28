@@ -13,6 +13,9 @@ export default function WorkspaceHome() {
   const [imported, setImported] = useState<string | null>(null)
   const [data, setData] = useState<PagesResp | null>(null)
   const [loading, setLoading] = useState(true)
+  const [publishing, setPublishing] = useState(false)
+  const [publishedUrl, setPublishedUrl] = useState('')
+  const [pubErr, setPubErr] = useState('')
 
   useEffect(() => {
     setImported(new URLSearchParams(window.location.search).get('imported'))
@@ -21,6 +24,14 @@ export default function WorkspaceHome() {
       .catch(() => router.push('/'))
       .finally(() => setLoading(false))
   }, [slug])
+
+  async function publish() {
+    setPubErr(''); setPublishing(true); setPublishedUrl('')
+    try {
+      const r = await api<{ url: string; pages: number }>(`/workspaces/${slug}/publish`, { method: 'POST' })
+      setPublishedUrl(r.url)
+    } catch (e: any) { setPubErr(e.message || 'Publish failed') } finally { setPublishing(false) }
+  }
 
   if (loading) return <div className="empty">Loading…</div>
   const pages = data?.pages ?? []
@@ -41,9 +52,16 @@ export default function WorkspaceHome() {
         </div>
       ) : (
         <>
+          {publishedUrl && (
+            <div className="banner-ok">✓ Published — your site is live at <a href={publishedUrl} target="_blank" rel="noreferrer">{publishedUrl}</a></div>
+          )}
+          {pubErr && <div className="err" style={{ marginBottom: 12 }}>{pubErr}</div>}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <span className="muted">{pages.length} pages</span>
-            <a className="btn btn-secondary" href={`/w/${slug}/import`}>📥 Import more</a>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <a className="btn btn-secondary" href={`/w/${slug}/import`}>📥 Import more</a>
+              <button className="btn btn-primary" onClick={publish} disabled={publishing}>{publishing ? 'Publishing…' : 'Publish'}</button>
+            </div>
           </div>
           <div className="tblwrap">
             <table className="tbl">
