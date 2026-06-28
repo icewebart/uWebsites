@@ -5,6 +5,7 @@ import { authRouter } from './routes/auth.js'
 import { workspacesRouter } from './routes/workspaces.js'
 import { importRouter } from './routes/import.js'
 import { googleRouter } from './routes/google.js'
+import { pagesRouter } from './routes/pages.js'
 
 const app = express()
 app.set('trust proxy', 1) // Cloudflare is the first hop in prod
@@ -27,5 +28,6 @@ app.use('/auth', authRouter)
 app.use('/auth', googleRouter)
 app.use('/workspaces', workspacesRouter)
 app.use('/import', importRouter)
+app.use('/pages', pagesRouter)
 
 app.listen(PORT, () => console.log(`[uwebsites-api] listening on :${PORT}`))

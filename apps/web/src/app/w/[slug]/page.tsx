@@ -51,7 +51,7 @@ export default function WorkspaceHome() {
               <tbody>
                 {pages.map((p) => (
                   <tr key={p.id}>
-                    <td>{p.title}</td>
+                    <td><a href={`/w/${slug}/p/${p.id}`} style={{ fontWeight: 600 }}>{p.title}</a></td>
                     <td><span className="ty">{p.type}</span></td>
                     <td className="muted">/{p.slug}</td>
                     <td><span className="muted">{p.status}</span></td>

@@ -85,6 +85,25 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 .card .meta{font-size:12px;color:var(--text-faint)}
 .muted{color:var(--text-muted)}
 .banner-ok{background:var(--lime-light);border:1px solid var(--lime);color:var(--forest);border-radius:var(--r-sm);padding:11px 14px;font-size:13px;font-weight:600;margin-bottom:18px}
+
+/* block editor */
+.editor{max-width:760px;margin:0 auto}
+.editor-bar{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.editor-bar .title-input{flex:1;font-family:inherit;font-size:18px;font-weight:600;color:var(--text);background:transparent;border:0;border-bottom:1px solid transparent;padding:6px 2px}
+.editor-bar .title-input:focus{outline:none;border-bottom-color:var(--border)}
+.editor-bar select{font-family:inherit;font-size:13px;border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 10px;background:var(--surface)}
+.block-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:18px;margin-bottom:14px}
+.block-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.block-type{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--forest);background:var(--lime-light);border-radius:var(--r-full);padding:3px 10px}
+.block-ctrls{display:flex;gap:4px}
+.block-ctrls button{width:28px;height:28px;border:1px solid var(--border);background:var(--surface);border-radius:var(--r-sm);cursor:pointer;color:var(--text-muted);font-size:13px}
+.block-ctrls button:hover:not(:disabled){border-color:var(--forest);color:var(--forest)}
+.block-ctrls button:disabled{opacity:.4;cursor:not-allowed}
+.add-block{display:flex;gap:8px;margin-top:6px}
+.add-block .btn{font-size:12px;padding:7px 12px}
+textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.6}
+.save-row{display:flex;align-items:center;gap:12px;margin-top:20px}
+.saved-tag{font-size:12px;color:var(--text-faint)}
 .empty{text-align:center;padding:60px 20px;color:var(--text-muted)}
 
 /* ===== auth ===== */
