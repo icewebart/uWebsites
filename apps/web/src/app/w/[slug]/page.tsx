@@ -26,7 +26,7 @@ export default function WorkspaceHome() {
   if (loading) return <div className="empty">Loading…</div>
 
   return (
-    <AppShell title={ws?.name || 'Workspace'}>
+    <AppShell title={ws?.name || 'Workspace'} currentSlug={slug}>
       <div className="empty">
         <p>No pages in <strong>{ws?.name}</strong> yet.</p>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 16 }}>

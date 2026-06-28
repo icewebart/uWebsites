@@ -39,7 +39,7 @@ export default function Dashboard() {
   if (loading) return <div className="empty">Loading…</div>
 
   return (
-    <AppShell title="Workspaces" email={me?.email}>
+    <AppShell title="Workspaces">
       {workspaces.length === 0 ? (
         <div className="empty">
           <p>No workspaces yet.</p>
