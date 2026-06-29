@@ -243,7 +243,7 @@ function extractCta(html: string, base: string): { label: string; href: string }
 }
 
 // Core: fetch homepage + main CSS, then extract branding tokens AND brand assets.
-async function analyzeBranding(siteUrl: string) {
+export async function analyzeBranding(siteUrl: string) {
   const site = String(siteUrl).trim().replace(/\/+$/, '').replace(/^(?!https?:\/\/)/, 'https://')
   const home = await (await fetch(site, { headers: { 'User-Agent': UA } })).text()
     // Collect CSS hrefs (same-origin) and Google Fonts families
@@ -283,6 +283,44 @@ async function analyzeBranding(siteUrl: string) {
     }
     const ranked = Object.entries(tally).sort((a, b) => b[1] - a[1]).map(([h]) => h)
 
+    // ---- CSS-variable based brand-color extraction (much better signal) ----
+    // Modern themes (especially Elementor + Astra + GeneratePress + WP block
+    // themes) declare brand colors as CSS custom properties. Parse them; they
+    // beat raw frequency counts because they're declared, not painted.
+    const normalize = (raw: string): string | null => {
+      let s = raw.trim().toLowerCase()
+      const rgb = s.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+      if (rgb) s = '#' + [rgb[1], rgb[2], rgb[3]].map((v) => parseInt(v).toString(16).padStart(2, '0')).join('')
+      if (s.startsWith('#')) {
+        if (s.length === 4) s = '#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3]
+        return /^#[0-9a-f]{6}$/.test(s) ? s : null
+      }
+      return null
+    }
+    const varHits: Record<string, string> = {} // intent -> hex
+    for (const m of css.matchAll(/--([a-z0-9_-]+)\s*:\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\))/gi)) {
+      const name = m[1].toLowerCase()
+      const color = normalize(m[2]); if (!color) continue
+      // Categorise the var by intent based on its name
+      let intent: 'primary' | 'accent' | 'secondary' | null = null
+      if (/(global-color-primary|theme-color|brand-?primary|brand-?color|^primary|^main-?color)/.test(name)) intent = 'primary'
+      else if (/(global-color-accent|brand-?accent|^accent)/.test(name)) intent = 'accent'
+      else if (/(global-color-secondary|brand-?secondary|^secondary)/.test(name)) intent = 'secondary'
+      if (intent && !varHits[intent]) varHits[intent] = color
+    }
+
+    // WP block-editor + Elementor default palette — recognize and deprioritize
+    const WP_DEFAULTS = new Set([
+      '#cf2e2e', '#9b51e0', '#0693e3', '#7bdcb5', '#00d084', '#fcb900', '#ff6900',
+      '#f78da7', '#8ed1fc', '#abb8c3', '#cd2653', '#cc1818',
+      '#6ec1e4', '#54595f', '#7a7a7a', '#61ce70', // Elementor
+    ])
+    const filteredRanked = ranked.filter((c) => !WP_DEFAULTS.has(c))
+    const useRanked = filteredRanked.length >= 2 ? filteredRanked : ranked
+
+    const finalPrimary = varHits.primary || useRanked[0] || '#16324A'
+    const finalAccent = varHits.accent || varHits.secondary || useRanked.find((c) => c !== finalPrimary) || '#8FD7F1'
+
     // Font: first non-generic family from stack, else first Google font
     const famMatch = css.match(/font-family\s*:\s*([^;}]+)/i)
     let bodyFont: string | null = null
@@ -303,8 +341,8 @@ async function analyzeBranding(siteUrl: string) {
 
     const tokens = {
       color: {
-        primary: ranked[0] || '#16324A',
-        accent: ranked[1] || '#8FD7F1',
+        primary: finalPrimary,
+        accent: finalAccent,
         surface: '#FFFFFF',
         text: '#16242E',
       },

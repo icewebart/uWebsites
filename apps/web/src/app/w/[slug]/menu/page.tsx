@@ -16,6 +16,8 @@ export default function MenusPage() {
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState('')
   const [err, setErr] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshNote, setRefreshNote] = useState('')
 
   useEffect(() => {
     api<{ header: Tree; footer: Tree }>(`/workspaces/${slug}/menus`)
@@ -23,6 +25,19 @@ export default function MenusPage() {
       .catch(() => router.push(`/w/${slug}`))
       .finally(() => setLoading(false))
   }, [slug])
+
+  async function refreshFromSource() {
+    if (!window.confirm('Re-fetch the menu from your imported source URL? This will overwrite the current header menu items + CTA.')) return
+    setErr(''); setRefreshNote(''); setRefreshing(true)
+    try {
+      const r = await api<{ header: Tree; footer: Tree; refreshed?: boolean; reason?: string; source?: string }>(
+        `/workspaces/${slug}/menus/refresh`, { method: 'POST', body: JSON.stringify({}) },
+      )
+      setHeader({ items: r.header.items || [], cta: r.header.cta || null })
+      setFooter({ items: r.footer.items || [] })
+      setRefreshNote(r.refreshed ? `Refreshed from ${r.source}` : (r.reason || 'No changes'))
+    } catch (e: any) { setErr(e.message || 'Refresh failed') } finally { setRefreshing(false) }
+  }
 
   async function save() {
     setErr(''); setSaving(true)
@@ -40,7 +55,13 @@ export default function MenusPage() {
         Edit the header navigation and footer links. They appear on every published page. On import, we seed these from your old site's nav and main CTA.
       </div>
 
-      <div className="dash-h">Header menu</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div className="dash-h" style={{ margin: 0 }}>Header menu</div>
+        <button className="btn btn-ghost" onClick={refreshFromSource} disabled={refreshing}>
+          {refreshing ? 'Refreshing…' : '↻ Refresh from source'}
+        </button>
+      </div>
+      {refreshNote && <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>{refreshNote}</div>}
       <MenuEditor tree={header} onChange={setHeader} maxItems={10} showCta />
       <div className="dash-h" style={{ marginTop: 24 }}>Footer menu</div>
       <MenuEditor tree={footer} onChange={(t) => setFooter({ items: t.items })} maxItems={20} />

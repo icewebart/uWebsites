@@ -390,6 +390,7 @@ aiRouter.post('/rebuild-page', requireAuth, async (req: AuthRequest, res) => {
   const images: string[] = cur.flatMap((b) => b.type === 'image' && b.props?.url ? [b.props.url] : b.type === 'hero-image' && b.props?.image_url ? [b.props.image_url] : [])
   const bodyHtml = cur.filter((b) => b.type === 'richtext').map((b) => b.props?.html || '').join('\n\n').slice(0, 60000)
   const sourceUrl = (row.seo as any)?.import_source?.url
+  const snapshotUrl = (row.seo as any)?.import_source?.snapshot_url
   // Pull workspace name for the brief; we already loaded accId on the join,
   // but not the name — fetch it cheaply.
   const [wsRow] = await db.select({ name: workspaces.name }).from(workspaces).where(eq(workspaces.id, row.wsId)).limit(1)
@@ -406,7 +407,13 @@ CRITICAL: every section you include must be FULLY populated per the tool schema.
 Output via the page tool.${tone ? '\n\nTone: ' + tone : ''}${brief ? '\n\nSITE CONTEXT (use this to decide industry, audience, and voice):\n' + brief : ''}`,
       tools: [{ name: 'page', description: 'The rebuilt page.', input_schema: BLOCK_SCHEMA as any }],
       tool_choice: { type: 'tool', name: 'page' },
-      messages: [{ role: 'user', content: `Title: ${heroTitle}\nSubhead: ${heroSub}\nSource URL: ${sourceUrl || '(unknown)'}\nAvailable images: ${images.join(', ') || '(none)'}\n\nBody HTML:\n${bodyHtml || '(empty)'}` }],
+      // Vision: when we have a snapshot of the original, pass it so Claude can
+      // SEE the source structure (number of sections, hero shape, card patterns,
+      // overall visual style) instead of guessing from text alone.
+      messages: [{ role: 'user', content: [
+        ...(snapshotUrl ? [{ type: 'image' as const, source: { type: 'url' as const, url: snapshotUrl } }] : []),
+        { type: 'text' as const, text: `Here is the source page${snapshotUrl ? ' (image above)' : ''}.\n\nTitle: ${heroTitle}\nSubhead: ${heroSub}\nSource URL: ${sourceUrl || '(unknown)'}\nAvailable images: ${images.join(', ') || '(none)'}\n\nBody HTML:\n${bodyHtml || '(empty)'}\n\nReproduce the structure and feel of the original where it makes sense — match section order and the kind of content the original surfaces. Improve clarity and typography, but don't invent content that isn't there.` },
+      ] }],
     })
     const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
     if (!toolUse) return res.status(502).json({ ok: false, error: 'Model returned no rebuilt page' })
