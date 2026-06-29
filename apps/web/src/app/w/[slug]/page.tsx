@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
-import { ChatPanel } from '@/components/ChatPanel'
 
 type Page = { id: string; type: string; slug: string; title: string; status: string; seo?: { import_source?: { url: string } } }
 type PagesResp = { workspace: { id: string; name: string; slug: string }; pages: Page[] }
@@ -114,7 +113,6 @@ export default function WorkspaceHome() {
         </div>
       )}
 
-      <ChatPanel slug={slug} />
     </AppShell>
   )
 }

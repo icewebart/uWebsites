@@ -83,6 +83,38 @@ export default function Dashboard() {
         </div>
       )}
 
+      {items[0] && (() => {
+        const ws = items[0]
+        const startPrompt = (q: string) => `/w/${ws.slug}?chat=1&q=${encodeURIComponent(q)}`
+        const PROMPTS = [
+          'Suggest 5 article topics based on this site',
+          'What’s missing for a strong launch?',
+          'Rewrite my homepage to be sharper and more energetic',
+          'Add a testimonials section to the homepage',
+        ]
+        return (
+          <>
+            <div className="dash-h">AI assistant</div>
+            <div className="ai-launch">
+              <div className="ai-launch-l">
+                <div className="ai-launch-title">Ask the assistant about <strong>{ws.name}</strong></div>
+                <div className="ai-launch-sub">Jump into a conversation with full workspace context — it can rewrite sections, restyle branding, and add new ones.</div>
+                <div className="ai-launch-actions">
+                  <a className="btn btn-primary" href={`/w/${ws.slug}?chat=1`}>Open assistant</a>
+                  <a className="btn btn-secondary" href={`/w/${ws.slug}`}>Open workspace</a>
+                </div>
+              </div>
+              <div className="ai-launch-r">
+                <div className="ai-launch-label">Try asking</div>
+                <div className="ai-launch-prompts">
+                  {PROMPTS.map((p) => <a key={p} className="ai-prompt" href={startPrompt(p)}>{p}</a>)}
+                </div>
+              </div>
+            </div>
+          </>
+        )
+      })()}
+
       <div className="dash-h">Your sites</div>
       <div className="site-cards">
         {items.map((s) => (

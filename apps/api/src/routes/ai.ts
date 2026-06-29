@@ -311,6 +311,50 @@ aiRouter.post('/chat', requireAuth, async (req: AuthRequest, res) => {
   }
 })
 
+// POST /ai/rebuild-page — take an imported (or otherwise contentful) page and
+// redesign it as a structured layout using the section catalog, preserving the
+// original copy and images. Useful right after importing a WP page that came
+// in as one giant richtext block.
+aiRouter.post('/rebuild-page', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured.' })
+  const { pageId, tone } = req.body ?? {}
+  if (!pageId) return res.status(400).json({ ok: false, error: 'pageId required' })
+
+  const [row] = await db.select({
+    id: pages.id, title: pages.title, blocks: pages.blocks, seo: pages.seo,
+    wsId: pages.workspaceId, accId: workspaces.accountId,
+  }).from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id))
+    .where(eq(pages.id, String(pageId))).limit(1)
+  if (!row || row.accId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'page not found' })
+
+  // Source material: concatenate any richtext html, capture hero title and any image urls
+  const cur = (Array.isArray(row.blocks) ? row.blocks : []) as any[]
+  const heroTitle = cur.find((b) => b.type === 'hero' || b.type === 'hero-image')?.props?.heading || row.title
+  const heroSub = cur.find((b) => b.type === 'hero' || b.type === 'hero-image')?.props?.sub || ''
+  const images: string[] = cur.flatMap((b) => b.type === 'image' && b.props?.url ? [b.props.url] : b.type === 'hero-image' && b.props?.image_url ? [b.props.image_url] : [])
+  const bodyHtml = cur.filter((b) => b.type === 'richtext').map((b) => b.props?.html || '').join('\n\n').slice(0, 60000)
+  const sourceUrl = (row.seo as any)?.import_source?.url
+
+  try {
+    const r = await a.messages.create({
+      model: MODEL,
+      max_tokens: 4096,
+      system: `Rebuild this page into a well-structured layout using the uWebsites section catalog: ${SECTION_KINDS_LIST.join(', ')}. PRESERVE the actual copy and image URLs from the source — extract a strong hero, then break the body into 3–6 designed sections (features-3, image-text, testimonials-3 if it contains testimonials, stats-row if it contains numbers/stats, pricing-3 if it contains pricing tiers, faq for Q&A, cta-banner at the end). DO NOT invent facts; reword for clarity is OK. Output via the page tool.${tone ? ' Tone: ' + tone : ''}`,
+      tools: [{ name: 'page', description: 'The rebuilt page.', input_schema: BLOCK_SCHEMA as any }],
+      tool_choice: { type: 'tool', name: 'page' },
+      messages: [{ role: 'user', content: `Title: ${heroTitle}\nSubhead: ${heroSub}\nSource URL: ${sourceUrl || '(unknown)'}\nAvailable images: ${images.join(', ') || '(none)'}\n\nBody HTML:\n${bodyHtml || '(empty)'}` }],
+    })
+    const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!toolUse) return res.status(502).json({ ok: false, error: 'Model returned no rebuilt page' })
+    const { title, blocks } = toolUse.input as { title: string; blocks: any[] }
+    await db.update(pages).set({ title: title || row.title, blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, row.id))
+    res.json({ ok: true, data: { title: title || row.title, blocks } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Rebuild failed: ' + (e?.message || 'unknown') })
+  }
+})
+
 // POST /ai/rewrite-block — rewrite a single block's content
 aiRouter.post('/rewrite-block', requireAuth, async (req: AuthRequest, res) => {
   const a = ai()

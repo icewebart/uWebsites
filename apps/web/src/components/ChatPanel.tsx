@@ -29,6 +29,23 @@ export function ChatPanel({ slug, pageId, pageContext, onMutate }: { slug: strin
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight
   }, [messages, open])
 
+  // Auto-open from URL: ?chat=1 (and optional ?q=text to pre-fill).
+  // Also listen for a global event so the sidebar button can open it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('chat') === '1') {
+      setOpen(true)
+      const q = params.get('q'); if (q) setInput(q)
+      // clean the URL so a refresh doesn't keep re-opening
+      params.delete('chat'); params.delete('q')
+      const qs = params.toString()
+      window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
+    }
+    const onOpen = () => setOpen(true)
+    window.addEventListener('uw-open-chat', onOpen)
+    return () => window.removeEventListener('uw-open-chat', onOpen)
+  }, [])
+
   async function send(text: string) {
     const t = text.trim(); if (!t || busy) return
     const next: Msg[] = [...messages, { role: 'user', content: t }]

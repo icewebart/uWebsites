@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
-import { ChatPanel } from '@/components/ChatPanel'
 import { SectionPicker } from '@/components/SectionPicker'
 
 type Block = { type: string; props: Record<string, any> }
@@ -91,6 +90,16 @@ export default function PageEditor() {
     } catch (e: any) { alert(e.message || 'Rewrite failed') }
   }
 
+  async function aiRebuild() {
+    const tone = window.prompt('Rebuild this page with AI — using the original content, redesigned into proper sections. Optional tone:', 'clear, confident, modern')
+    if (tone === null) return
+    if (!window.confirm('This will replace the current section layout with an AI-designed one (your copy and images are preserved).')) return
+    try {
+      const r = await api<{ title: string; blocks: Block[] }>('/ai/rebuild-page', { method: 'POST', body: JSON.stringify({ pageId, tone: tone || undefined }) })
+      setBlocks(r.blocks); setTitle(r.title); setSelected(null); setPreviewKey((k) => k + 1); setSavedAt(new Date().toLocaleTimeString())
+    } catch (e: any) { alert(e.message || 'Rebuild failed') }
+  }
+
   async function save() {
     setErr(''); setSaving(true)
     try {
@@ -106,12 +115,20 @@ export default function PageEditor() {
   const selMeta = sel ? catalog[sel.type] : null
 
   return (
-    <AppShell title={title || 'Edit page'} currentSlug={slug} active="Website">
+    <AppShell
+      title={title || 'Edit page'} currentSlug={slug} active="Website"
+      chatPageId={pageId}
+      chatPageContext={{ type: page?.type || '', title, blocks }}
+      onChatMutate={(newBlocks) => { setBlocks(newBlocks); setPreviewKey((k) => k + 1); setSavedAt(new Date().toLocaleTimeString()) }}
+    >
       <div className="editor-bar2">
         <a className="back" href={`/w/${slug}`}>← {page?.wsName}</a>
         <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Page title" />
         <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="draft">Draft</option><option value="published">Published</option></select>
         {savedAt && <span className="muted" style={{ fontSize: 12 }}>Saved {savedAt}</span>}
+        {page?.seo?.import_source && (
+          <button className="btn btn-secondary" onClick={aiRebuild} title="Restructure into a designed layout using the section catalog">✦ AI rebuild</button>
+        )}
         <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
       </div>
       {err && <div className="err" style={{ marginBottom: 10 }}>{err}</div>}
@@ -183,12 +200,6 @@ export default function PageEditor() {
       </div>
 
       <SectionPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={addFromCatalog} />
-      <ChatPanel
-        slug={slug}
-        pageId={pageId}
-        pageContext={{ type: page?.type || '', title, blocks }}
-        onMutate={(newBlocks) => { setBlocks(newBlocks); setPreviewKey((k) => k + 1); setSavedAt(new Date().toLocaleTimeString()) }}
-      />
     </AppShell>
   )
 }

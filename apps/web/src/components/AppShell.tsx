@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
-import { IconDashboard, IconWebsite, IconArticles, IconBranding } from './icons'
+import { IconDashboard, IconWebsite, IconArticles, IconBranding, IconStats, IconAi } from './icons'
+import { ChatPanel } from './ChatPanel'
 
 type Workspace = { id: string; name: string; slug: string }
 type Me = { id: string; email: string }
@@ -12,10 +13,16 @@ const NAV: { label: string; Icon: (p: { size?: number }) => React.JSX.Element }[
   { label: 'Website', Icon: IconWebsite },
   { label: 'Articles', Icon: IconArticles },
   { label: 'Branding', Icon: IconBranding },
+  { label: 'Stats', Icon: IconStats },
 ]
 const PROFILE_ITEMS = ['Settings', 'Integrations', 'Email Setup', 'Billing']
 
-export function AppShell({ title, currentSlug, active = 'Dashboard', children }: { title: string; currentSlug?: string; active?: string; children: React.ReactNode }) {
+export function AppShell({ title, currentSlug, active = 'Dashboard', children, chatPageId, chatPageContext, onChatMutate }: {
+  title: string; currentSlug?: string; active?: string; children: React.ReactNode
+  chatPageId?: string
+  chatPageContext?: { type: string; title: string; blocks?: { type: string }[] }
+  onChatMutate?: (blocks: { type: string; props: Record<string, any> }[]) => void
+}) {
   const router = useRouter()
   const [me, setMe] = useState<Me | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
@@ -43,6 +50,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children }:
         <nav className="sidebar-nav">
           {NAV.map(({ label, Icon }) => {
             const href = label === 'Dashboard' ? '/'
+              : label === 'Stats' ? '/stats'
               : !current ? undefined
               : label === 'Website' ? `/w/${current.slug}`
               : label === 'Branding' ? `/w/${current.slug}/branding`
@@ -54,6 +62,19 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children }:
               : <div key={label} className={cls}>{inner}</div>
           })}
         </nav>
+        <div className="sidebar-foot">
+          <a
+            className="sidebar-link sidebar-ai"
+            href={current ? `/w/${current.slug}?chat=1` : '#'}
+            onClick={(e) => {
+              // If we're already on a page that mounts the ChatPanel, just open it.
+              const onChattyRoute = typeof window !== 'undefined' && /^\/w\//.test(window.location.pathname)
+              if (current && onChattyRoute) { e.preventDefault(); window.dispatchEvent(new CustomEvent('uw-open-chat')) }
+            }}
+          >
+            <IconAi size={18} />AI assistant
+          </a>
+        </div>
       </aside>
 
       <main className="main">
@@ -111,6 +132,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children }:
         </div>
         <div className="content">{children}</div>
       </main>
+      {current && <ChatPanel slug={current.slug} pageId={chatPageId} pageContext={chatPageContext} onMutate={onChatMutate} />}
     </div>
   )
 }
