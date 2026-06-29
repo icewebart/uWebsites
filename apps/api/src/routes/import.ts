@@ -311,8 +311,20 @@ export async function analyzeBranding(siteUrl: string) {
       }
     }
 
+    // Many WP themes (Elementor!) self-host Google Fonts under wp-content paths
+    // like /uploads/elementor/google-fonts/css/quicksand.css. The family name is
+    // in the URL itself — extract before fetching anything.
+    for (const href of cssHrefs) {
+      const fileMatch = href.match(/\/(?:google-fonts|fonts)\/(?:css\/)?([a-z][a-z0-9-]+?)(?:\.css|\.min\.css|[\?#])/i)
+      if (fileMatch) pushFont(fileMatch[1].replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()))
+    }
+
+    // Prioritise font-related CSS files so they're scanned even on pages with
+    // 30+ stylesheets (otherwise we'd burn the budget on layout / woo CSS).
+    const isFonty = (h: string) => /\b(font|typography|google-fonts)\b/i.test(h)
+    const orderedHrefs = [...cssHrefs.filter(isFonty), ...cssHrefs.filter((h) => !isFonty(h))]
     let css = inlineCss
-    for (const href of cssHrefs.slice(0, 4)) {
+    for (const href of orderedHrefs.slice(0, 8)) {
       try {
         const abs = href.startsWith('http') ? href : new URL(href, site).toString()
         if (abs.includes('fonts.googleapis.com')) continue
@@ -412,6 +424,15 @@ export async function analyzeBranding(siteUrl: string) {
     }
     let headingFont = findFontFor(/h1|h2|h3|\.h1|\.h2|\.headline|\.hero h1/i)
     let bodyFont = findFontFor(/body|html|\.entry-content|\.content/i)
+    // Elementor exposes the site-wide font picks as CSS custom properties
+    // (--e-global-typography-primary-font-family etc) — these are the values
+    // the user actually chose, so prefer them over inferred selectors.
+    const eGlobalFont = (key: string): string | null => {
+      const re = new RegExp(`--e-global-typography-${key}-font-family\\s*:\\s*([^;}]+)`, 'i')
+      const m = css.match(re); return m ? firstFamily(m[1]) : null
+    }
+    headingFont = eGlobalFont('primary') || eGlobalFont('secondary') || headingFont
+    bodyFont = eGlobalFont('text') || eGlobalFont('accent') || bodyFont
     // Resolve via Google Fonts if CSS gave us a CSS variable or a generic family
     if (!headingFont && googleFonts.length) headingFont = googleFonts[0]
     if (!bodyFont && googleFonts.length) bodyFont = googleFonts.find((f) => f !== headingFont) || googleFonts[0]
