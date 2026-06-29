@@ -15,6 +15,9 @@ export const IconArticles = ({ size }: P) => (
 export const IconBranding = ({ size }: P) => (
   <svg {...wrap(size)}><circle cx="12" cy="12" r="9" /><circle cx="8" cy="9" r="1.2" fill="currentColor" stroke="none" /><circle cx="15" cy="8.5" r="1.2" fill="currentColor" stroke="none" /><circle cx="17.5" cy="13" r="1.2" fill="currentColor" stroke="none" /><path d="M12 12c2 2 4 4 3 6s-4 1-5-1-1-4 2-5z" /></svg>
 )
+export const IconMenu = ({ size }: P) => (
+  <svg {...wrap(size)}><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h12" /></svg>
+)
 export const IconStats = ({ size }: P) => (
   <svg {...wrap(size)}><path d="M3 21h18" /><rect x="5" y="13" width="3.5" height="6" /><rect x="10.25" y="9" width="3.5" height="10" /><rect x="15.5" y="5" width="3.5" height="14" /></svg>
 )

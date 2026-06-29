@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
 import { db, workspaces, pages, redirects, brandingTokens } from '@uwebsites/db'
+import { upsertMenu } from './menus.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 
 // Importer — TS port of the Phase-0 spike. `scanSite` pulls a WordPress site
@@ -373,6 +374,11 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
       const [existingTokens] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
       if (existingTokens) await db.update(brandingTokens).set({ tokens: b.tokens }).where(eq(brandingTokens.id, existingTokens.id))
       else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: b.tokens })
+      // Seed the header menu from the source nav + CTA
+      const navItems = (b.brand_assets?.nav || []).map((n: any) => ({ label: n.text, href: n.href }))
+      if (navItems.length || brandCta) {
+        await upsertMenu(ws.id, 'header', { items: navItems, cta: brandCta })
+      }
       brandingApplied = true
     } catch { /* swallow — pages still import */ }
   }

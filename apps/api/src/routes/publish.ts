@@ -5,6 +5,7 @@ import path from 'node:path'
 import { db, workspaces, pages, brandingTokens, builds } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { renderSection, SECTION_CSS, SECTIONS, sectionHasContent, esc as escSh } from '../lib/sections.js'
+import { getMenusFor } from './menus.js'
 
 // Publisher — compiles a workspace's pages (+ branding tokens) to static
 // HTML/CSS on disk, served by nginx. One box (ADR-012), so we write locally;
@@ -48,10 +49,20 @@ section + section{padding-top:0}
 .rt :where(p,ul,ol){margin-bottom:1em}
 .rt img{max-width:100%;height:auto;border-radius:var(--card-r)}
 .img img{display:block;width:100%;height:auto;border-radius:var(--card-r)}
-.site-header{border-bottom:var(--bw) solid rgba(0,0,0,.08)}
-.site-header .container{display:flex;align-items:center;justify-content:space-between;padding-top:16px;padding-bottom:16px}
-.brand{font-family:'${t.font.heading}',sans-serif;font-weight:700;font-size:18px;color:var(--text);text-decoration:none}
-.site-footer{border-top:var(--bw) solid rgba(0,0,0,.08);padding:36px 0;font-size:13px;opacity:.65}
+.site-header{border-bottom:var(--bw) solid rgba(0,0,0,.08);background:var(--surface)}
+.site-header .container{display:flex;align-items:center;justify-content:space-between;padding-top:16px;padding-bottom:16px;gap:24px}
+.site-header .nav{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+.site-header .nav a{color:var(--text);opacity:.78;font-size:14px;text-decoration:none}
+.site-header .nav a:hover{opacity:1;color:var(--primary)}
+.site-header .header-cta{background:var(--primary);color:#fff;border-radius:var(--btn-r);padding:8px 16px;font-weight:600;font-size:13px;text-decoration:none}
+.brand{font-family:'${t.font.heading}',sans-serif;font-weight:700;font-size:18px;color:var(--text);text-decoration:none;display:flex;align-items:center;gap:10px}
+.brand img{height:28px;width:auto;display:block}
+.site-footer{border-top:var(--bw) solid rgba(0,0,0,.08);padding:36px 0;font-size:13px;opacity:.7}
+.site-footer .container{display:flex;flex-wrap:wrap;justify-content:space-between;gap:18px}
+.site-footer .nav{display:flex;flex-wrap:wrap;gap:18px}
+.site-footer a{color:var(--text);text-decoration:none}
+.site-footer a:hover{color:var(--primary)}
+@media(max-width:760px){.site-header .container{flex-wrap:wrap}.site-header .nav{gap:14px}.site-header .nav a{font-size:13px}}
 ${SECTION_CSS}`
 }
 
@@ -59,11 +70,31 @@ ${SECTION_CSS}`
 // renderer and the editor's gallery. publish.ts just composes the page.
 const renderBlock = renderSection
 
-function renderPage(page: any, body: string, t: any, ws: any, base: string) {
+type MenuItem = { label: string; href: string }
+type MenuTree = { items: MenuItem[]; cta?: { label: string; href: string } | null }
+
+function renderHeader(ws: any, base: string, header: MenuTree | undefined, logoUrl?: string | null): string {
+  const brand = logoUrl
+    ? `<a class="brand" href="${base}/"><img src="${esc(logoUrl)}" alt="${esc(ws.name)}"></a>`
+    : `<a class="brand" href="${base}/">${esc(ws.name)}</a>`
+  const navItems = (header?.items || []).map((i) => `<a href="${esc(i.href)}">${esc(i.label)}</a>`).join('')
+  const nav = navItems ? `<nav class="nav">${navItems}</nav>` : ''
+  const cta = header?.cta?.label ? `<a class="header-cta" href="${esc(header.cta.href || '#')}">${esc(header.cta.label)}</a>` : ''
+  return `<header class="site-header"><div class="container">${brand}${nav}${cta}</div></header>`
+}
+
+function renderFooter(ws: any, footer: MenuTree | undefined): string {
+  const navItems = (footer?.items || []).map((i) => `<a href="${esc(i.href)}">${esc(i.label)}</a>`).join('')
+  const nav = navItems ? `<nav class="nav">${navItems}</nav>` : ''
+  return `<footer class="site-footer"><div class="container"><div>© ${new Date().getFullYear()} ${esc(ws.name)} · built with uWebsites</div>${nav}</div></footer>`
+}
+
+function renderPage(page: any, body: string, t: any, ws: any, base: string, opts?: { header?: MenuTree; footer?: MenuTree }) {
+  const logo = (t as any)?.brand_assets?.logo?.url || null
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(page.title)} — ${esc(ws.name)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">${fontsHead(t)}<style>${siteCss(t)}</style></head><body>
-<header class="site-header"><div class="container"><a class="brand" href="${base}/">${esc(ws.name)}</a></div></header>
+${renderHeader(ws, base, opts?.header, logo)}
 <main>${body || ''}</main>
-<footer class="site-footer"><div class="container">© ${new Date().getFullYear()} ${esc(ws.name)} · built with uWebsites</div></footer>
+${renderFooter(ws, opts?.footer)}
 </body></html>`
 }
 
@@ -142,7 +173,8 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
         return `<div data-section-index="${i}" data-section-kind="${esc(b.type)}"${emptyAttr} style="${sel}">${empty ? '' : renderSection(b, { edit: true })}</div>`
       }).join('\n') + EDIT_SCRIPT
     : blocks.map((b) => renderBlock(b)).join('\n')
-  return renderPage({ title: row.title }, body, t, { name: row.wsName }, '#')
+  const menus = await getMenusFor(row.wsId)
+  return renderPage({ title: row.title }, body, t, { name: row.wsName }, '#', menus)
 }
 
 // POST /workspaces/:slug/publish
@@ -162,10 +194,11 @@ publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) 
   try {
     await rm(outDir, { recursive: true, force: true })
     await mkdir(outDir, { recursive: true })
+    const siteMenus = await getMenusFor(ws.id)
     let count = 0
     for (const p of publishable) {
       const blocks = Array.isArray(p.blocks) ? (p.blocks as any[]) : []
-      const html = renderPage(p, blocks.map((b) => renderBlock(b)).join('\n'), t, ws, base)
+      const html = renderPage(p, blocks.map((b) => renderBlock(b)).join('\n'), t, ws, base, siteMenus)
       const rel = p.slug === 'home' ? 'index.html' : path.join(p.slug, 'index.html')
       const file = path.join(outDir, rel)
       await mkdir(path.dirname(file), { recursive: true })

@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
-import { IconDashboard, IconWebsite, IconArticles, IconBranding, IconStats, IconAi } from './icons'
+import { IconDashboard, IconWebsite, IconArticles, IconBranding, IconStats, IconAi, IconMenu } from './icons'
 import { ChatPanel } from './ChatPanel'
 
 type Workspace = { id: string; name: string; slug: string }
@@ -11,6 +11,7 @@ type Me = { id: string; email: string }
 const NAV: { label: string; Icon: (p: { size?: number }) => React.JSX.Element }[] = [
   { label: 'Dashboard', Icon: IconDashboard },
   { label: 'Website', Icon: IconWebsite },
+  { label: 'Menu', Icon: IconMenu },
   { label: 'Articles', Icon: IconArticles },
   { label: 'Branding', Icon: IconBranding },
   { label: 'Stats', Icon: IconStats },
@@ -53,6 +54,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               : label === 'Stats' ? '/stats'
               : !current ? undefined
               : label === 'Website' ? `/w/${current.slug}`
+              : label === 'Menu' ? `/w/${current.slug}/menu`
               : label === 'Branding' ? `/w/${current.slug}/branding`
               : undefined
             const cls = `sidebar-link${label === active ? ' active' : ''}`
@@ -79,7 +81,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
 
       <main className="main">
         <div className="topbar">
-          <h2>{title}</h2>
+          <h2 title={title}>{active}</h2>
           <div className="topbar-right">
             <input className="topbar-search" placeholder="Search…" />
 
@@ -113,7 +115,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
 
             <div className="profile-switch">
               <button className="user" onClick={() => setProfileOpen((o) => !o)} onBlur={() => setTimeout(() => setProfileOpen(false), 150)}>
-                <div className="user-meta"><b>{displayName}</b><span>{current?.name || ''}</span></div>
+                <div className="user-meta"><b>{displayName}</b></div>
                 <span className="user-ava">{displayName.slice(0, 1).toUpperCase()}</span>
               </button>
               {profileOpen && (

@@ -49,10 +49,10 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 .sidebar-ai:hover{background:var(--lime)}
 .sidebar-ai svg{color:var(--forest)!important}
 .main{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);min-height:calc(100vh - 24px);overflow:hidden}
-.topbar{height:var(--topbar-h);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 22px;gap:16px}
-.topbar h2{font-size:17px;white-space:nowrap}
-.topbar-right{display:flex;align-items:center;gap:12px}
-.topbar-search{width:220px;height:36px;font-family:inherit;font-size:13px;color:var(--text);background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--r-sm);padding:0 14px}
+.topbar{height:var(--topbar-h);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 22px;gap:16px;min-width:0;overflow:hidden}
+.topbar h2{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.topbar-right{display:flex;align-items:center;gap:10px;flex:0 0 auto;min-width:0}
+.topbar-search{width:200px;height:36px;font-family:inherit;font-size:13px;color:var(--text);background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--r-sm);padding:0 14px;flex:0 1 auto;min-width:80px}
 .topbar-search:focus{outline:none;border-color:var(--forest);background:var(--surface)}
 
 /* workspace switcher */
@@ -345,6 +345,12 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 /* Stats page placeholders */
 .stats-placeholder{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px}
 .ph-chart{background:var(--surface);border:1px dashed var(--border);border-radius:var(--r-md);min-height:200px;display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:13px}
+
+/* Menu editor rows */
+.menu-row{display:grid;grid-template-columns:18px 1fr 1.4fr auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--border)}
+.menu-row:last-of-type{border-bottom:0}
+.menu-row-grip{color:var(--text-faint);font-size:14px;cursor:grab;user-select:none;text-align:center}
+@media(max-width:760px){.menu-row{grid-template-columns:1fr}}
 
 /* Keep / Discard toggle in import scan */
 .keep-btn{font-family:inherit;font-size:12px;font-weight:600;padding:5px 11px;border:1px solid var(--border);border-radius:var(--r-sm);cursor:pointer;background:var(--surface);color:var(--text-muted);transition:.15s}
