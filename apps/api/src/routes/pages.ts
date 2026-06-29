@@ -22,8 +22,11 @@ async function loadOwned(id: string, accountId: string) {
 }
 
 // GET /pages/:id/preview — text/html, rendered with the workspace's branding tokens
+// Query: ?edit=1 enables click-to-select behavior + section outlining for the editor
 pagesRouter.get('/:id/preview', requireAuth, async (req: AuthRequest, res) => {
-  const html = await renderPreview(String(req.params.id), req.user!.accountId)
+  const edit = req.query.edit === '1'
+  const sel = req.query.sel != null ? parseInt(String(req.query.sel), 10) : null
+  const html = await renderPreview(String(req.params.id), req.user!.accountId, { edit, selectedIndex: Number.isFinite(sel as number) ? sel : null })
   if (!html) return res.status(404).send('not found')
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
   res.send(html)

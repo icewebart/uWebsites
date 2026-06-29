@@ -4,15 +4,21 @@ import { api } from '@/lib/api'
 
 type Msg = { role: 'user' | 'assistant'; content: string }
 type Ctx = { type: string; title: string; blocks?: { type: string }[] } | undefined
+type Block = { type: string; props: Record<string, any> }
 
-const QUICK = [
+const QUICK_WS = [
   'Rebuild this site from the imported content, on-brand',
-  'Make the homepage more concise',
   'Suggest 5 article topics based on this site',
   'What’s missing for a strong launch?',
 ]
+const QUICK_PAGE = [
+  'Add a CTA banner at the end',
+  'Make the hero shorter and punchier',
+  'Replace the first section with a hero-image',
+  'Add a 3-column features section after the hero',
+]
 
-export function ChatPanel({ slug, pageContext }: { slug: string; pageContext?: Ctx }) {
+export function ChatPanel({ slug, pageId, pageContext, onMutate }: { slug: string; pageId?: string; pageContext?: Ctx; onMutate?: (blocks: Block[]) => void }) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
@@ -28,15 +34,28 @@ export function ChatPanel({ slug, pageContext }: { slug: string; pageContext?: C
     const next: Msg[] = [...messages, { role: 'user', content: t }]
     setMessages(next); setInput(''); setBusy(true)
     try {
-      const r = await api<{ reply: string }>('/ai/chat', {
-        method: 'POST',
-        body: JSON.stringify({ slug, messages: next, pageContext }),
-      })
-      setMessages((m) => [...m, { role: 'assistant', content: r.reply || '(no reply)' }])
+      if (pageId) {
+        // Tool-using page chat — AI can actually mutate the page
+        const r = await api<{ reply: string; blocks: Block[]; mutations: { tool: string; ok: boolean }[] }>('/ai/page-chat', {
+          method: 'POST', body: JSON.stringify({ slug, pageId, messages: next }),
+        })
+        const tail = r.mutations?.filter((m) => m.ok).length
+          ? `\n\n_Applied: ${r.mutations.filter((m) => m.ok).map((m) => m.tool).join(', ')}_`
+          : ''
+        setMessages((m) => [...m, { role: 'assistant', content: (r.reply || '(done)') + tail }])
+        if (onMutate && Array.isArray(r.blocks)) onMutate(r.blocks)
+      } else {
+        const r = await api<{ reply: string }>('/ai/chat', {
+          method: 'POST', body: JSON.stringify({ slug, messages: next, pageContext }),
+        })
+        setMessages((m) => [...m, { role: 'assistant', content: r.reply || '(no reply)' }])
+      }
     } catch (e: any) {
       setMessages((m) => [...m, { role: 'assistant', content: 'Error: ' + (e?.message || 'request failed') }])
     } finally { setBusy(false) }
   }
+
+  const QUICK = pageId ? QUICK_PAGE : QUICK_WS
 
   return (
     <>

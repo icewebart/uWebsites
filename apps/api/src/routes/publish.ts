@@ -67,8 +67,29 @@ function renderPage(page: any, body: string, t: any, ws: any, base: string) {
 </body></html>`
 }
 
+// Tiny script injected into the editor preview: announces clicked/hovered
+// sections to the parent via postMessage. NOT included in published output.
+const EDIT_SCRIPT = `<script>(function(){
+  function send(t,i){ try{ parent.postMessage({source:'uw-preview',type:t,index:i},'*'); }catch(e){} }
+  var hov=null;
+  document.addEventListener('click', function(e){
+    var el=e.target.closest('[data-section-index]'); if(!el) return;
+    e.preventDefault(); send('select', parseInt(el.getAttribute('data-section-index'),10));
+  }, true);
+  document.addEventListener('mouseover', function(e){
+    var el=e.target.closest('[data-section-index]'); if(!el) return;
+    if(hov && hov!==el){ hov.style.outline=''; hov.style.outlineOffset=''; }
+    hov=el; el.style.outline='2px solid rgba(143,215,241,.7)'; el.style.outlineOffset='-2px'; el.style.cursor='pointer';
+  });
+  document.addEventListener('mouseout', function(){
+    if(hov){ hov.style.outline=''; hov.style.outlineOffset=''; hov=null; }
+  });
+})();</script>`
+
 // Renderer is exported so the pages router can serve a single-page preview.
-export const renderPreview = async (id: string, accountId: string) => {
+// opts.edit wraps each section in a data-section-index div + injects the
+// click/hover script so the editor can detect selection.
+export const renderPreview = async (id: string, accountId: string, opts?: { edit?: boolean; selectedIndex?: number | null }) => {
   const [row] = await db.select({
     title: pages.title, blocks: pages.blocks, wsId: pages.workspaceId,
     wsName: workspaces.name, accId: workspaces.accountId,
@@ -78,7 +99,10 @@ export const renderPreview = async (id: string, accountId: string) => {
   const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, row.wsId)).limit(1)
   const t = (tok?.tokens as any) ?? DEFAULT_TOKENS
   const blocks = Array.isArray(row.blocks) ? (row.blocks as any[]) : []
-  return renderPage({ title: row.title }, blocks.map(renderBlock).join('\n'), t, { name: row.wsName }, '#')
+  const body = opts?.edit
+    ? blocks.map((b, i) => `<div data-section-index="${i}" data-section-kind="${esc(b.type)}" style="${i === opts.selectedIndex ? 'outline:2px solid #1D9E75;outline-offset:-2px;' : ''}">${renderBlock(b)}</div>`).join('\n') + EDIT_SCRIPT
+    : blocks.map(renderBlock).join('\n')
+  return renderPage({ title: row.title }, body, t, { name: row.wsName }, '#')
 }
 
 // POST /workspaces/:slug/publish
