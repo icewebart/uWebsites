@@ -2,17 +2,21 @@
 import { useState } from 'react'
 import { api } from '@/lib/api'
 
-type Direction = { id: string; label: string; tone: string; desc: string }
+type Direction = { id: string; label: string; tone?: string; desc: string }
 
-// Pre-canned visual directions. The `tone` string is what we pass to
-// /ai/rebuild-page so Claude tunes the layout + copy accordingly.
+// `auto` is the default — the API auto-picks a named aesthetic from the
+// imported brand (nav industry + brand colors). The named slugs map 1:1 to
+// the aesthetics defined in apps/api/src/lib/aesthetics.ts.
 const DIRECTIONS: Direction[] = [
-  { id: 'modern',  label: 'Modern minimalist', tone: 'modern, minimalist, plenty of whitespace, confident, scannable', desc: 'Clean lines, lots of whitespace, focused copy.' },
-  { id: 'bold',    label: 'Bold & confident',  tone: 'bold, high-contrast, energetic, punchy short headlines, strong CTAs', desc: 'High contrast, punchy headlines, strong CTAs.' },
-  { id: 'premium', label: 'Premium / elegant', tone: 'premium, elegant, restrained palette, refined typography, classy', desc: 'Refined typography, restrained palette.' },
-  { id: 'playful', label: 'Playful & warm',    tone: 'playful, friendly, warm tone, approachable, slight humour', desc: 'Friendly tone, approachable copy.' },
-  { id: 'editorial', label: 'Editorial',       tone: 'editorial, long-form-friendly, narrative, image-led', desc: 'Narrative voice, image-led layout.' },
-  { id: 'as-is',   label: 'Keep my brand voice', tone: 'preserve the original tone of voice exactly; only restructure layout', desc: 'Same voice, just better structure.' },
+  { id: 'auto',     label: 'Auto from brand',     desc: 'Pick the right aesthetic from your imported colors, fonts and nav industry. (Recommended)' },
+  { id: 'lyric',    label: 'Lyric',               desc: 'Warm + playful — family, learning, wellness, lifestyle.' },
+  { id: 'apex',     label: 'Apex',                desc: 'Navy + serif — law, finance, consulting, professional services.' },
+  { id: 'paymark',  label: 'Paymark',             desc: 'Dark fintech / B2B SaaS — confident, numbers-first.' },
+  { id: 'maison',   label: 'Maison',              desc: 'Editorial warm — hospitality, design, premium home brands.' },
+  { id: 'aquafix',  label: 'Aquafix',             desc: 'Trades + transparent pricing — plumbing, HVAC, repair, local services.' },
+  { id: 'launchpad',label: 'Launchpad',           desc: 'Pre-launch waitlist with urgency and live counter energy.' },
+  { id: 'stark',    label: 'Stark',               desc: 'Brutalist mono — agency, studio, portfolio. Black, white, one accent.' },
+  { id: 'obsidian', label: 'Obsidian',            desc: 'Dark cinematic luxury — jewelry, private clubs, high-end.' },
 ]
 
 export function AiRebuildModal({ open, pageId, pageTitle, snapshotUrl, onClose, onDone }: {
@@ -32,10 +36,12 @@ export function AiRebuildModal({ open, pageId, pageTitle, snapshotUrl, onClose, 
 
   async function rebuild() {
     setErr(''); setBusy(true)
-    const tone = [dir.tone, extra.trim()].filter(Boolean).join('. ')
+    const payload: any = { pageId }
+    if (dir.id !== 'auto') payload.aesthetic = dir.id
+    if (extra.trim()) payload.tone = extra.trim()
     try {
       const r = await api<{ title: string; blocks: any[] }>('/ai/rebuild-page', {
-        method: 'POST', body: JSON.stringify({ pageId, tone }),
+        method: 'POST', body: JSON.stringify(payload),
       })
       onDone(r); onClose()
     } catch (e: any) { setErr(e.message || 'Rebuild failed') } finally { setBusy(false) }
@@ -50,12 +56,12 @@ export function AiRebuildModal({ open, pageId, pageTitle, snapshotUrl, onClose, 
             : <div className="rebuild-thumb" />}
           <div className="rebuild-head-text">
             <h2>Rebuild "{pageTitle || 'this page'}" with AI</h2>
-            <p>AI keeps your real content and images. It restructures the page into a designed layout using the section catalog.</p>
+            <p>AI keeps your real content and images, then restructures the page in a named aesthetic — typography, palette, section roster and copy voice all chosen together.</p>
           </div>
         </div>
 
         <div className="rebuild-body">
-          <p className="rebuild-label">Choose a visual direction</p>
+          <p className="rebuild-label">Aesthetic</p>
           <div className="direction-grid">
             {DIRECTIONS.map((d) => (
               <button key={d.id} className={`direction ${dir.id === d.id ? 'sel' : ''}`} onClick={() => setDir(d)}>

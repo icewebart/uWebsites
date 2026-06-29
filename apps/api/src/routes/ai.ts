@@ -4,6 +4,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { db, workspaces, pages, brandingTokens, aiJobs } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { SECTIONS, SECTION_META } from '../lib/sections.js'
+import { pickAesthetic, aestheticPrompt, COPY_RULES, AESTHETICS } from '../lib/aesthetics.js'
 
 // AI: page generation + section rewrite. Lazy-init the client so the API
 // starts even without a key — the routes return 503 in that case.
@@ -91,6 +92,25 @@ async function siteBrief(workspaceId: string, workspaceName: string): Promise<st
   } catch { return null }
 }
 
+// Resolve the named aesthetic for a workspace — auto-picked from the imported
+// brand (nav labels for industry + primary color for darkness). The caller can
+// override by passing a slug in the route body (aesthetic: 'paymark' etc).
+async function resolveAesthetic(workspaceId: string, override?: string | null) {
+  if (override) {
+    const found = AESTHETICS.find((a) => a.slug === override)
+    if (found) return found
+  }
+  try {
+    const [row] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, workspaceId)).limit(1)
+    const tokens: any = row?.tokens || {}
+    const a = tokens.brand_assets || {}
+    const navLabels = (Array.isArray(a.nav) ? a.nav : []).map((n: any) => n?.text).filter(Boolean)
+    return pickAesthetic({ navLabels, primary: tokens.color?.primary, accent: tokens.color?.accent })
+  } catch {
+    return pickAesthetic({})
+  }
+}
+
 async function ownedWs(slug: string, accountId: string) {
   const [ws] = await db.select().from(workspaces)
     .where(and(eq(workspaces.slug, slug), eq(workspaces.accountId, accountId))).limit(1)
@@ -101,17 +121,24 @@ async function ownedWs(slug: string, accountId: string) {
 aiRouter.post('/generate-page', requireAuth, async (req: AuthRequest, res) => {
   const a = ai()
   if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
-  const { slug, prompt, type } = req.body ?? {}
+  const { slug, prompt, type, aesthetic: aestheticOverride } = req.body ?? {}
   if (!slug || !prompt) return res.status(400).json({ ok: false, error: 'slug and prompt required' })
   const ws = await ownedWs(String(slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
   const brief = await siteBrief(ws.id, ws.name)
+  const aesthetic = await resolveAesthetic(ws.id, aestheticOverride)
 
   try {
     const r = await a.messages.create({
       model: MODEL,
-      max_tokens: 4096,
-      system: `You generate uWebsites pages from the section catalog: ${SECTION_KINDS_LIST.join(', ')}. Always start with a hero or hero-image. Then mix sections appropriate to the page — features-3, image-text, testimonials-3, stats-row, pricing-3, logo-cloud, faq, cta-banner. End with cta-banner where useful. richtext is for prose; use semantic HTML only (p, h2, h3, ul, li, strong, em, a — no inline styles or scripts). Aim for 4–8 sections.${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
+      max_tokens: 5000,
+      system: `You generate uWebsites pages from the section catalog: ${SECTION_KINDS_LIST.join(', ')}. The page must feel like a real, opinionated site — not a generic template. THINK in two steps before emitting: (1) sketch the section order using the aesthetic's preferred roster, (2) write the copy IN THE AESTHETIC'S VOICE.
+
+${aestheticPrompt(aesthetic)}
+
+${COPY_RULES}
+
+richtext sections use semantic HTML only (p, h2, h3, ul, li, strong, em, a — no inline styles or scripts). Aim for 4–7 sections, every one fully populated.${brief ? '\n\nSITE CONTEXT (use this to anchor industry, audience, and voice — refer to it in your copy):\n' + brief : ''}`,
       tools: [{ name: 'page', description: 'The generated page.', input_schema: BLOCK_SCHEMA as any }],
       tool_choice: { type: 'tool', name: 'page' },
       messages: [{ role: 'user', content: prompt }],
@@ -215,6 +242,7 @@ aiRouter.post('/page-chat', requireAuth, async (req: AuthRequest, res) => {
   const catalogSummary = SECTIONS.map((s) => `${s.kind}: ${s.description}`).join('\n')
   const sectionList = blocks.map((b, i) => `${i}: ${b.type}`).join('\n')
   const brief = await siteBrief(ws.id, ws.name)
+  const aesthetic = await resolveAesthetic(ws.id)
 
   // Simple tool-use loop (max 3 hops to keep cost predictable).
   let convo: any[] = messages
@@ -228,7 +256,7 @@ aiRouter.post('/page-chat', requireAuth, async (req: AuthRequest, res) => {
       model: MODEL,
       max_tokens: 1500,
       tools: PAGE_TOOLS,
-      system: `You are the uWebsites page-builder assistant for "${ws.name}" / page "${page.title}". Use tools to make changes the user asks for; reply briefly with what you did. Section catalog:\n${catalogSummary}\n\nCurrent page sections (0-indexed):\n${sectionList || '(empty)'}${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
+      system: `You are the uWebsites page-builder assistant for "${ws.name}" / page "${page.title}". Use tools to make changes the user asks for; reply briefly with what you did. Whenever you add or rewrite copy, follow the aesthetic and copy rules below — they apply to EVERY edit, no matter how small.\n\n${aestheticPrompt(aesthetic)}\n\n${COPY_RULES}\n\nSection catalog:\n${catalogSummary}\n\nCurrent page sections (0-indexed):\n${sectionList || '(empty)'}${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
       messages: convo,
     })
     const toolUses = r.content.filter((c: any) => c.type === 'tool_use') as any[]
@@ -373,7 +401,7 @@ aiRouter.post('/chat', requireAuth, async (req: AuthRequest, res) => {
 aiRouter.post('/rebuild-page', requireAuth, async (req: AuthRequest, res) => {
   const a = ai()
   if (!a) return res.status(503).json({ ok: false, error: 'AI not configured.' })
-  const { pageId, tone } = req.body ?? {}
+  const { pageId, tone, aesthetic: aestheticOverride } = req.body ?? {}
   if (!pageId) return res.status(400).json({ ok: false, error: 'pageId required' })
 
   const [row] = await db.select({
@@ -395,16 +423,23 @@ aiRouter.post('/rebuild-page', requireAuth, async (req: AuthRequest, res) => {
   // but not the name — fetch it cheaply.
   const [wsRow] = await db.select({ name: workspaces.name }).from(workspaces).where(eq(workspaces.id, row.wsId)).limit(1)
   const brief = await siteBrief(row.wsId, wsRow?.name || 'this site')
+  const aesthetic = await resolveAesthetic(row.wsId, aestheticOverride)
 
   try {
     const r = await a.messages.create({
       model: MODEL,
-      max_tokens: 4096,
-      system: `Rebuild this page into a well-structured layout using the uWebsites section catalog: ${SECTION_KINDS_LIST.join(', ')}. PRESERVE the actual copy and image URLs from the source — extract a strong hero from the title and first paragraph, then break the body into a few designed sections. DO NOT invent facts; reword for clarity is OK.
+      max_tokens: 5000,
+      system: `Rebuild this page into a real, opinionated layout that reflects the named aesthetic below — NOT a generic template. THINK in two steps before emitting: (1) pick the section order using the aesthetic's preferred roster, (2) WRITE THE COPY IN THE AESTHETIC'S VOICE, drawing source material from the original page body but PUNCHING IT UP so it doesn't read like a content-management dump.
 
-CRITICAL: every section you include must be FULLY populated per the tool schema. NEVER emit a section with empty items/tiers/logos or missing required fields — empty sections render as blank white space. If you can't fill a section with real content from the source, skip it. Aim for 3–5 strong sections, not 6 thin ones.
+You may rewrite headlines, condense paragraphs into bullets, hoist the strongest claim into the hero, and split a wall of text into 3 features. Preserve image URLs and any concrete facts (prices, dates, named people, place names). Do NOT invent facts.
 
-Output via the page tool.${tone ? '\n\nTone: ' + tone : ''}${brief ? '\n\nSITE CONTEXT (use this to decide industry, audience, and voice):\n' + brief : ''}`,
+Section catalog: ${SECTION_KINDS_LIST.join(', ')}
+
+${aestheticPrompt(aesthetic)}
+
+${COPY_RULES}
+
+CRITICAL: every section must be FULLY populated per the tool schema. Empty items[]/tiers[]/logos[] render as blank white space — skip those sections instead. Aim for 4–6 strong sections, not 6 thin ones.${tone ? '\n\nAdditional tone notes: ' + tone : ''}${brief ? '\n\nSITE CONTEXT (anchor industry, audience, voice — refer back to it in your copy):\n' + brief : ''}`,
       tools: [{ name: 'page', description: 'The rebuilt page.', input_schema: BLOCK_SCHEMA as any }],
       tool_choice: { type: 'tool', name: 'page' },
       // Vision: when we have a snapshot of the original, pass it so Claude can
