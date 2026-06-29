@@ -319,10 +319,18 @@ export async function analyzeBranding(siteUrl: string) {
       if (fileMatch) pushFont(fileMatch[1].replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()))
     }
 
-    // Prioritise font-related CSS files so they're scanned even on pages with
-    // 30+ stylesheets (otherwise we'd burn the budget on layout / woo CSS).
+    // Prioritise CSS files we know carry brand info so the 8-file cap doesn't
+    // burn through layout / WooCommerce CSS while missing the palette.
+    //  - fonty: self-hosted google fonts + @font-face files
+    //  - branded: Elementor's per-page site-kit CSS (--e-global-color-* lives
+    //    in /elementor/css/post-N.css), plus theme-level style.css
     const isFonty = (h: string) => /\b(font|typography|google-fonts)\b/i.test(h)
-    const orderedHrefs = [...cssHrefs.filter(isFonty), ...cssHrefs.filter((h) => !isFonty(h))]
+    const isBranded = (h: string) => /\/elementor\/css\/post-\d+\.css|\/themes\/[^/]+\/style/i.test(h)
+    const orderedHrefs = [
+      ...cssHrefs.filter(isFonty),
+      ...cssHrefs.filter((h) => !isFonty(h) && isBranded(h)),
+      ...cssHrefs.filter((h) => !isFonty(h) && !isBranded(h)),
+    ]
     let css = inlineCss
     for (const href of orderedHrefs.slice(0, 8)) {
       try {
@@ -465,18 +473,24 @@ export async function analyzeBranding(siteUrl: string) {
     snapshot_url: snapshotUrl(site),
   }
 
-  // Vision pass — Claude looks at the logo + snapshot and tells us the real
-  // brand colors. Overrides the CSS-derived primary/accent when present.
-  // Hint Claude with the nav labels so it can reason about industry.
-  const visionHint = brand_assets.nav?.length
-    ? `Navigation includes: ${brand_assets.nav.slice(0, 6).map((n) => n.text).join(', ')}`
-    : undefined
-  const vision = await inferColorsFromVision(brand_assets.logo?.url || null, brand_assets.snapshot_url, visionHint)
-  if (vision?.primary) tokens.color.primary = vision.primary
-  if (vision?.accent) tokens.color.accent = vision.accent
+  // Vision pass — only invoked when CSS variable extraction produced no signal,
+  // since site-config vars (Elementor / theme.json palette) are what the owner
+  // actually picked and beat what Claude sees in a screenshot. We hint Claude
+  // with the nav labels so it can reason about the industry.
+  const hadVarSignal = !!(varHits.primary || varHits.accent || varHits.secondary)
+  let visionRan = false
+  if (!hadVarSignal) {
+    const visionHint = brand_assets.nav?.length
+      ? `Navigation includes: ${brand_assets.nav.slice(0, 6).map((n) => n.text).join(', ')}`
+      : undefined
+    const vision = await inferColorsFromVision(brand_assets.logo?.url || null, brand_assets.snapshot_url, visionHint)
+    if (vision?.primary) tokens.color.primary = vision.primary
+    if (vision?.accent) tokens.color.accent = vision.accent
+    visionRan = !!vision
+  }
 
   ;(tokens as any).brand_assets = brand_assets
-  return { site, tokens, suggestions: { colors: ranked.slice(0, 8), fonts: [...new Set([headingFont, bodyFont].filter(Boolean) as string[])] }, brand_assets, vision: !!vision }
+  return { site, tokens, suggestions: { colors: ranked.slice(0, 8), fonts: [...new Set([headingFont, bodyFont].filter(Boolean) as string[])] }, brand_assets, vision: visionRan }
 }
 
 // POST /import/branding — public endpoint that uses analyzeBranding
