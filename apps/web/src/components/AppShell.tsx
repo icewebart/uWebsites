@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
-import { IconDashboard, IconWebsite, IconArticles, IconBranding, IconStats, IconAi, IconMenu } from './icons'
+import { IconDashboard, IconWebsite, IconArticles, IconBranding, IconStats, IconAi, IconMenu, IconFooter } from './icons'
 import { ChatPanel } from './ChatPanel'
 
 type Workspace = { id: string; name: string; slug: string }
@@ -13,17 +13,19 @@ const NAV: NavEntry[] = [
   { label: 'Dashboard', Icon: IconDashboard },
   { label: 'Website', Icon: IconWebsite },
   { label: 'Menu', Icon: IconMenu, sub: true },
+  { label: 'Footer', Icon: IconFooter, sub: true },
   { label: 'Articles', Icon: IconArticles },
   { label: 'Branding', Icon: IconBranding },
   { label: 'Stats', Icon: IconStats },
 ]
 const PROFILE_ITEMS = ['Settings', 'Integrations', 'Email Setup', 'Billing']
 
-export function AppShell({ title, currentSlug, active = 'Dashboard', children, chatPageId, chatPageContext, onChatMutate }: {
+export function AppShell({ title, currentSlug, active = 'Dashboard', children, chatPageId, chatPageContext, onChatMutate, hideWorkspaceSwitch }: {
   title: string; currentSlug?: string; active?: string; children: React.ReactNode
   chatPageId?: string
   chatPageContext?: { type: string; title: string; blocks?: { type: string }[] }
   onChatMutate?: (blocks: { type: string; props: Record<string, any> }[]) => void
+  hideWorkspaceSwitch?: boolean
 }) {
   const router = useRouter()
   const [me, setMe] = useState<Me | null>(null)
@@ -56,6 +58,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               : !current ? undefined
               : label === 'Website' ? `/w/${current.slug}`
               : label === 'Menu' ? `/w/${current.slug}/menu`
+              : label === 'Footer' ? `/w/${current.slug}/footer`
               : label === 'Branding' ? `/w/${current.slug}/branding`
               : undefined
             const cls = `sidebar-link${label === active ? ' active' : ''}${sub ? ' sidebar-sub' : ''}`
@@ -86,6 +89,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
           <div className="topbar-right">
             <input className="topbar-search" placeholder="Search…" />
 
+            {!hideWorkspaceSwitch && (
             <div className="ws-switch">
               <button className="ws-chip" onClick={() => setWsOpen((o) => !o)} onBlur={() => setTimeout(() => setWsOpen(false), 150)}>
                 <span className="ws-ava">{(current?.name || '·').slice(0, 1).toUpperCase()}</span>
@@ -107,6 +111,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
                 </div>
               )}
             </div>
+            )}
 
             <span className="plan-badge">FREE</span>
             <button className="bell" aria-label="Notifications">

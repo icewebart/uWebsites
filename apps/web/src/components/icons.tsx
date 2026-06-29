@@ -18,6 +18,9 @@ export const IconBranding = ({ size }: P) => (
 export const IconMenu = ({ size }: P) => (
   <svg {...wrap(size)}><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h12" /></svg>
 )
+export const IconFooter = ({ size }: P) => (
+  <svg {...wrap(size)}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 16h18" /><path d="M7 19.5h2M11 19.5h2M15 19.5h2" /></svg>
+)
 export const IconStats = ({ size }: P) => (
   <svg {...wrap(size)}><path d="M3 21h18" /><rect x="5" y="13" width="3.5" height="6" /><rect x="10.25" y="9" width="3.5" height="10" /><rect x="15.5" y="5" width="3.5" height="14" /></svg>
 )

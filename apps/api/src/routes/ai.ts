@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import Anthropic from '@anthropic-ai/sdk'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { db, workspaces, pages, brandingTokens, aiJobs } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { SECTIONS, SECTION_META } from '../lib/sections.js'
@@ -423,6 +423,134 @@ Output via the page tool.${tone ? '\n\nTone: ' + tone : ''}${brief ? '\n\nSITE C
     res.json({ ok: true, data: { title: title || row.title, blocks } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'Rebuild failed: ' + (e?.message || 'unknown') })
+  }
+})
+
+// POST /ai/generate-nav — suggest menu items for header or footer using the
+// workspace's site brief + the list of pages that already exist. Returns
+// `{ items: [{label, href}], cta? }` (cta only for header). The caller PUTs
+// the result back to /workspaces/:slug/menus.
+const NAV_SCHEMA = {
+  type: 'object',
+  properties: {
+    items: {
+      type: 'array',
+      description: 'Ordered nav items. Use existing page paths from PAGES below when possible; only invent paths when the page truly does not exist yet.',
+      items: { type: 'object', properties: { label: { type: 'string' }, href: { type: 'string' } }, required: ['label', 'href'] },
+    },
+    cta: {
+      type: 'object',
+      description: 'Optional primary call-to-action button. Only for header location. Omit if the site does not need one.',
+      properties: { label: { type: 'string' }, href: { type: 'string' } },
+    },
+  },
+  required: ['items'],
+}
+
+aiRouter.post('/generate-nav', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
+  const { slug, location } = req.body ?? {}
+  const loc = location === 'footer' ? 'footer' : 'header'
+  if (!slug) return res.status(400).json({ ok: false, error: 'slug required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+
+  // Page list — give Claude real hrefs to link to instead of inventing /about
+  const pageRows = await db.select({ type: pages.type, slug: pages.slug, title: pages.title }).from(pages).where(eq(pages.workspaceId, ws.id))
+  const pageList = pageRows.map((p) => `  - "${p.title || p.slug}"  →  ${p.type === 'home' ? '/' : '/' + p.slug}`).join('\n') || '  (no pages yet)'
+  const brief = await siteBrief(ws.id, ws.name)
+
+  const intent = loc === 'header'
+    ? 'Build a HEADER navigation: 3–6 short items (1–2 words each) that cover the primary user journeys. Optionally include ONE main CTA (e.g. "Book a call", "Get started", "Sign up") when it matches the site\'s intent.'
+    : 'Build a FOOTER navigation: 4–10 utility / discoverability links (About, Contact, Legal, Resources, Categories, etc.). No CTA. Short labels (1–3 words).'
+
+  try {
+    const r = await a.messages.create({
+      model: MODEL,
+      max_tokens: 800,
+      system: `You design website navigation for uWebsites sites. Use REAL page hrefs from the list. Match the site's industry and tone. Avoid generic filler ("Home, About, Contact") when richer pages exist.${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
+      tools: [{ name: 'nav', description: 'Suggested navigation.', input_schema: NAV_SCHEMA as any }],
+      tool_choice: { type: 'tool', name: 'nav' },
+      messages: [{ role: 'user', content: `${intent}\n\nPAGES (use these hrefs when possible):\n${pageList}` }],
+    })
+    const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!toolUse) return res.status(502).json({ ok: false, error: 'Model returned no nav' })
+    const input = toolUse.input as { items: { label: string; href: string }[]; cta?: { label: string; href: string } }
+    const items = (input.items || []).slice(0, loc === 'header' ? 8 : 12).map((i) => ({ label: String(i.label || '').slice(0, 40), href: String(i.href || '').slice(0, 500) })).filter((i) => i.label && i.href)
+    const cta = loc === 'header' && input.cta?.label ? { label: String(input.cta.label).slice(0, 40), href: String(input.cta.href || '').slice(0, 500) } : undefined
+    await logAiJob(ws.id, 'edit', 'done', { source: 'generate-nav', location: loc, count: items.length }, 1)
+    res.json({ ok: true, data: { items, cta } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'AI nav generation failed: ' + (e?.message || 'unknown') })
+  }
+})
+
+// GET /ai/dashboard-suggestions — Claude looks at the account state (page
+// counts, last publish, missing pieces) and returns 3–5 prioritized next-step
+// suggestions. Cached client-side; the dashboard hits this once per load.
+const SUGGEST_SCHEMA = {
+  type: 'object',
+  properties: {
+    suggestions: {
+      type: 'array',
+      description: '3 to 5 ranked, actionable next-step suggestions for the account.',
+      items: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Short imperative (≤ 50 chars). e.g. "Publish your homepage", "Add 3 service pages".' },
+          rationale: { type: 'string', description: 'One sentence why this matters now, referencing the specific workspace state.' },
+          action: { type: 'string', description: 'What to click / where to go (free text), e.g. "Open the homepage and click Publish" or "Use AI page-chat to draft 3 pages".' },
+          impact: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Business impact ranking.' },
+        },
+        required: ['title', 'rationale', 'impact'],
+      },
+    },
+  },
+  required: ['suggestions'],
+}
+
+aiRouter.get('/dashboard-suggestions', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.json({ ok: true, data: { suggestions: [] } })
+  const wss = await db.select().from(workspaces).where(eq(workspaces.accountId, req.user!.accountId))
+  if (!wss.length) return res.json({ ok: true, data: { suggestions: [
+    { title: 'Create your first workspace', rationale: 'You haven\'t set up any sites yet — start with an import or a blank workspace.', impact: 'high', action: 'Click "+ New workspace" in the topbar.' },
+  ] } })
+
+  // Compile a compact JSON state for the model — counts only, no PII.
+  const state = await Promise.all(wss.map(async (w) => {
+    const [count] = await db.select({
+      all: sql<number>`count(*)::int`,
+      drafts: sql<number>`sum(case when ${pages.status}='draft' then 1 else 0 end)::int`,
+      pub: sql<number>`sum(case when ${pages.status}='published' then 1 else 0 end)::int`,
+      articles: sql<number>`sum(case when ${pages.type}='article' then 1 else 0 end)::int`,
+    }).from(pages).where(eq(pages.workspaceId, w.id))
+    const [home] = await db.select({ id: pages.id, seo: pages.seo }).from(pages).where(and(eq(pages.workspaceId, w.id), eq(pages.type, 'home'))).limit(1)
+    const [tokens] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, w.id)).limit(1)
+    return {
+      name: w.name,
+      pages: count?.all ?? 0, drafts: count?.drafts ?? 0, published: count?.pub ?? 0, articles: count?.articles ?? 0,
+      hasHome: !!home, importedFrom: ((home?.seo as any)?.import_source?.url) ?? null,
+      brandingDone: !!tokens?.tokens,
+    }
+  }))
+
+  try {
+    const r = await a.messages.create({
+      model: MODEL,
+      max_tokens: 1500,
+      system: 'You are a website-builder operations advisor. Given JSON state for an account\'s workspaces, propose the 3-5 most impactful next steps — concrete, ranked by impact. Refer to workspaces by name. Prefer "publish now" / "fill gap" / "produce content" over generic advice. No fluff.',
+      tools: [{ name: 'suggest', description: 'Return next-step suggestions.', input_schema: SUGGEST_SCHEMA as any }],
+      tool_choice: { type: 'tool', name: 'suggest' },
+      messages: [{ role: 'user', content: `Account state:\n${JSON.stringify(state, null, 2)}\n\nReturn 3-5 prioritized suggestions.` }],
+    })
+    const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!toolUse) return res.json({ ok: true, data: { suggestions: [] } })
+    const items = (toolUse.input as any).suggestions || []
+    res.json({ ok: true, data: { suggestions: items.slice(0, 5) } })
+  } catch (e: any) {
+    res.json({ ok: true, data: { suggestions: [], error: e?.message || 'AI suggestion failed' } })
   }
 })
 

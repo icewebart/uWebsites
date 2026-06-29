@@ -47,6 +47,33 @@ workspacesRouter.put('/:slug', requireAuth, async (req: AuthRequest, res) => {
   res.json({ ok: true, data: updated })
 })
 
+// Walk a block tree and count internal vs external hrefs. Internal = starts
+// with "/" or matches the workspace's own preview/published origin; external =
+// http(s) with a different host. Used for the dashboard KPI tiles.
+function countLinks(blocks: any[]): { internal: number; external: number } {
+  let internal = 0, external = 0
+  const isInternal = (href: string) => !!href && (href.startsWith('/') || href.startsWith('#'))
+  const isExternal = (href: string) => /^https?:\/\//i.test(href)
+  const bump = (href: any) => {
+    if (typeof href !== 'string') return
+    if (isInternal(href)) internal++
+    else if (isExternal(href)) external++
+  }
+  const walkProps = (props: any) => {
+    if (!props || typeof props !== 'object') return
+    bump(props.cta_href); bump(props.href); bump(props.url)
+    // richtext: scan <a href="..."> in the html string
+    if (typeof props.html === 'string') {
+      for (const m of props.html.matchAll(/<a\s+[^>]*href=["']([^"']+)["']/gi)) bump(m[1])
+    }
+    if (Array.isArray(props.items)) for (const it of props.items) walkProps(it)
+    if (Array.isArray(props.tiers)) for (const t of props.tiers) walkProps(t)
+    if (Array.isArray(props.logos)) for (const l of props.logos) walkProps(l)
+  }
+  for (const b of blocks || []) walkProps(b?.props)
+  return { internal, external }
+}
+
 // GET /workspaces/overview — dashboard summary for the account.
 // Returns per-workspace page counts, draft/published splits, latest build, a
 // connected domain (if any), the homepage id (for previews), and the source
@@ -54,13 +81,29 @@ workspacesRouter.put('/:slug', requireAuth, async (req: AuthRequest, res) => {
 workspacesRouter.get('/overview', requireAuth, async (req: AuthRequest, res) => {
   const wss = await db.select().from(workspaces).where(eq(workspaces.accountId, req.user!.accountId))
   const items = await Promise.all(wss.map(async (w) => {
-    const [count] = await db.select({ all: sql<number>`count(*)::int`, drafts: sql<number>`sum(case when ${pages.status}='draft' then 1 else 0 end)::int`, pub: sql<number>`sum(case when ${pages.status}='published' then 1 else 0 end)::int` }).from(pages).where(eq(pages.workspaceId, w.id))
+    const [count] = await db.select({
+      all: sql<number>`count(*)::int`,
+      drafts: sql<number>`sum(case when ${pages.status}='draft' then 1 else 0 end)::int`,
+      pub: sql<number>`sum(case when ${pages.status}='published' then 1 else 0 end)::int`,
+      articles: sql<number>`sum(case when ${pages.type}='article' and ${pages.status}='published' then 1 else 0 end)::int`,
+    }).from(pages).where(eq(pages.workspaceId, w.id))
     const [home] = await db.select({ id: pages.id, title: pages.title, seo: pages.seo }).from(pages).where(and(eq(pages.workspaceId, w.id), eq(pages.type, 'home'))).limit(1)
     const [lastBuild] = await db.select().from(builds).where(eq(builds.workspaceId, w.id)).orderBy(desc(builds.deployedAt)).limit(1)
     const [domain] = await db.select().from(domains).where(and(eq(domains.workspaceId, w.id), eq(domains.status, 'connected'))).limit(1)
+
+    // Aggregate link counts by walking every page's blocks JSON.
+    const pageRows = await db.select({ blocks: pages.blocks }).from(pages).where(eq(pages.workspaceId, w.id))
+    let internalLinks = 0, externalLinks = 0
+    for (const p of pageRows) {
+      const c = countLinks(p.blocks as any[] || [])
+      internalLinks += c.internal; externalLinks += c.external
+    }
+
     return {
       id: w.id, name: w.name, slug: w.slug, createdAt: w.createdAt,
       pages: count?.all ?? 0, drafts: count?.drafts ?? 0, published: count?.pub ?? 0,
+      articles: count?.articles ?? 0,
+      internalLinks, externalLinks,
       homeId: home?.id ?? null, homeTitle: home?.title ?? null,
       importSource: ((home?.seo as any)?.import_source?.url) ?? null,
       lastPublishedAt: lastBuild?.deployedAt ?? null,
@@ -72,8 +115,11 @@ workspacesRouter.get('/overview', requireAuth, async (req: AuthRequest, res) => 
     pages: a.pages + x.pages,
     drafts: a.drafts + x.drafts,
     published: a.published + x.published,
+    articles: a.articles + x.articles,
+    internalLinks: a.internalLinks + x.internalLinks,
+    externalLinks: a.externalLinks + x.externalLinks,
     domains: a.domains + (x.connectedDomain ? 1 : 0),
-  }), { workspaces: 0, pages: 0, drafts: 0, published: 0, domains: 0 })
+  }), { workspaces: 0, pages: 0, drafts: 0, published: 0, articles: 0, internalLinks: 0, externalLinks: 0, domains: 0 })
 
   // Real AI metering — last 30 days, across the account's workspaces.
   const wsIds = wss.map((w) => w.id)
