@@ -476,7 +476,7 @@ export async function analyzeBranding(siteUrl: string) {
   if (vision?.accent) tokens.color.accent = vision.accent
 
   ;(tokens as any).brand_assets = brand_assets
-  return { site, tokens, suggestions: { colors: ranked.slice(0, 8), fonts: [...new Set([headingFont, bodyFont].filter(Boolean) as string[])] }, brand_assets, vision: !!vision, debug: { allFonts: googleFonts.slice(0, 12), headingFont, bodyFont, cssHrefsCount: cssHrefs.length, fontyHrefs: cssHrefs.filter((h) => /font/i.test(h)).slice(0, 6) } }
+  return { site, tokens, suggestions: { colors: ranked.slice(0, 8), fonts: [...new Set([headingFont, bodyFont].filter(Boolean) as string[])] }, brand_assets, vision: !!vision }
 }
 
 // POST /import/branding — public endpoint that uses analyzeBranding
