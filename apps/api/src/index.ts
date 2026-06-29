@@ -34,6 +34,10 @@ app.use('/workspaces', publishRouter)
 app.use('/import', importRouter)
 app.use('/pages', pagesRouter)
 app.use('/ai', aiRouter)
+// Public — the section catalog used by the editor's section-gallery picker
+// and as grounding for the chat. No tenant data; safe to be unauthenticated.
+import { SECTIONS as __SECTIONS } from './lib/sections.js'
+app.get('/sections', (_req, res) => res.json({ ok: true, data: __SECTIONS }))
 app.use('/workspaces', domainsRouter)
 
 app.listen(PORT, () => console.log(`[uwebsites-api] listening on :${PORT}`))

@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 import { ChatPanel } from '@/components/ChatPanel'
+import { SectionPicker } from '@/components/SectionPicker'
 
 type Block = { type: string; props: Record<string, any> }
 type PageData = {
@@ -25,6 +26,7 @@ export default function PageEditor() {
   const [err, setErr] = useState('')
   const [previewKey, setPreviewKey] = useState(0)
   const [pvTab, setPvTab] = useState<'preview' | 'original'>('preview')
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   useEffect(() => {
     api<PageData>(`/pages/${pageId}`)
@@ -53,11 +55,9 @@ export default function PageEditor() {
       setBlocks((bs) => bs.map((b, idx) => (idx === i ? { ...b, props: { ...b.props, ...r.props } } : b)))
     } catch (e: any) { alert(e.message || 'Rewrite failed') }
   }
-  function add(type: string) {
-    const props = type === 'hero' ? { heading: '', sub: '' }
-      : type === 'image' ? { url: '', alt: '' }
-      : { html: '' }
-    setBlocks((bs) => [...bs, { type, props }])
+  function addFromCatalog(s: { kind: string; defaults: Record<string, any> }) {
+    setBlocks((bs) => [...bs, { type: s.kind, props: structuredClone(s.defaults) }])
+    setPickerOpen(false)
   }
 
   async function save() {
@@ -111,17 +111,41 @@ export default function PageEditor() {
               <div className="field" style={{ marginBottom: 0 }}><label>Alt text</label><input className="inp" value={b.props.alt || ''} onChange={(e) => upd(i, { alt: e.target.value })} placeholder="What's in this image?" /></div>
               {b.props.url && <img src={b.props.url} alt={b.props.alt || ''} style={{ marginTop: 10, maxWidth: '100%', borderRadius: 8 }} />}
             </>)}
-            {b.type !== 'hero' && b.type !== 'richtext' && b.type !== 'image' && (
+            {b.type === 'hero-image' && (<>
+              <div className="field"><label>Heading</label><input className="inp" value={b.props.heading || ''} onChange={(e) => upd(i, { heading: e.target.value })} /></div>
+              <div className="field"><label>Subheading</label><input className="inp" value={b.props.sub || ''} onChange={(e) => upd(i, { sub: e.target.value })} /></div>
+              <div className="field"><label>Image URL</label><input className="inp" value={b.props.image_url || ''} onChange={(e) => upd(i, { image_url: e.target.value })} placeholder="https://…" /></div>
+              <div className="field"><label>Image alt</label><input className="inp" value={b.props.image_alt || ''} onChange={(e) => upd(i, { image_alt: e.target.value })} /></div>
+              <div className="field"><label>CTA label</label><input className="inp" value={b.props.cta_label || ''} onChange={(e) => upd(i, { cta_label: e.target.value })} /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>CTA link</label><input className="inp" value={b.props.cta_href || ''} onChange={(e) => upd(i, { cta_href: e.target.value })} /></div>
+            </>)}
+            {b.type === 'features-3' && (<>
+              <div className="field"><label>Heading</label><input className="inp" value={b.props.heading || ''} onChange={(e) => upd(i, { heading: e.target.value })} /></div>
+              <div className="field"><label>Subheading</label><input className="inp" value={b.props.sub || ''} onChange={(e) => upd(i, { sub: e.target.value })} /></div>
+              {(b.props.items || []).slice(0, 3).map((it: any, j: number) => (
+                <div className="field" key={j}>
+                  <label>Item {j + 1}</label>
+                  <input className="inp" placeholder="Title" value={it.title || ''} onChange={(e) => upd(i, { items: (b.props.items || []).map((x: any, k: number) => k === j ? { ...x, title: e.target.value } : x) })} />
+                  <input className="inp" style={{ marginTop: 6 }} placeholder="Description" value={it.desc || ''} onChange={(e) => upd(i, { items: (b.props.items || []).map((x: any, k: number) => k === j ? { ...x, desc: e.target.value } : x) })} />
+                </div>
+              ))}
+            </>)}
+            {b.type === 'cta-banner' && (<>
+              <div className="field"><label>Heading</label><input className="inp" value={b.props.heading || ''} onChange={(e) => upd(i, { heading: e.target.value })} /></div>
+              <div className="field"><label>Subheading</label><input className="inp" value={b.props.sub || ''} onChange={(e) => upd(i, { sub: e.target.value })} /></div>
+              <div className="field"><label>Button label</label><input className="inp" value={b.props.cta_label || ''} onChange={(e) => upd(i, { cta_label: e.target.value })} /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>Button link</label><input className="inp" value={b.props.cta_href || ''} onChange={(e) => upd(i, { cta_href: e.target.value })} /></div>
+            </>)}
+            {!['hero','richtext','image','hero-image','features-3','cta-banner'].includes(b.type) && (
               <div className="muted" style={{ fontSize: 13 }}>No editor for "{b.type}" blocks yet.</div>
             )}
           </div>
         ))}
 
         <div className="add-block">
-          <button className="btn btn-secondary" onClick={() => add('hero')}>＋ Hero</button>
-          <button className="btn btn-secondary" onClick={() => add('richtext')}>＋ Text</button>
-          <button className="btn btn-secondary" onClick={() => add('image')}>＋ Image</button>
+          <button className="btn btn-secondary" onClick={() => setPickerOpen(true)}>＋ Add section</button>
         </div>
+        <SectionPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={addFromCatalog} />
 
         <div className="err" style={{ marginTop: 16 }}>{err}</div>
         <div className="save-row">

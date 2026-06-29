@@ -4,6 +4,7 @@ import { mkdir, writeFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { db, workspaces, pages, brandingTokens, builds } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
+import { renderSection, SECTION_CSS, SECTIONS, esc as escSh } from '../lib/sections.js'
 
 // Publisher — compiles a workspace's pages (+ branding tokens) to static
 // HTML/CSS on disk, served by nginx. One box (ADR-012), so we write locally;
@@ -21,9 +22,7 @@ const DEFAULT_TOKENS: any = {
 }
 const GOOGLE_FONTS = new Set(['Space Grotesk', 'Inter', 'Poppins'])
 
-function esc(s: any) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
+const esc = escSh
 
 function fontsHead(t: any) {
   const fams = [...new Set([t.font.heading, t.font.body])].filter((f) => GOOGLE_FONTS.has(f))
@@ -52,25 +51,13 @@ section + section{padding-top:0}
 .site-header{border-bottom:var(--bw) solid rgba(0,0,0,.08)}
 .site-header .container{display:flex;align-items:center;justify-content:space-between;padding-top:16px;padding-bottom:16px}
 .brand{font-family:'${t.font.heading}',sans-serif;font-weight:700;font-size:18px;color:var(--text);text-decoration:none}
-.site-footer{border-top:var(--bw) solid rgba(0,0,0,.08);padding:36px 0;font-size:13px;opacity:.65}`
+.site-footer{border-top:var(--bw) solid rgba(0,0,0,.08);padding:36px 0;font-size:13px;opacity:.65}
+${SECTION_CSS}`
 }
 
-function renderBlock(b: any) {
-  if (!b || typeof b !== 'object') return ''
-  const p = b.props || {}
-  if (b.type === 'hero') {
-    const cta = p.cta && p.cta.label ? `<p><a class="btn" href="${esc(p.cta.href || '#')}">${esc(p.cta.label)}</a></p>` : ''
-    return `<section class="hero"><div class="container"><h1>${esc(p.heading)}</h1>${p.sub ? `<p class="sub">${esc(p.sub)}</p>` : ''}${cta}</div></section>`
-  }
-  if (b.type === 'richtext') {
-    return `<section class="rt"><div class="container">${p.html || ''}</div></section>`
-  }
-  if (b.type === 'image') {
-    if (!p.url) return ''
-    return `<section class="img"><div class="container"><img src="${esc(p.url)}" alt="${esc(p.alt || '')}" loading="lazy"></div></section>`
-  }
-  return `<!-- ${esc(b.type)} block not rendered -->`
-}
+// Per-section render lives in lib/sections.ts so the catalog drives both the
+// renderer and the editor's gallery. publish.ts just composes the page.
+const renderBlock = renderSection
 
 function renderPage(page: any, body: string, t: any, ws: any, base: string) {
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(page.title)} — ${esc(ws.name)}</title>${fontsHead(t)}<style>${siteCss(t)}</style></head><body>

@@ -148,8 +148,23 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 .block-ctrls button{width:28px;height:28px;border:1px solid var(--border);background:var(--surface);border-radius:var(--r-sm);cursor:pointer;color:var(--text-muted);font-size:13px}
 .block-ctrls button:hover:not(:disabled){border-color:var(--forest);color:var(--forest)}
 .block-ctrls button:disabled{opacity:.4;cursor:not-allowed}
-.add-block{display:flex;gap:8px;margin-top:6px}
-.add-block .btn{font-size:12px;padding:7px 12px}
+.add-block{display:flex;justify-content:center;margin:10px 0 4px}
+.add-block .btn{font-size:13px}
+
+/* Section gallery modal */
+.modal-veil{position:fixed;inset:0;background:rgba(22,36,46,.35);display:flex;align-items:center;justify-content:center;z-index:50}
+.modal{width:min(820px,92vw);max-height:86vh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow-lg)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border)}
+.modal-head h2{font-size:16px;font-weight:600}
+.modal-head button{width:32px;height:32px;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-muted);border-radius:var(--r-sm);cursor:pointer}
+.modal-body{padding:18px 22px 22px}
+.modal-cat-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin:14px 0 8px}
+.modal-cat-label:first-child{margin-top:0}
+.section-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.section-pick{text-align:left;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:14px;cursor:pointer;display:flex;flex-direction:column;gap:6px;font-family:inherit}
+.section-pick:hover{border-color:var(--forest);background:var(--bg-subtle)}
+.section-pick b{font-size:13px;font-weight:600}
+.section-pick span{font-size:12px;color:var(--text-faint)}
 textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.6}
 .save-row{display:flex;align-items:center;gap:12px;margin-top:20px}
 .saved-tag{font-size:12px;color:var(--text-faint)}

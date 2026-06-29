@@ -16,7 +16,9 @@ function ai(): Anthropic | null {
 }
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8'
 
-// Strict tool — Claude returns a typed block tree (no parsing of free-form JSON).
+// Strict tool — Claude returns a typed block tree (no parsing of free-form
+// JSON). Kept loose-ish on inner props because oneOf is finicky; we validate
+// the kind name and the renderer is forgiving on missing props.
 const BLOCK_SCHEMA = {
   type: 'object',
   properties: {
@@ -25,10 +27,12 @@ const BLOCK_SCHEMA = {
       type: 'array',
       description: 'Ordered list of typed sections.',
       items: {
-        oneOf: [
-          { type: 'object', properties: { type: { const: 'hero' }, props: { type: 'object', properties: { heading: { type: 'string' }, sub: { type: 'string' } }, required: ['heading'] } }, required: ['type', 'props'] },
-          { type: 'object', properties: { type: { const: 'richtext' }, props: { type: 'object', properties: { html: { type: 'string', description: 'Safe semantic HTML — p, h2, h3, ul, ol, li, strong, em, a only.' } }, required: ['html'] } }, required: ['type', 'props'] },
-        ],
+        type: 'object',
+        properties: {
+          type: { type: 'string', enum: ['hero', 'hero-image', 'richtext', 'image', 'features-3', 'cta-banner'], description: 'Section kind from the uWebsites catalog.' },
+          props: { type: 'object', description: 'Section-specific props. hero/hero-image: {heading, sub, cta_label?, cta_href?, image_url?, image_alt?}. richtext: {html}. image: {url, alt}. features-3: {heading, sub?, items:[{title,desc} x3]}. cta-banner: {heading, sub?, cta_label, cta_href}.' },
+        },
+        required: ['type', 'props'],
       },
     },
   },
@@ -54,7 +58,7 @@ aiRouter.post('/generate-page', requireAuth, async (req: AuthRequest, res) => {
     const r = await a.messages.create({
       model: MODEL,
       max_tokens: 4096,
-      system: 'You generate uWebsites pages. Output must be on-brand, mobile-friendly, and scannable. Use a single hero block at the top, followed by 2–5 richtext sections with semantic HTML (no inline styles, no scripts, no images).',
+      system: `You generate uWebsites pages from the section catalog: hero, hero-image, richtext, image, features-3, cta-banner. Always start with a hero or hero-image. Mix in features-3 / cta-banner where useful. Keep richtext semantic (p, h2, h3, ul, li, strong, em, a only — no inline styles or scripts). Be concise; aim for 4–7 sections.`,
       tools: [{ name: 'page', description: 'The generated page.', input_schema: BLOCK_SCHEMA as any }],
       tool_choice: { type: 'tool', name: 'page' },
       messages: [{ role: 'user', content: prompt }],
