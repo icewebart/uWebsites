@@ -4,7 +4,7 @@ import { mkdir, writeFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { db, workspaces, pages, brandingTokens, builds } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
-import { renderSection, SECTION_CSS, SECTIONS, esc as escSh } from '../lib/sections.js'
+import { renderSection, SECTION_CSS, SECTIONS, sectionHasContent, esc as escSh } from '../lib/sections.js'
 
 // Publisher — compiles a workspace's pages (+ branding tokens) to static
 // HTML/CSS on disk, served by nginx. One box (ADR-012), so we write locally;
@@ -73,6 +73,8 @@ const EDIT_SCRIPT = `<style>
 [data-field]{ outline-offset:2px; }
 [data-field]:hover{ outline:1px dashed rgba(143,215,241,.9); cursor:text; }
 [data-field][contenteditable=true]{ outline:2px solid #1D9E75; background:rgba(143,215,241,.08); cursor:text; }
+[data-section-index][data-empty="true"]{ position:relative; min-height:90px; border:2px dashed #f5a623; background:rgba(245,166,35,.06); margin:8px 0; border-radius:10px; }
+[data-section-index][data-empty="true"]::before{ content:"Empty " attr(data-section-kind) " section — click to edit, or remove it"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#a76300; font-family:system-ui,sans-serif; font-size:13px; font-weight:600; pointer-events:none; }
 </style>
 <script>(function(){
   function send(o){ try{ parent.postMessage(Object.assign({source:'uw-preview'}, o), '*'); }catch(e){} }
@@ -133,7 +135,12 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
   const t = (tok?.tokens as any) ?? DEFAULT_TOKENS
   const blocks = Array.isArray(row.blocks) ? (row.blocks as any[]) : []
   const body = opts?.edit
-    ? blocks.map((b, i) => `<div data-section-index="${i}" data-section-kind="${esc(b.type)}" style="${i === opts.selectedIndex ? 'outline:2px solid #1D9E75;outline-offset:-2px;' : ''}">${renderSection(b, { edit: true })}</div>`).join('\n') + EDIT_SCRIPT
+    ? blocks.map((b, i) => {
+        const empty = !sectionHasContent(b)
+        const sel = i === opts.selectedIndex ? 'outline:2px solid #1D9E75;outline-offset:-2px;' : ''
+        const emptyAttr = empty ? ' data-empty="true"' : ''
+        return `<div data-section-index="${i}" data-section-kind="${esc(b.type)}"${emptyAttr} style="${sel}">${empty ? '' : renderSection(b, { edit: true })}</div>`
+      }).join('\n') + EDIT_SCRIPT
     : blocks.map((b) => renderBlock(b)).join('\n')
   return renderPage({ title: row.title }, body, t, { name: row.wsName }, '#')
 }

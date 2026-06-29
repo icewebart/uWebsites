@@ -33,7 +33,22 @@ const BLOCK_SCHEMA = {
         type: 'object',
         properties: {
           type: { type: 'string', enum: SECTION_KINDS_LIST, description: 'Section kind from the uWebsites catalog.' },
-          props: { type: 'object', description: 'Section-specific props. See SECTIONS catalog for shapes — hero/hero-image, richtext, image, features-3, cta-banner, testimonials-3, pricing-3, faq, logo-cloud, image-text, stats-row.' },
+          props: { type: 'object', description: [
+            'Section props by kind. Provide REAL content for EVERY field listed — empty arrays/strings render as blank white sections.',
+            '- hero: { heading (REQUIRED, full sentence), sub (recommended), cta_label, cta_href }',
+            '- hero-image: { heading (REQUIRED), sub, image_url (REQUIRED — use an existing URL from the page), image_alt, cta_label, cta_href }',
+            '- richtext: { html (REQUIRED, semantic HTML: p/h2/h3/ul/li/strong/em/a) }',
+            '- image: { url (REQUIRED), alt }',
+            '- features-3: { heading (REQUIRED), sub, items (REQUIRED — exactly 3, each { title, desc }) }',
+            '- cta-banner: { heading (REQUIRED), sub, cta_label (REQUIRED), cta_href }',
+            '- testimonials-3: { heading, items (REQUIRED — 1 to 3, each { quote, author, role }) }',
+            '- pricing-3: { heading, tiers (REQUIRED — 2 to 3, each { name, price, period, items: [string,...], cta_label, cta_href, featured: boolean }) }',
+            '- faq: { heading (REQUIRED), items (REQUIRED — at least 2, each { q, a }) }',
+            '- logo-cloud: { heading, logos (REQUIRED — only include this section if you have real logo URLs) }',
+            '- image-text: { heading (REQUIRED), html (REQUIRED — at least one <p>), image_url (REQUIRED), image_alt, image_side: "left"|"right" }',
+            '- stats-row: { heading, items (REQUIRED — exactly 3, each { value, label }) }',
+            'RULE: if you do not have material to populate a section properly, DO NOT include it. Prefer 3 fully-populated sections over 6 empty ones.',
+          ].join('\n') },
         },
         required: ['type', 'props'],
       },
@@ -384,7 +399,11 @@ aiRouter.post('/rebuild-page', requireAuth, async (req: AuthRequest, res) => {
     const r = await a.messages.create({
       model: MODEL,
       max_tokens: 4096,
-      system: `Rebuild this page into a well-structured layout using the uWebsites section catalog: ${SECTION_KINDS_LIST.join(', ')}. PRESERVE the actual copy and image URLs from the source — extract a strong hero, then break the body into 3–6 designed sections (features-3, image-text, testimonials-3 if it contains testimonials, stats-row if it contains numbers/stats, pricing-3 if it contains pricing tiers, faq for Q&A, cta-banner at the end). DO NOT invent facts; reword for clarity is OK. Output via the page tool.${tone ? ' Tone: ' + tone : ''}${brief ? '\n\nSITE CONTEXT (use this to decide industry, audience, and voice):\n' + brief : ''}`,
+      system: `Rebuild this page into a well-structured layout using the uWebsites section catalog: ${SECTION_KINDS_LIST.join(', ')}. PRESERVE the actual copy and image URLs from the source — extract a strong hero from the title and first paragraph, then break the body into a few designed sections. DO NOT invent facts; reword for clarity is OK.
+
+CRITICAL: every section you include must be FULLY populated per the tool schema. NEVER emit a section with empty items/tiers/logos or missing required fields — empty sections render as blank white space. If you can't fill a section with real content from the source, skip it. Aim for 3–5 strong sections, not 6 thin ones.
+
+Output via the page tool.${tone ? '\n\nTone: ' + tone : ''}${brief ? '\n\nSITE CONTEXT (use this to decide industry, audience, and voice):\n' + brief : ''}`,
       tools: [{ name: 'page', description: 'The rebuilt page.', input_schema: BLOCK_SCHEMA as any }],
       tool_choice: { type: 'tool', name: 'page' },
       messages: [{ role: 'user', content: `Title: ${heroTitle}\nSubhead: ${heroSub}\nSource URL: ${sourceUrl || '(unknown)'}\nAvailable images: ${images.join(', ') || '(none)'}\n\nBody HTML:\n${bodyHtml || '(empty)'}` }],

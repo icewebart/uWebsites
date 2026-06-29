@@ -154,6 +154,31 @@ export const SECTIONS: SectionMeta[] = [
 
 export const SECTION_META: Record<string, SectionMeta> = Object.fromEntries(SECTIONS.map((s) => [s.kind, s]))
 
+// True when the section will render something visible. Used in edit mode to
+// flag empty sections so the editor can highlight them ("you added it but it
+// has no content yet"). Mirrors the renderer's emptiness conditions.
+export function sectionHasContent(b: any): boolean {
+  if (!b || typeof b !== 'object') return false
+  const p = b.props || {}
+  const has = (s: any) => typeof s === 'string' && s.trim().length > 0
+  const arrOk = (a: any, min = 1) => Array.isArray(a) && a.length >= min
+  switch (b.type as SectionKind) {
+    case 'hero': return has(p.heading) || has(p.sub) || has(p.cta_label)
+    case 'hero-image': return has(p.heading) || has(p.image_url)
+    case 'richtext': return has(p.html)
+    case 'image': return has(p.url)
+    case 'features-3': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.desc))
+    case 'cta-banner': return has(p.heading) || has(p.cta_label)
+    case 'testimonials-3': return arrOk(p.items) && p.items.some((i: any) => has(i?.quote))
+    case 'pricing-3': return arrOk(p.tiers) && p.tiers.some((t: any) => has(t?.name) || has(t?.price))
+    case 'faq': return arrOk(p.items) && p.items.some((i: any) => has(i?.q) || has(i?.a))
+    case 'logo-cloud': return arrOk(p.logos) && p.logos.some((l: any) => has(l?.url))
+    case 'image-text': return has(p.heading) || has(p.html) || has(p.image_url)
+    case 'stats-row': return arrOk(p.items) && p.items.some((i: any) => has(i?.value) || has(i?.label))
+    default: return false
+  }
+}
+
 // ---- shared escapers used by both renderer and chat tools ----
 export function esc(s: any): string {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')

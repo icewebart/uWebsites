@@ -86,18 +86,18 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
             <div className="ws-switch">
               <button className="ws-chip" onClick={() => setWsOpen((o) => !o)} onBlur={() => setTimeout(() => setWsOpen(false), 150)}>
                 <span className="ws-ava">{(current?.name || '·').slice(0, 1).toUpperCase()}</span>
-                {current?.name || 'Workspace'} <span className="chev">▾</span>
+                <span className="ws-chip-name">{current?.name || 'Workspace'}</span> <span className="chev">▾</span>
               </button>
               {wsOpen && (
                 <div className="ws-menu">
                   {current && (<>
                     <div className="ws-menu-label">Current workspace</div>
-                    <div className="ws-item"><span className="ws-ava">{current.name.slice(0, 1).toUpperCase()}</span>{current.name}<span className="check">✓</span></div>
+                    <div className="ws-item"><span className="ws-ava">{current.name.slice(0, 1).toUpperCase()}</span><span>{current.name}</span><span className="check">✓</span></div>
                   </>)}
                   {others.length > 0 && <div className="ws-menu-label">Switch to</div>}
                   {others.map((w) => (
                     <a key={w.id} className="ws-item" href={`/w/${w.slug}`}>
-                      <span className="ws-ava">{w.name.slice(0, 1).toUpperCase()}</span>{w.name}
+                      <span className="ws-ava">{w.name.slice(0, 1).toUpperCase()}</span><span>{w.name}</span>
                     </a>
                   ))}
                   <a className="ws-item add" href="/onboarding">＋ Create new workspace</a>

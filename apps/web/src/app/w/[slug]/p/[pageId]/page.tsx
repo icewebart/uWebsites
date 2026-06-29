@@ -125,6 +125,7 @@ export default function PageEditor() {
         <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Page title" />
         <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="draft">Draft</option><option value="published">Published</option></select>
         {savedAt && <span className="muted" style={{ fontSize: 12 }}>Saved {savedAt}</span>}
+        <a className="btn btn-ghost" href={`${API_URL}/pages/${pageId}/preview`} target="_blank" rel="noreferrer" title="Open in a new tab (without editor UI)">↗ Preview</a>
         {page?.seo?.import_source && (
           <button className="btn btn-secondary" onClick={() => setRebuildOpen(true)} title="Restructure into a designed layout using the section catalog">✦ AI rebuild</button>
         )}
