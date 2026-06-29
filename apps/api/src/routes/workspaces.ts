@@ -37,23 +37,6 @@ workspacesRouter.post('/', requireAuth, async (req: AuthRequest, res) => {
   res.json({ ok: true, data: ws })
 })
 
-// GET /workspaces/overview — account-level stats for the dashboard
-workspacesRouter.get('/overview', requireAuth, async (req: AuthRequest, res) => {
-  const acc = req.user!.accountId
-  const wss = await db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.accountId, acc))
-  const ids = wss.map((w) => w.id)
-  let pageCount = 0, articleCount = 0, published = 0
-  if (ids.length) {
-    const ps = await db.select({ id: pages.id, type: pages.type }).from(pages).where(inArray(pages.workspaceId, ids))
-    pageCount = ps.length
-    articleCount = ps.filter((p) => p.type === 'article').length
-    const bs = await db.select({ wid: builds.workspaceId }).from(builds)
-      .where(and(inArray(builds.workspaceId, ids), eq(builds.status, 'deployed')))
-    published = new Set(bs.map((b) => b.wid)).size
-  }
-  res.json({ ok: true, data: { workspaces: wss.length, pages: pageCount, articles: articleCount, published } })
-})
-
 // PUT /workspaces/:slug — rename a workspace (slug kept stable to preserve URLs)
 workspacesRouter.put('/:slug', requireAuth, async (req: AuthRequest, res) => {
   const ws = await ownedWorkspace(String(req.params.slug), req.user!.accountId)
