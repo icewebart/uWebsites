@@ -1,8 +1,41 @@
 import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
+import Anthropic from '@anthropic-ai/sdk'
 import { db, workspaces, pages, redirects, brandingTokens } from '@uwebsites/db'
 import { upsertMenu } from './menus.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
+
+// Ask Claude Vision for real brand colors based on the logo + homepage
+// snapshot. Much more reliable than CSS frequency for sites where the brand
+// colors live in image assets. Returns null on any failure — caller falls
+// back to CSS-based extraction.
+async function inferColorsFromVision(logoUrl: string | null, snapshotUrl: string | null, hint?: string): Promise<{ primary?: string; accent?: string } | null> {
+  if (!process.env.ANTHROPIC_API_KEY) return null
+  const urls = [logoUrl, snapshotUrl].filter(Boolean) as string[]
+  if (!urls.length) return null
+  try {
+    const a = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    const content: any[] = [
+      ...urls.map((u) => ({ type: 'image', source: { type: 'url', url: u } })),
+      { type: 'text', text: `Examine the brand assets above (logo and/or homepage screenshot${hint ? `; site context: ${hint}` : ''}).\n\nIdentify the brand's PRIMARY color (the dominant brand color, usually the logo colour or button colour) and ACCENT color (the secondary highlight). Return ONLY a single JSON object exactly in this format, no commentary:\n{"primary":"#rrggbb","accent":"#rrggbb"}` },
+    ]
+    const r = await a.messages.create({
+      model: process.env.ANTHROPIC_MODEL || 'claude-opus-4-8',
+      max_tokens: 200,
+      messages: [{ role: 'user', content }],
+    })
+    const text = r.content.map((b: any) => b.type === 'text' ? b.text : '').join('')
+    const m = text.match(/\{[\s\S]*?\}/)
+    if (!m) return null
+    const parsed = JSON.parse(m[0])
+    const ok = (s: any) => typeof s === 'string' && /^#[0-9a-fA-F]{6}$/.test(s)
+    if (!ok(parsed.primary) && !ok(parsed.accent)) return null
+    return {
+      primary: ok(parsed.primary) ? parsed.primary.toLowerCase() : undefined,
+      accent: ok(parsed.accent) ? parsed.accent.toLowerCase() : undefined,
+    }
+  } catch { return null }
+}
 
 // Importer — TS port of the Phase-0 spike. `scanSite` pulls a WordPress site
 // via the public REST API and classifies every URL; /scan previews it, /commit
@@ -249,7 +282,14 @@ export async function analyzeBranding(siteUrl: string) {
     // Collect CSS hrefs (same-origin) and Google Fonts families
     const cssHrefs = Array.from(home.matchAll(/<link[^>]+rel=["']stylesheet["'][^>]*href=["']([^"']+)["']/gi)).map((m) => m[1])
     const inlineCss = Array.from(home.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)).map((m) => m[1]).join('\n')
-    const googleFonts = Array.from(home.matchAll(/fonts\.googleapis\.com[^"']*family=([^"'&]+)/gi)).map((m) => decodeURIComponent(m[1].split(':')[0].replace(/\+/g, ' ')))
+    // Google Fonts: a single href can contain multiple `family=` params; capture them all.
+    const googleFonts: string[] = []
+    for (const linkMatch of home.matchAll(/fonts\.googleapis\.com\/css[^"'\s]+/gi)) {
+      for (const fam of linkMatch[0].matchAll(/family=([^&"']+)/gi)) {
+        const name = decodeURIComponent(fam[1].split(':')[0].replace(/\+/g, ' ')).trim()
+        if (name && !googleFonts.includes(name)) googleFonts.push(name)
+      }
+    }
 
     let css = inlineCss
     for (const href of cssHrefs.slice(0, 4)) {
@@ -321,15 +361,28 @@ export async function analyzeBranding(siteUrl: string) {
     const finalPrimary = varHits.primary || useRanked[0] || '#16324A'
     const finalAccent = varHits.accent || varHits.secondary || useRanked.find((c) => c !== finalPrimary) || '#8FD7F1'
 
-    // Font: first non-generic family from stack, else first Google font
-    const famMatch = css.match(/font-family\s*:\s*([^;}]+)/i)
-    let bodyFont: string | null = null
-    if (famMatch) {
-      const first = famMatch[1].split(',')[0].trim().replace(/^["']|["']$/g, '')
-      if (first && !/^(serif|sans-serif|monospace|system-ui|inherit|initial)$/i.test(first)) bodyFont = first
+    // Font extraction — pick the actual heading + body fonts from CSS rules
+    // (not just the first font-family declaration, which is usually a reset).
+    const firstFamily = (s: string): string | null => {
+      const first = s.split(',')[0].trim().replace(/^["']|["']$/g, '')
+      if (!first) return null
+      if (/^(serif|sans-serif|monospace|system-ui|-apple-system|blinkmacsystemfont|inherit|initial|unset|var\(|"")$/i.test(first)) return null
+      return first
     }
-    if (!bodyFont && googleFonts.length) bodyFont = googleFonts[0]
-    const headingFont = googleFonts.length > 1 ? googleFonts[0] : bodyFont || 'Inter'
+    const findFontFor = (selectorRe: RegExp): string | null => {
+      for (const rule of css.matchAll(new RegExp(`(${selectorRe.source})\\s*\\{[^}]*font-family\\s*:\\s*([^;}]+)`, 'gi'))) {
+        const f = firstFamily(rule[2])
+        if (f) return f
+      }
+      return null
+    }
+    let headingFont = findFontFor(/h1|h2|h3|\.h1|\.h2|\.headline|\.hero h1/i)
+    let bodyFont = findFontFor(/body|html|\.entry-content|\.content/i)
+    // Resolve via Google Fonts if CSS gave us a CSS variable or a generic family
+    if (!headingFont && googleFonts.length) headingFont = googleFonts[0]
+    if (!bodyFont && googleFonts.length) bodyFont = googleFonts.find((f) => f !== headingFont) || googleFonts[0]
+    if (!headingFont) headingFont = bodyFont || 'Inter'
+    if (!bodyFont) bodyFont = headingFont
 
     // Button radius — first border-radius near a .btn/button selector
     let btnRadius: string | null = null
@@ -356,8 +409,19 @@ export async function analyzeBranding(siteUrl: string) {
     cta: extractCta(home, site),
     snapshot_url: snapshotUrl(site),
   }
+
+  // Vision pass — Claude looks at the logo + snapshot and tells us the real
+  // brand colors. Overrides the CSS-derived primary/accent when present.
+  // Hint Claude with the nav labels so it can reason about industry.
+  const visionHint = brand_assets.nav?.length
+    ? `Navigation includes: ${brand_assets.nav.slice(0, 6).map((n) => n.text).join(', ')}`
+    : undefined
+  const vision = await inferColorsFromVision(brand_assets.logo?.url || null, brand_assets.snapshot_url, visionHint)
+  if (vision?.primary) tokens.color.primary = vision.primary
+  if (vision?.accent) tokens.color.accent = vision.accent
+
   ;(tokens as any).brand_assets = brand_assets
-  return { site, tokens, suggestions: { colors: ranked.slice(0, 8), fonts: [...new Set([headingFont, bodyFont].filter(Boolean) as string[])] }, brand_assets }
+  return { site, tokens, suggestions: { colors: ranked.slice(0, 8), fonts: [...new Set([headingFont, bodyFont].filter(Boolean) as string[])] }, brand_assets, vision: !!vision }
 }
 
 // POST /import/branding — public endpoint that uses analyzeBranding

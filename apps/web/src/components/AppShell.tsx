@@ -8,10 +8,11 @@ import { ChatPanel } from './ChatPanel'
 type Workspace = { id: string; name: string; slug: string }
 type Me = { id: string; email: string }
 
-const NAV: { label: string; Icon: (p: { size?: number }) => React.JSX.Element }[] = [
+type NavEntry = { label: string; Icon: (p: { size?: number }) => React.JSX.Element; sub?: boolean }
+const NAV: NavEntry[] = [
   { label: 'Dashboard', Icon: IconDashboard },
   { label: 'Website', Icon: IconWebsite },
-  { label: 'Menu', Icon: IconMenu },
+  { label: 'Menu', Icon: IconMenu, sub: true },
   { label: 'Articles', Icon: IconArticles },
   { label: 'Branding', Icon: IconBranding },
   { label: 'Stats', Icon: IconStats },
@@ -49,7 +50,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
       <aside className="sidebar">
         <div className="sidebar-brand"><img className="logo-full" src="/uwebsites.svg" alt="uWebsites" /></div>
         <nav className="sidebar-nav">
-          {NAV.map(({ label, Icon }) => {
+          {NAV.map(({ label, Icon, sub }) => {
             const href = label === 'Dashboard' ? '/'
               : label === 'Stats' ? '/stats'
               : !current ? undefined
@@ -57,7 +58,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               : label === 'Menu' ? `/w/${current.slug}/menu`
               : label === 'Branding' ? `/w/${current.slug}/branding`
               : undefined
-            const cls = `sidebar-link${label === active ? ' active' : ''}`
+            const cls = `sidebar-link${label === active ? ' active' : ''}${sub ? ' sidebar-sub' : ''}`
             const inner = <><Icon size={18} />{label}</>
             return href
               ? <a key={label} href={href} className={cls}>{inner}</a>
