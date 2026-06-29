@@ -29,6 +29,7 @@ export default function PageEditor() {
   const [previewKey, setPreviewKey] = useState(0)
   const [pvTab, setPvTab] = useState<'preview' | 'original'>('preview')
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerMode, setPickerMode] = useState<'add' | 'replace'>('add')
   const [catalog, setCatalog] = useState<Record<string, Section>>({})
 
   useEffect(() => {
@@ -68,9 +69,17 @@ export default function PageEditor() {
     else if (selected !== null && selected > i) setSelected(selected - 1)
   }
   function addFromCatalog(s: Section) {
-    setBlocks((bs) => [...bs, { type: s.kind, props: structuredClone(s.defaults) }])
-    setSelected(blocks.length)
-    setPickerOpen(false)
+    if (pickerMode === 'replace' && selected !== null) {
+      // Keep shared text-y props where it makes sense (heading/sub/title carry over)
+      const cur = blocks[selected]
+      const carry: Record<string, any> = {}
+      for (const k of ['heading', 'sub', 'title']) if (cur?.props?.[k]) carry[k] = cur.props[k]
+      setBlocks((bs) => bs.map((b, idx) => idx === selected ? { type: s.kind, props: { ...structuredClone(s.defaults), ...carry } } : b))
+    } else {
+      setBlocks((bs) => [...bs, { type: s.kind, props: structuredClone(s.defaults) }])
+      setSelected(blocks.length)
+    }
+    setPickerOpen(false); setPickerMode('add')
   }
   async function aiRewrite(i: number) {
     const block = blocks[i]; if (!block) return
@@ -159,6 +168,7 @@ export default function PageEditor() {
               <SectionForm block={sel} onChange={(partial) => upd(selected, partial)} />
               <div className="ev-actions">
                 <button onClick={() => aiRewrite(selected)} title="Rewrite with AI">↻ AI rewrite</button>
+                <button onClick={() => { setPickerMode('replace'); setPickerOpen(true) }} title="Replace with another section kind">⇄ Replace</button>
                 <button onClick={() => move(selected, -1)} disabled={selected === 0} title="Move up">↑</button>
                 <button onClick={() => move(selected, 1)} disabled={selected === blocks.length - 1} title="Move down">↓</button>
                 <button className="danger" onClick={() => remove(selected)} title="Delete">✕</button>
@@ -228,6 +238,100 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
         <div className="field"><label>Subheading</label><input className="inp" value={p.sub || ''} onChange={(e) => onChange({ sub: e.target.value })} /></div>
         <div className="field"><label>Button label</label><input className="inp" value={p.cta_label || ''} onChange={(e) => onChange({ cta_label: e.target.value })} /></div>
         <div className="field" style={{ marginBottom: 0 }}><label>Button link</label><input className="inp" value={p.cta_href || ''} onChange={(e) => onChange({ cta_href: e.target.value })} /></div>
+      </>)
+    case 'testimonials-3':
+      return (<>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        {(p.items || []).slice(0, 3).map((it: any, j: number) => (
+          <div className="field" key={j}>
+            <label>Testimonial {j + 1}</label>
+            <textarea className="inp" placeholder="Quote" value={it.quote || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, quote: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Author" value={it.author || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, author: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Role" value={it.role || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, role: e.target.value } : x))} />
+          </div>
+        ))}
+      </>)
+    case 'pricing-3': {
+      const setTiers = (tiers: any[]) => onChange({ tiers })
+      return (<>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        {(p.tiers || []).slice(0, 3).map((t: any, j: number) => (
+          <div className="field" key={j}>
+            <label>Tier {j + 1}{t.featured ? ' · featured' : ''}</label>
+            <input className="inp" placeholder="Name" value={t.name || ''} onChange={(e) => setTiers((p.tiers || []).map((x: any, k: number) => k === j ? { ...x, name: e.target.value } : x))} />
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <input className="inp" placeholder="€19" value={t.price || ''} onChange={(e) => setTiers((p.tiers || []).map((x: any, k: number) => k === j ? { ...x, price: e.target.value } : x))} />
+              <input className="inp" placeholder="/mo" value={t.period || ''} onChange={(e) => setTiers((p.tiers || []).map((x: any, k: number) => k === j ? { ...x, period: e.target.value } : x))} />
+            </div>
+            <textarea className="inp" style={{ marginTop: 6 }} placeholder="One feature per line" value={(t.items || []).join('\n')} onChange={(e) => setTiers((p.tiers || []).map((x: any, k: number) => k === j ? { ...x, items: e.target.value.split('\n').filter(Boolean) } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Button label" value={t.cta_label || ''} onChange={(e) => setTiers((p.tiers || []).map((x: any, k: number) => k === j ? { ...x, cta_label: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Button link" value={t.cta_href || ''} onChange={(e) => setTiers((p.tiers || []).map((x: any, k: number) => k === j ? { ...x, cta_href: e.target.value } : x))} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+              <input type="checkbox" checked={!!t.featured} onChange={(e) => setTiers((p.tiers || []).map((x: any, k: number) => ({ ...x, featured: k === j ? e.target.checked : false })))} />
+              Mark as "Most popular"
+            </label>
+          </div>
+        ))}
+      </>)
+    }
+    case 'faq':
+      return (<>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        {(p.items || []).map((it: any, j: number) => (
+          <div className="field" key={j}>
+            <label>Q&amp;A {j + 1}</label>
+            <input className="inp" placeholder="Question" value={it.q || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, q: e.target.value } : x))} />
+            <textarea className="inp" style={{ marginTop: 6 }} placeholder="Answer" value={it.a || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, a: e.target.value } : x))} />
+          </div>
+        ))}
+        <div className="ev-actions" style={{ marginTop: 4 }}>
+          <button onClick={() => setItems([...(p.items || []), { q: '', a: '' }])}>＋ Add Q&amp;A</button>
+          {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
+        </div>
+      </>)
+    case 'logo-cloud': {
+      const setLogos = (logos: any[]) => onChange({ logos })
+      return (<>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        {(p.logos || []).map((l: any, j: number) => (
+          <div className="field" key={j}>
+            <label>Logo {j + 1}</label>
+            <input className="inp" placeholder="Image URL" value={l.url || ''} onChange={(e) => setLogos((p.logos || []).map((x: any, k: number) => k === j ? { ...x, url: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Alt" value={l.alt || ''} onChange={(e) => setLogos((p.logos || []).map((x: any, k: number) => k === j ? { ...x, alt: e.target.value } : x))} />
+          </div>
+        ))}
+        <div className="ev-actions" style={{ marginTop: 4 }}>
+          <button onClick={() => setLogos([...(p.logos || []), { url: '', alt: '' }])}>＋ Add logo</button>
+          {(p.logos || []).length > 0 && <button className="danger" onClick={() => setLogos((p.logos || []).slice(0, -1))}>− Remove last</button>}
+        </div>
+      </>)
+    }
+    case 'image-text':
+      return (<>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        <div className="field"><label>Body (HTML)</label><textarea className="inp" value={p.html || ''} onChange={(e) => onChange({ html: e.target.value })} /></div>
+        <div className="field"><label>Image URL</label><input className="inp" value={p.image_url || ''} onChange={(e) => onChange({ image_url: e.target.value })} placeholder="https://…" /></div>
+        <div className="field"><label>Image alt</label><input className="inp" value={p.image_alt || ''} onChange={(e) => onChange({ image_alt: e.target.value })} /></div>
+        <div className="field" style={{ marginBottom: 0 }}><label>Image side</label>
+          <select className="inp" value={p.image_side || 'right'} onChange={(e) => onChange({ image_side: e.target.value })}>
+            <option value="right">Right</option><option value="left">Left</option>
+          </select>
+        </div>
+      </>)
+    case 'stats-row':
+      return (<>
+        <div className="field"><label>Heading (optional)</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        {(p.items || []).map((it: any, j: number) => (
+          <div className="field" key={j}>
+            <label>Stat {j + 1}</label>
+            <input className="inp" placeholder="Value (e.g. 80+)" value={it.value || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, value: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Label" value={it.label || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, label: e.target.value } : x))} />
+          </div>
+        ))}
+        <div className="ev-actions" style={{ marginTop: 4 }}>
+          <button onClick={() => setItems([...(p.items || []), { value: '', label: '' }])}>＋ Add stat</button>
+          {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
+        </div>
       </>)
     default:
       return <div className="muted" style={{ fontSize: 13 }}>No editor for "{block.type}" sections yet.</div>

@@ -16,6 +16,8 @@ function ai(): Anthropic | null {
   return client
 }
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8'
+const SECTION_KINDS = SECTIONS.map((s) => s.kind)
+const SECTION_KINDS_LIST = [...SECTION_KINDS]
 
 // Strict tool — Claude returns a typed block tree (no parsing of free-form
 // JSON). Kept loose-ish on inner props because oneOf is finicky; we validate
@@ -30,8 +32,8 @@ const BLOCK_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          type: { type: 'string', enum: ['hero', 'hero-image', 'richtext', 'image', 'features-3', 'cta-banner'], description: 'Section kind from the uWebsites catalog.' },
-          props: { type: 'object', description: 'Section-specific props. hero/hero-image: {heading, sub, cta_label?, cta_href?, image_url?, image_alt?}. richtext: {html}. image: {url, alt}. features-3: {heading, sub?, items:[{title,desc} x3]}. cta-banner: {heading, sub?, cta_label, cta_href}.' },
+          type: { type: 'string', enum: SECTION_KINDS_LIST, description: 'Section kind from the uWebsites catalog.' },
+          props: { type: 'object', description: 'Section-specific props. See SECTIONS catalog for shapes — hero/hero-image, richtext, image, features-3, cta-banner, testimonials-3, pricing-3, faq, logo-cloud, image-text, stats-row.' },
         },
         required: ['type', 'props'],
       },
@@ -59,7 +61,7 @@ aiRouter.post('/generate-page', requireAuth, async (req: AuthRequest, res) => {
     const r = await a.messages.create({
       model: MODEL,
       max_tokens: 4096,
-      system: `You generate uWebsites pages from the section catalog: hero, hero-image, richtext, image, features-3, cta-banner. Always start with a hero or hero-image. Mix in features-3 / cta-banner where useful. Keep richtext semantic (p, h2, h3, ul, li, strong, em, a only — no inline styles or scripts). Be concise; aim for 4–7 sections.`,
+      system: `You generate uWebsites pages from the section catalog: ${SECTION_KINDS_LIST.join(', ')}. Always start with a hero or hero-image. Then mix sections appropriate to the page — features-3, image-text, testimonials-3, stats-row, pricing-3, logo-cloud, faq, cta-banner. End with cta-banner where useful. richtext is for prose; use semantic HTML only (p, h2, h3, ul, li, strong, em, a — no inline styles or scripts). Aim for 4–8 sections.`,
       tools: [{ name: 'page', description: 'The generated page.', input_schema: BLOCK_SCHEMA as any }],
       tool_choice: { type: 'tool', name: 'page' },
       messages: [{ role: 'user', content: prompt }],
@@ -85,8 +87,6 @@ aiRouter.post('/generate-page', requireAuth, async (req: AuthRequest, res) => {
 // sections, restyle branding). Tools execute server-side against the DB. The
 // endpoint loads the page after tool calls and returns the new blocks so the
 // client can refresh the preview iframe.
-const SECTION_KINDS = SECTIONS.map((s) => s.kind)
-
 const PAGE_TOOLS: Anthropic.Tool[] = [
   { name: 'add_section', description: 'Append a new section to the page. Kind must come from the catalog. Props use the section\'s schema; pass only fields you want to set (defaults fill the rest).', input_schema: {
     type: 'object',
