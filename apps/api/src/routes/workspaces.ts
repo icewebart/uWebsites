@@ -1,6 +1,6 @@
 import { Router } from 'express'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
-import { db, workspaces, memberships, pages, brandingTokens, builds, domains } from '@uwebsites/db'
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
+import { db, workspaces, memberships, pages, brandingTokens, builds, domains, aiJobs } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 
 export const workspacesRouter = Router()
@@ -91,7 +91,24 @@ workspacesRouter.get('/overview', requireAuth, async (req: AuthRequest, res) => 
     published: a.published + x.published,
     domains: a.domains + (x.connectedDomain ? 1 : 0),
   }), { workspaces: 0, pages: 0, drafts: 0, published: 0, domains: 0 })
-  res.json({ ok: true, data: { items, totals } })
+
+  // Real AI metering — last 30 days, across the account's workspaces.
+  const wsIds = wss.map((w) => w.id)
+  let ai = { creditsMonth: 0, articles: 0, rewrites: 0, rebuilds: 0, chats: 0 }
+  if (wsIds.length) {
+    const since = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+    const rows = await db.select({ kind: aiJobs.kind, cost: aiJobs.costCredits, input: aiJobs.input })
+      .from(aiJobs).where(and(inArray(aiJobs.workspaceId, wsIds), gte(aiJobs.createdAt, since), eq(aiJobs.status, 'done')))
+    for (const r of rows) {
+      ai.creditsMonth += r.cost ?? 0
+      const src = (r.input as any)?.source
+      if (r.kind === 'article' && src === 'rebuild') ai.rebuilds++
+      else if (r.kind === 'article') ai.articles++
+      else if (r.kind === 'edit' && (src === 'chat' || src === 'page-chat')) ai.chats++
+      else if (r.kind === 'edit') ai.rewrites++
+    }
+  }
+  res.json({ ok: true, data: { items, totals, ai } })
 })
 
 // GET /workspaces/:slug/pages — list pages in a workspace (account-scoped)

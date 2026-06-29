@@ -39,12 +39,15 @@ export default function PageEditor() {
     api<Section[]>(`/sections`).then((arr) => setCatalog(Object.fromEntries(arr.map((s) => [s.kind, s])))).catch(() => {})
   }, [pageId])
 
-  // listen for section selection clicks from the preview iframe
+  // listen for section selection clicks + inline text edits from the preview iframe
   useEffect(() => {
     function onMsg(ev: MessageEvent) {
       const d: any = ev.data
       if (!d || d.source !== 'uw-preview') return
       if (d.type === 'select' && typeof d.index === 'number') setSelected(d.index)
+      if (d.type === 'text' && typeof d.index === 'number' && typeof d.field === 'string') {
+        setBlocks((bs) => bs.map((b, i) => i === d.index ? { ...b, props: { ...b.props, [d.field]: d.value } } : b))
+      }
     }
     window.addEventListener('message', onMsg)
     return () => window.removeEventListener('message', onMsg)
@@ -85,7 +88,7 @@ export default function PageEditor() {
     const instruction = window.prompt('How should AI rewrite this section?', 'Make it shorter and more energetic.')
     if (!instruction) return
     try {
-      const r = await api<{ props: Record<string, any> }>('/ai/rewrite-block', { method: 'POST', body: JSON.stringify({ block, instruction }) })
+      const r = await api<{ props: Record<string, any> }>('/ai/rewrite-block', { method: 'POST', body: JSON.stringify({ block, instruction, slug }) })
       setBlocks((bs) => bs.map((b, idx) => (idx === i ? { ...b, props: { ...b.props, ...r.props } } : b)))
     } catch (e: any) { alert(e.message || 'Rewrite failed') }
   }

@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import Anthropic from '@anthropic-ai/sdk'
 import { and, eq } from 'drizzle-orm'
-import { db, workspaces, pages, brandingTokens } from '@uwebsites/db'
+import { db, workspaces, pages, brandingTokens, aiJobs } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { SECTIONS, SECTION_META } from '../lib/sections.js'
 
@@ -42,6 +42,14 @@ const BLOCK_SCHEMA = {
   required: ['title', 'blocks'],
 }
 
+// Best-effort AI usage logging. We don't fail the route on a log-write error.
+// `kind` reuses the existing ai_job_kind enum (article | edit | image | import).
+// We discriminate sub-types via input.source ("generate" / "rebuild" / "chat" / "rewrite").
+async function logAiJob(workspaceId: string | null, kind: 'article' | 'edit' | 'image' | 'import', status: 'done' | 'failed', input: any, costCredits = 1, outputRef?: string | null) {
+  if (!workspaceId) return
+  try { await db.insert(aiJobs).values({ workspaceId, kind, status, input: input ?? {}, costCredits, outputRef: outputRef ?? null }) } catch {}
+}
+
 async function ownedWs(slug: string, accountId: string) {
   const [ws] = await db.select().from(workspaces)
     .where(and(eq(workspaces.slug, slug), eq(workspaces.accountId, accountId))).limit(1)
@@ -76,6 +84,7 @@ aiRouter.post('/generate-page', requireAuth, async (req: AuthRequest, res) => {
       workspaceId: ws.id, type: pageType as any, slug: pageSlug,
       title, status: 'draft', blocks: blocks as any,
     }).returning()
+    await logAiJob(ws.id, 'article', 'done', { source: 'generate', prompt: String(prompt).slice(0, 500), title: created.title }, 1, created.id)
     res.json({ ok: true, data: { id: created.id, slug: created.slug, title: created.title } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'AI generation failed: ' + (e?.message || 'unknown') })
@@ -272,6 +281,7 @@ aiRouter.post('/page-chat', requireAuth, async (req: AuthRequest, res) => {
     await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
   }
 
+  await logAiJob(ws.id, 'edit', 'done', { source: 'page-chat', pageId: page.id, mutations: mutations.length }, 1)
   res.json({ ok: true, data: { reply: finalText || '(no message)', blocks, mutations } })
 })
 
@@ -305,6 +315,7 @@ aiRouter.post('/chat', requireAuth, async (req: AuthRequest, res) => {
         .map((m: any) => ({ role: m.role, content: m.content })),
     })
     const reply = r.content.map((b: any) => (b.type === 'text' ? b.text : '')).join('')
+    await logAiJob(ws.id, 'edit', 'done', { source: 'chat' }, 1)
     res.json({ ok: true, data: { reply } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'Chat failed: ' + (e?.message || 'unknown') })
@@ -349,6 +360,7 @@ aiRouter.post('/rebuild-page', requireAuth, async (req: AuthRequest, res) => {
     if (!toolUse) return res.status(502).json({ ok: false, error: 'Model returned no rebuilt page' })
     const { title, blocks } = toolUse.input as { title: string; blocks: any[] }
     await db.update(pages).set({ title: title || row.title, blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, row.id))
+    await logAiJob(row.wsId, 'article', 'done', { source: 'rebuild', pageId: row.id }, 2, row.id)
     res.json({ ok: true, data: { title: title || row.title, blocks } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'Rebuild failed: ' + (e?.message || 'unknown') })
@@ -359,8 +371,9 @@ aiRouter.post('/rebuild-page', requireAuth, async (req: AuthRequest, res) => {
 aiRouter.post('/rewrite-block', requireAuth, async (req: AuthRequest, res) => {
   const a = ai()
   if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
-  const { block, instruction } = req.body ?? {}
+  const { block, instruction, slug } = req.body ?? {}
   if (!block || !instruction) return res.status(400).json({ ok: false, error: 'block and instruction required' })
+  const ws = slug ? await ownedWs(String(slug), req.user!.accountId) : null
   try {
     const r = await a.messages.create({
       model: MODEL, max_tokens: 1500,
@@ -371,6 +384,7 @@ aiRouter.post('/rewrite-block', requireAuth, async (req: AuthRequest, res) => {
     const m = txt.match(/\{[\s\S]*\}/)
     if (!m) return res.status(502).json({ ok: false, error: 'no JSON in response' })
     const parsed = JSON.parse(m[0])
+    await logAiJob(ws?.id ?? null, 'edit', 'done', { source: 'rewrite-block', kind: block.type }, 1)
     res.json({ ok: true, data: { props: parsed.props || parsed } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'AI rewrite failed: ' + (e?.message || 'unknown') })

@@ -250,18 +250,22 @@ export const SECTION_CSS = `
 `
 
 // ---- per-kind static HTML renderer (used by publish.ts) ----
-export function renderSection(b: any): string {
+// opts.edit adds data-field="…" markers to inline-editable text nodes so the
+// editor iframe can wire contentEditable + postMessage updates.
+export function renderSection(b: any, opts?: { edit?: boolean }): string {
   if (!b || typeof b !== 'object') return ''
   const p = b.props || {}
+  const ed = !!opts?.edit
+  const f = (name: string) => ed ? ` data-field="${name}"` : ''
   switch (b.type as SectionKind) {
     case 'hero': {
       const cta = p.cta?.label ? `<p><a class="btn" href="${esc(p.cta.href || '#')}">${esc(p.cta.label)}</a></p>` : ''
-      return `<section class="hero"><div class="container"><h1>${esc(p.heading)}</h1>${p.sub ? `<p class="sub">${esc(p.sub)}</p>` : ''}${cta}</div></section>`
+      return `<section class="hero"><div class="container"><h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${cta}</div></section>`
     }
     case 'hero-image': {
       const cta = p.cta_label ? `<p><a class="btn" href="${esc(p.cta_href || '#')}">${esc(p.cta_label)}</a></p>` : ''
       const img = p.image_url ? `<div><img src="${esc(p.image_url)}" alt="${esc(p.image_alt || '')}" loading="lazy"></div>` : '<div></div>'
-      return `<section class="hero-image"><div class="container"><div class="grid"><div><h1>${esc(p.heading)}</h1>${p.sub ? `<p class="sub">${esc(p.sub)}</p>` : ''}${cta}</div>${img}</div></div></section>`
+      return `<section class="hero-image"><div class="container"><div class="grid"><div><h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${cta}</div>${img}</div></div></section>`
     }
     case 'richtext':
       return `<section class="rt"><div class="container">${p.html || ''}</div></section>`
@@ -270,14 +274,14 @@ export function renderSection(b: any): string {
     case 'features-3': {
       const items = (Array.isArray(p.items) ? p.items : []).slice(0, 6)
       const grid = items.map((it: any) => `<div class="item"><h3>${esc(it.title)}</h3><p>${esc(it.desc)}</p></div>`).join('')
-      return `<section class="features-3"><div class="container"><div class="head"><h2>${esc(p.heading)}</h2>${p.sub ? `<p class="sub">${esc(p.sub)}</p>` : ''}</div><div class="grid">${grid}</div></div></section>`
+      return `<section class="features-3"><div class="container"><div class="head"><h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div><div class="grid">${grid}</div></div></section>`
     }
     case 'cta-banner':
-      return `<section class="cta-banner"><div class="container"><div class="box"><h2>${esc(p.heading)}</h2>${p.sub ? `<p class="sub">${esc(p.sub)}</p>` : ''}${p.cta_label ? `<p><a class="btn" href="${esc(p.cta_href || '#')}">${esc(p.cta_label)}</a></p>` : ''}</div></div></section>`
+      return `<section class="cta-banner"><div class="container"><div class="box"><h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${p.cta_label ? `<p><a class="btn" href="${esc(p.cta_href || '#')}">${esc(p.cta_label)}</a></p>` : ''}</div></div></section>`
     case 'testimonials-3': {
       const items = (Array.isArray(p.items) ? p.items : []).slice(0, 6)
       const cards = items.map((it: any) => `<div class="card"><p class="quote">${esc(it.quote)}</p><div class="who"><b>${esc(it.author)}</b>${it.role ? ` · <span>${esc(it.role)}</span>` : ''}</div></div>`).join('')
-      return `<section class="testimonials-3"><div class="container">${p.heading ? `<div class="head"><h2>${esc(p.heading)}</h2>${p.sub ? `<p class="sub">${esc(p.sub)}</p>` : ''}</div>` : ''}<div class="grid">${cards}</div></div></section>`
+      return `<section class="testimonials-3"><div class="container">${p.heading ? `<div class="head"><h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div>` : ''}<div class="grid">${cards}</div></div></section>`
     }
     case 'pricing-3': {
       const tiers = (Array.isArray(p.tiers) ? p.tiers : []).slice(0, 4)
@@ -286,24 +290,24 @@ export function renderSection(b: any): string {
         const cta = t.cta_label ? `<a class="btn" href="${esc(t.cta_href || '#')}">${esc(t.cta_label)}</a>` : ''
         return `<div class="tier${t.featured ? ' featured' : ''}"><h3>${esc(t.name)}</h3><div class="price">${esc(t.price)}${t.period ? `<span>${esc(t.period)}</span>` : ''}</div><ul>${items}</ul>${cta}</div>`
       }).join('')
-      return `<section class="pricing-3"><div class="container">${p.heading ? `<div class="head"><h2>${esc(p.heading)}</h2>${p.sub ? `<p class="sub">${esc(p.sub)}</p>` : ''}</div>` : ''}<div class="grid">${cards}</div></div></section>`
+      return `<section class="pricing-3"><div class="container">${p.heading ? `<div class="head"><h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div>` : ''}<div class="grid">${cards}</div></div></section>`
     }
     case 'faq': {
       const items = (Array.isArray(p.items) ? p.items : []).map((it: any) => `<div class="item"><div class="q">${esc(it.q)}</div><div class="a">${esc(it.a)}</div></div>`).join('')
-      return `<section class="faq"><div class="container">${p.heading ? `<div class="head"><h2>${esc(p.heading)}</h2></div>` : ''}${items}</div></section>`
+      return `<section class="faq"><div class="container">${p.heading ? `<div class="head"><h2${f('heading')}>${esc(p.heading)}</h2></div>` : ''}${items}</div></section>`
     }
     case 'logo-cloud': {
       const logos = (Array.isArray(p.logos) ? p.logos : []).map((l: any) => l?.url ? `<img src="${esc(l.url)}" alt="${esc(l.alt || '')}" loading="lazy">` : '').join('')
-      return `<section class="logo-cloud"><div class="container">${p.heading ? `<div class="head"><h2>${esc(p.heading)}</h2></div>` : ''}<div class="row">${logos}</div></div></section>`
+      return `<section class="logo-cloud"><div class="container">${p.heading ? `<div class="head"><h2${f('heading')}>${esc(p.heading)}</h2></div>` : ''}<div class="row">${logos}</div></div></section>`
     }
     case 'image-text': {
       const side = p.image_side === 'left' ? ' left' : ''
       const img = p.image_url ? `<div><img src="${esc(p.image_url)}" alt="${esc(p.image_alt || '')}" loading="lazy"></div>` : '<div></div>'
-      return `<section class="image-text${side}"><div class="container"><div class="grid"><div><h2>${esc(p.heading)}</h2><div class="copy">${p.html || ''}</div></div>${img}</div></div></section>`
+      return `<section class="image-text${side}"><div class="container"><div class="grid"><div><h2${f('heading')}>${esc(p.heading)}</h2><div class="copy">${p.html || ''}</div></div>${img}</div></div></section>`
     }
     case 'stats-row': {
       const items = (Array.isArray(p.items) ? p.items : []).map((it: any) => `<div class="stat"><div class="val">${esc(it.value)}</div><div class="lbl">${esc(it.label)}</div></div>`).join('')
-      return `<section class="stats-row"><div class="container">${p.heading ? `<div class="head"><h2>${esc(p.heading)}</h2></div>` : ''}<div class="row">${items}</div></div></section>`
+      return `<section class="stats-row"><div class="container">${p.heading ? `<div class="head"><h2${f('heading')}>${esc(p.heading)}</h2></div>` : ''}<div class="row">${items}</div></div></section>`
     }
     default:
       return `<!-- unknown section: ${esc(String(b.type))} -->`

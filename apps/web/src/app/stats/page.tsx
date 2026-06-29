@@ -5,15 +5,17 @@ import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
 type Totals = { workspaces: number; pages: number; drafts: number; published: number; domains: number }
+type Ai = { creditsMonth: number; articles: number; rewrites: number; rebuilds: number; chats: number }
 
-// Stats page — real numbers where we have them, "Coming soon" placeholders for
-// what's still wiring (analytics, AI usage, SEO scores). Linked properly later.
+// Stats page — real numbers where we have them, "—" for ones still wiring
+// (analytics, SEO scores). Linked properly later.
 export default function StatsPage() {
   const router = useRouter()
   const [totals, setTotals] = useState<Totals | null>(null)
+  const [ai, setAi] = useState<Ai | null>(null)
   const [loading, setLoading] = useState(true)
   useEffect(() => {
-    api<{ totals: Totals }>('/workspaces/overview').then((o) => setTotals(o.totals)).catch(() => router.push('/login')).finally(() => setLoading(false))
+    api<{ totals: Totals; ai: Ai }>('/workspaces/overview').then((o) => { setTotals(o.totals); setAi(o.ai) }).catch(() => router.push('/login')).finally(() => setLoading(false))
   }, [])
 
   if (loading) return <div className="empty">Loading…</div>
@@ -31,13 +33,16 @@ export default function StatsPage() {
         <div className="t"><b>{totals?.drafts ?? 0}</b><span>Drafts</span></div>
       </div>
 
-      <div className="dash-h">AI</div>
+      <div className="dash-h">AI (last 30 days)</div>
       <div className="dash-totals">
-        <div className="t"><b>0</b><span>AI credits used (mo)</span></div>
-        <div className="t"><b>0</b><span>Articles generated</span></div>
-        <div className="t"><b>0</b><span>Sections rewritten</span></div>
-        <div className="t"><b>0</b><span>Pages rebuilt</span></div>
+        <div className="t"><b>{ai?.creditsMonth ?? 0}</b><span>AI credits used</span></div>
+        <div className="t"><b>{ai?.articles ?? 0}</b><span>Articles generated</span></div>
+        <div className="t"><b>{ai?.rewrites ?? 0}</b><span>Sections rewritten</span></div>
+        <div className="t"><b>{ai?.rebuilds ?? 0}</b><span>Pages rebuilt</span></div>
       </div>
+      {ai && ai.chats > 0 && (
+        <div className="muted" style={{ fontSize: 12, marginTop: -16, marginBottom: 24 }}>+ {ai.chats} chat turn{ai.chats === 1 ? '' : 's'}</div>
+      )}
 
       <div className="dash-h">Performance</div>
       <div className="dash-totals">

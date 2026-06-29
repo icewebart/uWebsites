@@ -60,21 +60,29 @@ ${SECTION_CSS}`
 const renderBlock = renderSection
 
 function renderPage(page: any, body: string, t: any, ws: any, base: string) {
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(page.title)} — ${esc(ws.name)}</title>${fontsHead(t)}<style>${siteCss(t)}</style></head><body>
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(page.title)} — ${esc(ws.name)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">${fontsHead(t)}<style>${siteCss(t)}</style></head><body>
 <header class="site-header"><div class="container"><a class="brand" href="${base}/">${esc(ws.name)}</a></div></header>
 <main>${body || ''}</main>
 <footer class="site-footer"><div class="container">© ${new Date().getFullYear()} ${esc(ws.name)} · built with uWebsites</div></footer>
 </body></html>`
 }
 
-// Tiny script injected into the editor preview: announces clicked/hovered
-// sections to the parent via postMessage. NOT included in published output.
-const EDIT_SCRIPT = `<script>(function(){
-  function send(t,i){ try{ parent.postMessage({source:'uw-preview',type:t,index:i},'*'); }catch(e){} }
+// Tiny script injected into the editor preview: announces clicks + handles
+// inline text edits via contentEditable. NOT included in published output.
+const EDIT_SCRIPT = `<style>
+[data-field]{ outline-offset:2px; }
+[data-field]:hover{ outline:1px dashed rgba(143,215,241,.9); cursor:text; }
+[data-field][contenteditable=true]{ outline:2px solid #1D9E75; background:rgba(143,215,241,.08); cursor:text; }
+</style>
+<script>(function(){
+  function send(o){ try{ parent.postMessage(Object.assign({source:'uw-preview'}, o), '*'); }catch(e){} }
   var hov=null;
+  // Section selection — click on the section background (not text fields)
   document.addEventListener('click', function(e){
+    if(e.target.closest('[data-field]')) return;        // text edit handles its own clicks
+    if(e.target.closest('a,button,input,textarea,select')) return;  // don't hijack interactive
     var el=e.target.closest('[data-section-index]'); if(!el) return;
-    e.preventDefault(); send('select', parseInt(el.getAttribute('data-section-index'),10));
+    e.preventDefault(); send({type:'select', index: parseInt(el.getAttribute('data-section-index'),10)});
   }, true);
   document.addEventListener('mouseover', function(e){
     var el=e.target.closest('[data-section-index]'); if(!el) return;
@@ -84,6 +92,31 @@ const EDIT_SCRIPT = `<script>(function(){
   document.addEventListener('mouseout', function(){
     if(hov){ hov.style.outline=''; hov.style.outlineOffset=''; hov=null; }
   });
+  // Inline text edit — click any [data-field] to edit; blur or Enter commits.
+  document.addEventListener('click', function(e){
+    var el=e.target.closest('[data-field]'); if(!el) return;
+    e.stopPropagation();
+    if(el.getAttribute('contenteditable')==='true') return;
+    el.setAttribute('contenteditable','true');
+    el.focus();
+    // place caret at end
+    try{ var r=document.createRange(); r.selectNodeContents(el); r.collapse(false); var s=getSelection(); s.removeAllRanges(); s.addRange(r); }catch(e){}
+    function commit(){
+      el.removeEventListener('blur', commit); el.removeEventListener('keydown', onKey);
+      var sec=el.closest('[data-section-index]');
+      var idx = sec ? parseInt(sec.getAttribute('data-section-index'),10) : null;
+      var field = el.getAttribute('data-field');
+      var value = el.innerText.replace(/\\s+$/,'');
+      el.removeAttribute('contenteditable');
+      if(idx!=null && field) send({type:'text', index: idx, field: field, value: value});
+    }
+    function onKey(ev){
+      if(ev.key==='Enter' && !ev.shiftKey){ ev.preventDefault(); el.blur(); }
+      if(ev.key==='Escape'){ ev.preventDefault(); el.blur(); }
+    }
+    el.addEventListener('blur', commit);
+    el.addEventListener('keydown', onKey);
+  }, true);
 })();</script>`
 
 // Renderer is exported so the pages router can serve a single-page preview.
@@ -100,8 +133,8 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
   const t = (tok?.tokens as any) ?? DEFAULT_TOKENS
   const blocks = Array.isArray(row.blocks) ? (row.blocks as any[]) : []
   const body = opts?.edit
-    ? blocks.map((b, i) => `<div data-section-index="${i}" data-section-kind="${esc(b.type)}" style="${i === opts.selectedIndex ? 'outline:2px solid #1D9E75;outline-offset:-2px;' : ''}">${renderBlock(b)}</div>`).join('\n') + EDIT_SCRIPT
-    : blocks.map(renderBlock).join('\n')
+    ? blocks.map((b, i) => `<div data-section-index="${i}" data-section-kind="${esc(b.type)}" style="${i === opts.selectedIndex ? 'outline:2px solid #1D9E75;outline-offset:-2px;' : ''}">${renderSection(b, { edit: true })}</div>`).join('\n') + EDIT_SCRIPT
+    : blocks.map((b) => renderBlock(b)).join('\n')
   return renderPage({ title: row.title }, body, t, { name: row.wsName }, '#')
 }
 
@@ -125,7 +158,7 @@ publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) 
     let count = 0
     for (const p of publishable) {
       const blocks = Array.isArray(p.blocks) ? (p.blocks as any[]) : []
-      const html = renderPage(p, blocks.map(renderBlock).join('\n'), t, ws, base)
+      const html = renderPage(p, blocks.map((b) => renderBlock(b)).join('\n'), t, ws, base)
       const rel = p.slug === 'home' ? 'index.html' : path.join(p.slug, 'index.html')
       const file = path.join(outDir, rel)
       await mkdir(path.dirname(file), { recursive: true })
@@ -135,6 +168,14 @@ publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) 
     const urls = publishable.map((p) => (p.slug === 'home' ? `${base}/` : `${base}/${p.slug}/`))
     await writeFile(path.join(outDir, 'sitemap.xml'),
       `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map((u) => `<url><loc>${esc(u)}</loc></url>`).join('')}</urlset>`)
+    // Default favicon — a small SVG in the brand's primary color. Workspaces
+    // can override by setting branding tokens.color.primary; later we'll
+    // accept a custom-uploaded icon via Branding.
+    const primary = ((tok?.tokens as any)?.color?.primary) || '#16324A'
+    const accent = ((tok?.tokens as any)?.color?.accent) || '#8FD7F1'
+    const initial = (ws.name || 'u').slice(0, 1).toUpperCase()
+    await writeFile(path.join(outDir, 'favicon.svg'),
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${primary}"/><text x="32" y="42" font-family="system-ui,sans-serif" font-size="32" font-weight="700" text-anchor="middle" fill="${accent}">${esc(initial)}</text></svg>`)
 
     await db.insert(builds).values({ workspaceId: ws.id, status: 'deployed', artifactRef: outDir, deployedAt: new Date() })
     res.json({ ok: true, data: { url: `${base}/`, pages: count } })
