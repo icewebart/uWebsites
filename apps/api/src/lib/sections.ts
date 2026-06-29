@@ -259,7 +259,10 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
   const f = (name: string) => ed ? ` data-field="${name}"` : ''
   switch (b.type as SectionKind) {
     case 'hero': {
-      const cta = p.cta?.label ? `<p><a class="btn" href="${esc(p.cta.href || '#')}">${esc(p.cta.label)}</a></p>` : ''
+      // accept flat cta_label/cta_href (new) or nested cta.{label,href} (legacy)
+      const ctaLabel = p.cta_label || p.cta?.label
+      const ctaHref = p.cta_href || p.cta?.href
+      const cta = ctaLabel ? `<p><a class="btn" href="${esc(ctaHref || '#')}">${esc(ctaLabel)}</a></p>` : ''
       return `<section class="hero"><div class="container"><h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${cta}</div></section>`
     }
     case 'hero-image': {

@@ -99,13 +99,29 @@ function safeHtml(html: string): string {
     .trim()
 }
 
-// Build the block tree for an imported page: featured image (if any) -> hero
-// (title only) -> richtext (the real WP body). The hero+image combo gives a
-// natural look; user can edit/reorder.
-function importedBlocks(title: string, contentHtml: string, featuredImg?: { url: string; alt?: string }) {
+// Build the block tree for an imported page.
+// - Home pages: if there's a featured image, build a hero-image with the
+//   extracted main CTA; otherwise a centered hero carrying the same CTA.
+// - Other pages: simple hero + (optional) image + richtext body.
+function importedBlocks(title: string, contentHtml: string, featuredImg?: { url: string; alt?: string }, opts?: { isHome?: boolean; cta?: { label: string; href: string } | null }) {
   const blocks: any[] = []
-  blocks.push({ type: 'hero', props: { heading: title || '', sub: '' } })
-  if (featuredImg?.url) blocks.push({ type: 'image', props: { url: featuredImg.url, alt: featuredImg.alt || title || '' } })
+  const cta = opts?.isHome ? (opts.cta || null) : null
+
+  if (opts?.isHome && featuredImg?.url) {
+    blocks.push({
+      type: 'hero-image',
+      props: {
+        heading: title || '', sub: '',
+        image_url: featuredImg.url, image_alt: featuredImg.alt || title || '',
+        cta_label: cta?.label || '', cta_href: cta?.href || '',
+      },
+    })
+  } else {
+    const heroProps: any = { heading: title || '', sub: '' }
+    if (cta) { heroProps.cta_label = cta.label; heroProps.cta_href = cta.href }
+    blocks.push({ type: 'hero', props: heroProps })
+    if (featuredImg?.url) blocks.push({ type: 'image', props: { url: featuredImg.url, alt: featuredImg.alt || title || '' } })
+  }
   if (contentHtml && contentHtml.trim()) blocks.push({ type: 'richtext', props: { html: safeHtml(contentHtml) } })
   return blocks
 }
@@ -349,14 +365,24 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
   // Auto-import branding on first contact ('home' or 'all'). Don't fail the
   // whole import if branding analysis hiccups (e.g. CSS not parseable).
   let brandingApplied = false
+  let brandCta: { label: string; href: string } | null = null
   if (mode === 'home' || mode === 'all') {
     try {
       const b = await analyzeBranding(url)
+      brandCta = (b.brand_assets?.cta) || null
       const [existingTokens] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
       if (existingTokens) await db.update(brandingTokens).set({ tokens: b.tokens }).where(eq(brandingTokens.id, existingTokens.id))
       else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: b.tokens })
       brandingApplied = true
     } catch { /* swallow — pages still import */ }
+  }
+  // If we're only importing 'rest', the workspace already has branding; pull
+  // the CTA back out so home wouldn't get re-imported but other modes work.
+  if (mode === 'rest') {
+    try {
+      const [existingTokens] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+      brandCta = ((existingTokens?.tokens as any)?.brand_assets?.cta) || null
+    } catch { /* swallow */ }
   }
 
   // Re-fetch with content + embedded media so each page gets its real body + featured image
@@ -390,7 +416,8 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
     const src = bySlug.get(item.slug)
     const contentHtml = src?.content?.rendered ?? ''
     const featured = src ? featuredFromEmbed(src) : null
-    const blocks = importedBlocks(item.title, contentHtml, featured || undefined)
+    const isHome = item.type === 'home'
+    const blocks = importedBlocks(item.title, contentHtml, featured || undefined, { isHome, cta: isHome ? brandCta : null })
     const sourceUrl = src?.link || (site + item.path)
 
     await db.insert(pages).values({

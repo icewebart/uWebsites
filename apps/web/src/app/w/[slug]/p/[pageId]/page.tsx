@@ -220,7 +220,9 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
     case 'hero':
       return (<>
         <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
-        <div className="field" style={{ marginBottom: 0 }}><label>Subheading</label><input className="inp" value={p.sub || ''} onChange={(e) => onChange({ sub: e.target.value })} /></div>
+        <div className="field"><label>Subheading</label><input className="inp" value={p.sub || ''} onChange={(e) => onChange({ sub: e.target.value })} /></div>
+        <div className="field"><label>CTA label</label><input className="inp" value={p.cta_label || p.cta?.label || ''} onChange={(e) => onChange({ cta_label: e.target.value })} placeholder="Get started" /></div>
+        <div className="field" style={{ marginBottom: 0 }}><label>CTA link</label><input className="inp" value={p.cta_href || p.cta?.href || ''} onChange={(e) => onChange({ cta_href: e.target.value })} placeholder="/signup" /></div>
       </>)
     case 'hero-image':
       return (<>
