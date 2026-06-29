@@ -1,6 +1,6 @@
 import { Router } from 'express'
-import { and, eq, inArray } from 'drizzle-orm'
-import { db, workspaces, memberships, pages, brandingTokens, builds } from '@uwebsites/db'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { db, workspaces, memberships, pages, brandingTokens, builds, domains } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 
 export const workspacesRouter = Router()
@@ -62,6 +62,36 @@ workspacesRouter.put('/:slug', requireAuth, async (req: AuthRequest, res) => {
   if (!name || !String(name).trim()) return res.status(400).json({ ok: false, error: 'name required' })
   const [updated] = await db.update(workspaces).set({ name: String(name).trim() }).where(eq(workspaces.id, ws.id)).returning()
   res.json({ ok: true, data: updated })
+})
+
+// GET /workspaces/overview — dashboard summary for the account.
+// Returns per-workspace page counts, draft/published splits, latest build, a
+// connected domain (if any), the homepage id (for previews), and the source
+// import URL (so the dashboard can offer "continue importing").
+workspacesRouter.get('/overview', requireAuth, async (req: AuthRequest, res) => {
+  const wss = await db.select().from(workspaces).where(eq(workspaces.accountId, req.user!.accountId))
+  const items = await Promise.all(wss.map(async (w) => {
+    const [count] = await db.select({ all: sql<number>`count(*)::int`, drafts: sql<number>`sum(case when ${pages.status}='draft' then 1 else 0 end)::int`, pub: sql<number>`sum(case when ${pages.status}='published' then 1 else 0 end)::int` }).from(pages).where(eq(pages.workspaceId, w.id))
+    const [home] = await db.select({ id: pages.id, title: pages.title, seo: pages.seo }).from(pages).where(and(eq(pages.workspaceId, w.id), eq(pages.type, 'home'))).limit(1)
+    const [lastBuild] = await db.select().from(builds).where(eq(builds.workspaceId, w.id)).orderBy(desc(builds.deployedAt)).limit(1)
+    const [domain] = await db.select().from(domains).where(and(eq(domains.workspaceId, w.id), eq(domains.status, 'connected'))).limit(1)
+    return {
+      id: w.id, name: w.name, slug: w.slug, createdAt: w.createdAt,
+      pages: count?.all ?? 0, drafts: count?.drafts ?? 0, published: count?.pub ?? 0,
+      homeId: home?.id ?? null, homeTitle: home?.title ?? null,
+      importSource: ((home?.seo as any)?.import_source?.url) ?? null,
+      lastPublishedAt: lastBuild?.deployedAt ?? null,
+      connectedDomain: domain?.hostname ?? null,
+    }
+  }))
+  const totals = items.reduce((a, x) => ({
+    workspaces: a.workspaces + 1,
+    pages: a.pages + x.pages,
+    drafts: a.drafts + x.drafts,
+    published: a.published + x.published,
+    domains: a.domains + (x.connectedDomain ? 1 : 0),
+  }), { workspaces: 0, pages: 0, drafts: 0, published: 0, domains: 0 })
+  res.json({ ok: true, data: { items, totals } })
 })
 
 // GET /workspaces/:slug/pages — list pages in a workspace (account-scoped)
