@@ -50,6 +50,32 @@ async function logAiJob(workspaceId: string | null, kind: 'article' | 'edit' | '
   try { await db.insert(aiJobs).values({ workspaceId, kind, status, input: input ?? {}, costCredits, outputRef: outputRef ?? null }) } catch {}
 }
 
+// Build a short "site brief" from the workspace's branding tokens / brand_assets
+// — gives Claude real-world context (industry, audience, voice) it can infer
+// from the nav items, CTA, and visible brand. Returned as plain prose for the
+// system prompt; null when there's nothing meaningful to share.
+async function siteBrief(workspaceId: string, workspaceName: string): Promise<string | null> {
+  try {
+    const [row] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, workspaceId)).limit(1)
+    const tokens: any = row?.tokens || {}
+    const a = tokens.brand_assets || {}
+    const navLabels = (Array.isArray(a.nav) ? a.nav : []).map((n: any) => n?.text).filter(Boolean).slice(0, 12)
+    const cta = a.cta?.label
+    const colors = tokens.color || {}
+    const fonts = tokens.font || {}
+    const hasContext = navLabels.length || cta || a.logo?.url
+    if (!hasContext) return null
+    const parts: string[] = [
+      `This site is "${workspaceName}".`,
+      navLabels.length ? `The original navigation reads: ${navLabels.join(' · ')}. Infer the industry and audience from these labels.` : '',
+      cta ? `The main call-to-action on the source site is "${cta}" — match that intent in any CTAs you create.` : '',
+      (colors.primary || colors.accent) ? `Brand colors: primary ${colors.primary || '?'} / accent ${colors.accent || '?'}; treat them as the dominant visual signature.` : '',
+      (fonts.heading || fonts.body) ? `Typography: headings in "${fonts.heading || '?'}", body in "${fonts.body || '?'}".` : '',
+    ].filter(Boolean)
+    return parts.join(' ')
+  } catch { return null }
+}
+
 async function ownedWs(slug: string, accountId: string) {
   const [ws] = await db.select().from(workspaces)
     .where(and(eq(workspaces.slug, slug), eq(workspaces.accountId, accountId))).limit(1)
@@ -64,12 +90,13 @@ aiRouter.post('/generate-page', requireAuth, async (req: AuthRequest, res) => {
   if (!slug || !prompt) return res.status(400).json({ ok: false, error: 'slug and prompt required' })
   const ws = await ownedWs(String(slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const brief = await siteBrief(ws.id, ws.name)
 
   try {
     const r = await a.messages.create({
       model: MODEL,
       max_tokens: 4096,
-      system: `You generate uWebsites pages from the section catalog: ${SECTION_KINDS_LIST.join(', ')}. Always start with a hero or hero-image. Then mix sections appropriate to the page — features-3, image-text, testimonials-3, stats-row, pricing-3, logo-cloud, faq, cta-banner. End with cta-banner where useful. richtext is for prose; use semantic HTML only (p, h2, h3, ul, li, strong, em, a — no inline styles or scripts). Aim for 4–8 sections.`,
+      system: `You generate uWebsites pages from the section catalog: ${SECTION_KINDS_LIST.join(', ')}. Always start with a hero or hero-image. Then mix sections appropriate to the page — features-3, image-text, testimonials-3, stats-row, pricing-3, logo-cloud, faq, cta-banner. End with cta-banner where useful. richtext is for prose; use semantic HTML only (p, h2, h3, ul, li, strong, em, a — no inline styles or scripts). Aim for 4–8 sections.${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
       tools: [{ name: 'page', description: 'The generated page.', input_schema: BLOCK_SCHEMA as any }],
       tool_choice: { type: 'tool', name: 'page' },
       messages: [{ role: 'user', content: prompt }],
@@ -172,6 +199,7 @@ aiRouter.post('/page-chat', requireAuth, async (req: AuthRequest, res) => {
   const mutations: { tool: string; ok: boolean; note?: string }[] = []
   const catalogSummary = SECTIONS.map((s) => `${s.kind}: ${s.description}`).join('\n')
   const sectionList = blocks.map((b, i) => `${i}: ${b.type}`).join('\n')
+  const brief = await siteBrief(ws.id, ws.name)
 
   // Simple tool-use loop (max 3 hops to keep cost predictable).
   let convo: any[] = messages
@@ -185,7 +213,7 @@ aiRouter.post('/page-chat', requireAuth, async (req: AuthRequest, res) => {
       model: MODEL,
       max_tokens: 1500,
       tools: PAGE_TOOLS,
-      system: `You are the uWebsites page-builder assistant for "${ws.name}" / page "${page.title}". Use tools to make changes the user asks for; reply briefly with what you did. Section catalog:\n${catalogSummary}\n\nCurrent page sections (0-indexed):\n${sectionList || '(empty)'}`,
+      system: `You are the uWebsites page-builder assistant for "${ws.name}" / page "${page.title}". Use tools to make changes the user asks for; reply briefly with what you did. Section catalog:\n${catalogSummary}\n\nCurrent page sections (0-indexed):\n${sectionList || '(empty)'}${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
       messages: convo,
     })
     const toolUses = r.content.filter((c: any) => c.type === 'tool_use') as any[]
@@ -303,12 +331,13 @@ aiRouter.post('/chat', requireAuth, async (req: AuthRequest, res) => {
   const ctx = pageContext
     ? `Current page: type=${pageContext.type}, title="${pageContext.title}", blocks=${(pageContext.blocks || []).map((b: any) => b.type).join(',')}`
     : 'No specific page is being edited.'
+  const brief = await siteBrief(ws.id, ws.name)
 
   try {
     const r = await a.messages.create({
       model: MODEL,
       max_tokens: 800,
-      system: `You are the uWebsites site-building assistant for workspace "${ws.name}". You help the operator plan, rewrite, and structure their website. Be concise (2–4 short paragraphs max). Suggest concrete next actions, but do not invent capabilities. When the user asks to change something, propose what you would do and ask them to confirm. ${ctx}`,
+      system: `You are the uWebsites site-building assistant for workspace "${ws.name}". You help the operator plan, rewrite, and structure their website. Be concise (2–4 short paragraphs max). Suggest concrete next actions, but do not invent capabilities. When the user asks to change something, propose what you would do and ask them to confirm. ${ctx}${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
       messages: messages
         .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
         .slice(-12)
@@ -346,12 +375,16 @@ aiRouter.post('/rebuild-page', requireAuth, async (req: AuthRequest, res) => {
   const images: string[] = cur.flatMap((b) => b.type === 'image' && b.props?.url ? [b.props.url] : b.type === 'hero-image' && b.props?.image_url ? [b.props.image_url] : [])
   const bodyHtml = cur.filter((b) => b.type === 'richtext').map((b) => b.props?.html || '').join('\n\n').slice(0, 60000)
   const sourceUrl = (row.seo as any)?.import_source?.url
+  // Pull workspace name for the brief; we already loaded accId on the join,
+  // but not the name — fetch it cheaply.
+  const [wsRow] = await db.select({ name: workspaces.name }).from(workspaces).where(eq(workspaces.id, row.wsId)).limit(1)
+  const brief = await siteBrief(row.wsId, wsRow?.name || 'this site')
 
   try {
     const r = await a.messages.create({
       model: MODEL,
       max_tokens: 4096,
-      system: `Rebuild this page into a well-structured layout using the uWebsites section catalog: ${SECTION_KINDS_LIST.join(', ')}. PRESERVE the actual copy and image URLs from the source — extract a strong hero, then break the body into 3–6 designed sections (features-3, image-text, testimonials-3 if it contains testimonials, stats-row if it contains numbers/stats, pricing-3 if it contains pricing tiers, faq for Q&A, cta-banner at the end). DO NOT invent facts; reword for clarity is OK. Output via the page tool.${tone ? ' Tone: ' + tone : ''}`,
+      system: `Rebuild this page into a well-structured layout using the uWebsites section catalog: ${SECTION_KINDS_LIST.join(', ')}. PRESERVE the actual copy and image URLs from the source — extract a strong hero, then break the body into 3–6 designed sections (features-3, image-text, testimonials-3 if it contains testimonials, stats-row if it contains numbers/stats, pricing-3 if it contains pricing tiers, faq for Q&A, cta-banner at the end). DO NOT invent facts; reword for clarity is OK. Output via the page tool.${tone ? ' Tone: ' + tone : ''}${brief ? '\n\nSITE CONTEXT (use this to decide industry, audience, and voice):\n' + brief : ''}`,
       tools: [{ name: 'page', description: 'The rebuilt page.', input_schema: BLOCK_SCHEMA as any }],
       tool_choice: { type: 'tool', name: 'page' },
       messages: [{ role: 'user', content: `Title: ${heroTitle}\nSubhead: ${heroSub}\nSource URL: ${sourceUrl || '(unknown)'}\nAvailable images: ${images.join(', ') || '(none)'}\n\nBody HTML:\n${bodyHtml || '(empty)'}` }],
