@@ -4,15 +4,95 @@ import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
+type BrandAssets = {
+  logo?: { url: string; alt?: string } | null
+  nav?: Array<{ text: string; href: string }>
+  cta?: { label: string; href: string } | null
+  snapshot_url?: string | null
+}
 type Tokens = {
   color: { primary: string; accent: string; surface: string; text: string }
   font: { heading: string; body: string; scale: number; lineHeight: number }
   shape: { buttonRadius: string; cardRadius: string; borderWidth: string }
   space: { sectionGap: string; sectionPaddingY: string; container: string }
+  brand_assets?: BrandAssets
 }
 
 const FONTS = ['Space Grotesk', 'Inter', 'Poppins', 'Georgia', 'system-ui']
 const px = (v: string) => parseInt(String(v)) || 0
+
+// BrandShowcase — at-a-glance cards showing the active palette, fonts in use,
+// the logo/nav/CTA pulled from the original site (when imported). Useful as
+// the "did we get this right?" view right after an import.
+function BrandShowcase({ t }: { t: Tokens }) {
+  const a = t.brand_assets || {}
+  const swatches: Array<{ key: keyof Tokens['color']; label: string }> = [
+    { key: 'primary', label: 'Primary' }, { key: 'accent', label: 'Accent' },
+    { key: 'surface', label: 'Surface' }, { key: 'text', label: 'Text' },
+  ]
+  return (
+    <div className="brand-show">
+      <div className="brand-show-grid">
+        <div className="bs-card">
+          <div className="bs-label">Palette</div>
+          <div className="bs-swatches">
+            {swatches.map((s) => (
+              <div className="bs-sw" key={s.key}>
+                <div className="bs-sw-chip" style={{ background: t.color[s.key] }} />
+                <div className="bs-sw-text"><b>{s.label}</b><span>{t.color[s.key]}</span></div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="bs-card">
+          <div className="bs-label">Typography</div>
+          <div style={{ fontFamily: t.font.heading, fontWeight: 700, fontSize: 26, lineHeight: 1.1, color: t.color.text, marginBottom: 4 }}>The quick brown fox</div>
+          <div style={{ fontFamily: t.font.heading, fontWeight: 600, fontSize: 16, color: t.color.text, marginBottom: 8, opacity: .85 }}>Headings · {t.font.heading}</div>
+          <div style={{ fontFamily: t.font.body, fontSize: 14, color: t.color.text, opacity: .8, lineHeight: 1.5 }}>jumps over the lazy dog — body text uses <strong>{t.font.body}</strong> at {Math.round(t.font.scale * 100)}% scale.</div>
+        </div>
+        <div className="bs-card">
+          <div className="bs-label">Buttons &amp; shape</div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <button style={{ background: t.color.primary, color: '#fff', border: 0, borderRadius: t.shape.buttonRadius, padding: '10px 16px', fontFamily: t.font.heading, fontWeight: 600, fontSize: 13 }}>Primary</button>
+            <button style={{ background: t.color.accent, color: t.color.text, border: 0, borderRadius: t.shape.buttonRadius, padding: '10px 16px', fontFamily: t.font.heading, fontWeight: 600, fontSize: 13 }}>Accent</button>
+            <button style={{ background: 'transparent', color: t.color.text, border: `${t.shape.borderWidth} solid ${t.color.text}30`, borderRadius: t.shape.buttonRadius, padding: '10px 16px', fontFamily: t.font.heading, fontWeight: 600, fontSize: 13 }}>Outline</button>
+          </div>
+          <div style={{ background: t.color.surface, border: `${t.shape.borderWidth} solid ${t.color.text}20`, borderRadius: t.shape.cardRadius, padding: 14 }}>
+            <div style={{ fontFamily: t.font.heading, fontWeight: 600, fontSize: 14, color: t.color.text, marginBottom: 4 }}>Card example</div>
+            <div style={{ fontSize: 12, color: t.color.text, opacity: .65 }}>Card radius {t.shape.cardRadius}, border {t.shape.borderWidth}.</div>
+          </div>
+        </div>
+        {(a.logo || (a.nav && a.nav.length) || a.cta) && (
+          <div className="bs-card">
+            <div className="bs-label">From your site</div>
+            {a.logo?.url && (
+              <div style={{ marginBottom: 12 }}>
+                <div className="muted" style={{ fontSize: 11, marginBottom: 6 }}>Logo</div>
+                <img src={a.logo.url} alt={a.logo.alt || ''} style={{ maxHeight: 44, maxWidth: '100%' }} />
+              </div>
+            )}
+            {a.nav && a.nav.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div className="muted" style={{ fontSize: 11, marginBottom: 6 }}>Navigation</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {a.nav.slice(0, 8).map((it, i) => (
+                    <span key={i} style={{ fontSize: 12, padding: '4px 9px', borderRadius: 6, background: 'var(--bg-subtle)', border: '1px solid var(--border)' }}>{it.text}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {a.cta?.label && (
+              <div>
+                <div className="muted" style={{ fontSize: 11, marginBottom: 6 }}>Main CTA</div>
+                <a href={a.cta.href} target="_blank" rel="noreferrer" style={{ background: t.color.primary, color: '#fff', borderRadius: t.shape.buttonRadius, padding: '8px 14px', fontFamily: t.font.heading, fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>{a.cta.label}</a>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function BrandImport({ onImported }: { onImported: (t: Tokens) => void }) {
   const [url, setUrl] = useState('')
@@ -90,6 +170,7 @@ export default function Branding() {
 
   return (
     <AppShell title="Branding" currentSlug={slug} active="Branding">
+      <BrandShowcase t={t} />
       <div className="brand-wrap">
         {/* controls */}
         <div>

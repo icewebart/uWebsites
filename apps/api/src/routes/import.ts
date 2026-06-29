@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
-import { db, workspaces, pages, redirects } from '@uwebsites/db'
+import { db, workspaces, pages, redirects, brandingTokens } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 
 // Importer — TS port of the Phase-0 spike. `scanSite` pulls a WordPress site
@@ -175,15 +175,60 @@ export async function scanSite(rawUrl: string) {
   return { site, total: items.length, counts, redirects: redirectList, items }
 }
 
-// POST /import/branding — fetch a site's homepage + main CSS and extract
-// suggested branding tokens (colors, fonts, button radius). Heuristic but
-// useful as a starting point; the user reviews/adjusts in the Branding panel.
-importRouter.post('/branding', requireAuth, async (req, res) => {
-  const raw = req.body?.url
-  if (!raw) return res.status(400).json({ ok: false, error: 'url required' })
-  const site = String(raw).trim().replace(/\/+$/, '').replace(/^(?!https?:\/\/)/, 'https://')
-  try {
-    const home = await (await fetch(site, { headers: { 'User-Agent': UA } })).text()
+// ----- Brand asset extraction (logo, nav, CTA) from the source HTML -----
+function absUrl(href: string, base: string): string {
+  try { return new URL(href, base).toString() } catch { return href }
+}
+function stripTags(s: string): string { return s.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() }
+
+function extractLogo(html: string, base: string): { url: string; alt: string } | null {
+  // og:image as the most reliable signal
+  const og = html.match(/<meta[^>]+(?:property|name)=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+              || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:image["']/i)
+  if (og) return { url: absUrl(og[1], base), alt: '' }
+  // first <img> inside <header> or a <a class="...logo...">
+  const headerImg = html.match(/<header[\s\S]*?<img[^>]+src=["']([^"']+)["'][^>]*?(?:alt=["']([^"']*)["'])?[\s\S]*?<\/header>/i)
+  if (headerImg) return { url: absUrl(headerImg[1], base), alt: headerImg[2] || '' }
+  const logoAnchor = html.match(/<a[^>]+class=["'][^"']*logo[^"']*["'][^>]*>[\s\S]*?<img[^>]+src=["']([^"']+)["'][^>]*?(?:alt=["']([^"']*)["'])?/i)
+  if (logoAnchor) return { url: absUrl(logoAnchor[1], base), alt: logoAnchor[2] || '' }
+  return null
+}
+
+function extractNav(html: string, base: string): Array<{ text: string; href: string }> {
+  // Try <nav> first, fall back to a header's primary menu
+  const navMatch = html.match(/<nav\b[^>]*>([\s\S]*?)<\/nav>/i) || html.match(/<header\b[^>]*>([\s\S]*?)<\/header>/i)
+  if (!navMatch) return []
+  const items: Array<{ text: string; href: string }> = []
+  const seenText = new Set<string>()
+  for (const m of navMatch[1].matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const href = m[1]
+    const text = stripTags(m[2])
+    if (!text || text.length > 40 || seenText.has(text.toLowerCase())) continue
+    if (href.startsWith('javascript:') || href === '#' || href.startsWith('mailto:') || href.startsWith('tel:')) continue
+    seenText.add(text.toLowerCase())
+    items.push({ text, href: absUrl(href, base) })
+    if (items.length >= 8) break
+  }
+  return items
+}
+
+function extractCta(html: string, base: string): { label: string; href: string } | null {
+  // First btn-like anchor in the <header>; if not, first one anywhere in the top 8KB
+  const headerMatch = html.match(/<header\b[^>]*>([\s\S]*?)<\/header>/i)
+  const region = (headerMatch ? headerMatch[1] : html).slice(0, 8000)
+  // class containing btn|cta|button|nav__cta
+  const m = region.match(/<a[^>]+class=["'][^"']*(?:btn|cta|button|menu-cta)[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i)
+            || region.match(/<a[^>]+href=["']([^"']+)["'][^>]+class=["'][^"']*(?:btn|cta|button|menu-cta)[^"']*["'][^>]*>([\s\S]*?)<\/a>/i)
+  if (!m) return null
+  const label = stripTags(m[2])
+  if (!label || label.length > 30) return null
+  return { label, href: absUrl(m[1], base) }
+}
+
+// Core: fetch homepage + main CSS, then extract branding tokens AND brand assets.
+async function analyzeBranding(siteUrl: string) {
+  const site = String(siteUrl).trim().replace(/\/+$/, '').replace(/^(?!https?:\/\/)/, 'https://')
+  const home = await (await fetch(site, { headers: { 'User-Agent': UA } })).text()
     // Collect CSS hrefs (same-origin) and Google Fonts families
     const cssHrefs = Array.from(home.matchAll(/<link[^>]+rel=["']stylesheet["'][^>]*href=["']([^"']+)["']/gi)).map((m) => m[1])
     const inlineCss = Array.from(home.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)).map((m) => m[1]).join('\n')
@@ -250,7 +295,22 @@ importRouter.post('/branding', requireAuth, async (req, res) => {
       shape: { buttonRadius: btnRadius || '12px', cardRadius: '16px', borderWidth: '1px' },
       space: { sectionGap: '64px', sectionPaddingY: '48px', container: '1200px' },
     }
-    res.json({ ok: true, data: { site, tokens, suggestions: { colors: ranked.slice(0, 8), fonts: [...new Set([headingFont, bodyFont].filter(Boolean) as string[])] } } })
+  const brand_assets = {
+    logo: extractLogo(home, site),
+    nav: extractNav(home, site),
+    cta: extractCta(home, site),
+    snapshot_url: snapshotUrl(site),
+  }
+  ;(tokens as any).brand_assets = brand_assets
+  return { site, tokens, suggestions: { colors: ranked.slice(0, 8), fonts: [...new Set([headingFont, bodyFont].filter(Boolean) as string[])] }, brand_assets }
+}
+
+// POST /import/branding — public endpoint that uses analyzeBranding
+importRouter.post('/branding', requireAuth, async (req, res) => {
+  const raw = req.body?.url
+  if (!raw) return res.status(400).json({ ok: false, error: 'url required' })
+  try {
+    res.json({ ok: true, data: await analyzeBranding(String(raw)) })
   } catch {
     res.status(502).json({ ok: false, error: 'Could not read branding from that URL.' })
   }
@@ -272,9 +332,11 @@ importRouter.post('/scan', requireAuth, async (req, res) => {
 //   rest  — everything except the home (or anything already in the workspace)
 //   all   — full import (default for back-compat)
 importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
-  const { slug, url } = req.body ?? {}
+  const { slug, url, keepPaths } = req.body ?? {}
   const mode: 'all' | 'home' | 'rest' = ['home', 'rest', 'all'].includes(req.body?.mode) ? req.body.mode : 'all'
   if (!slug || !url) return res.status(400).json({ ok: false, error: 'slug and url required' })
+  // Optional allowlist of paths to import (user toggles Keep/Discard in the UI).
+  const allowSet: Set<string> | null = Array.isArray(keepPaths) ? new Set(keepPaths.map(String)) : null
 
   const [ws] = await db.select().from(workspaces)
     .where(and(eq(workspaces.slug, slug), eq(workspaces.accountId, req.user!.accountId))).limit(1)
@@ -283,6 +345,19 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
   let scan
   try { scan = await scanSite(url) }
   catch { return res.status(502).json({ ok: false, error: 'Could not scan site — is it WordPress with the REST API enabled?' }) }
+
+  // Auto-import branding on first contact ('home' or 'all'). Don't fail the
+  // whole import if branding analysis hiccups (e.g. CSS not parseable).
+  let brandingApplied = false
+  if (mode === 'home' || mode === 'all') {
+    try {
+      const b = await analyzeBranding(url)
+      const [existingTokens] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+      if (existingTokens) await db.update(brandingTokens).set({ tokens: b.tokens }).where(eq(brandingTokens.id, existingTokens.id))
+      else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: b.tokens })
+      brandingApplied = true
+    } catch { /* swallow — pages still import */ }
+  }
 
   // Re-fetch with content + embedded media so each page gets its real body + featured image
   const site = String(url).trim().replace(/\/+$/, '').replace(/^(?!https?:\/\/)/, 'https://')
@@ -297,11 +372,14 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
     (await db.select({ slug: pages.slug }).from(pages).where(eq(pages.workspaceId, ws.id))).map((r) => r.slug),
   )
 
-  let created = 0, skipped = 0
+  let created = 0, skipped = 0, discarded = 0
   for (const item of scan.items) {
     // mode filter
     if (mode === 'home' && item.type !== 'home') { skipped++; continue }
     if (mode === 'rest' && item.type === 'home') { skipped++; continue }
+
+    // Honour keep/discard from the UI (if provided)
+    if (allowSet && !allowSet.has(item.path)) { discarded++; continue }
 
     const type = toPageType(item.type)
     if (!type) { skipped++; continue }
@@ -332,5 +410,5 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
     }
   }
 
-  res.json({ ok: true, data: { created, skipped, redirects: redirectCount, total: scan.total, slug: ws.slug, mode } })
+  res.json({ ok: true, data: { created, skipped, discarded, redirects: redirectCount, total: scan.total, slug: ws.slug, mode, brandingApplied } })
 })

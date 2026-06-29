@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 import { SectionPicker } from '@/components/SectionPicker'
+import { AiRebuildModal } from '@/components/AiRebuildModal'
 
 type Block = { type: string; props: Record<string, any> }
 type Section = { kind: string; name: string; description: string; category: string; defaults: Record<string, any> }
@@ -29,6 +30,7 @@ export default function PageEditor() {
   const [pvTab, setPvTab] = useState<'preview' | 'original'>('preview')
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerMode, setPickerMode] = useState<'add' | 'replace'>('add')
+  const [rebuildOpen, setRebuildOpen] = useState(false)
   const [catalog, setCatalog] = useState<Record<string, Section>>({})
 
   useEffect(() => {
@@ -93,14 +95,8 @@ export default function PageEditor() {
     } catch (e: any) { alert(e.message || 'Rewrite failed') }
   }
 
-  async function aiRebuild() {
-    const tone = window.prompt('Rebuild this page with AI — using the original content, redesigned into proper sections. Optional tone:', 'clear, confident, modern')
-    if (tone === null) return
-    if (!window.confirm('This will replace the current section layout with an AI-designed one (your copy and images are preserved).')) return
-    try {
-      const r = await api<{ title: string; blocks: Block[] }>('/ai/rebuild-page', { method: 'POST', body: JSON.stringify({ pageId, tone: tone || undefined }) })
-      setBlocks(r.blocks); setTitle(r.title); setSelected(null); setPreviewKey((k) => k + 1); setSavedAt(new Date().toLocaleTimeString())
-    } catch (e: any) { alert(e.message || 'Rebuild failed') }
+  function applyRebuild(data: { title: string; blocks: Block[] }) {
+    setBlocks(data.blocks); setTitle(data.title); setSelected(null); setPreviewKey((k) => k + 1); setSavedAt(new Date().toLocaleTimeString())
   }
 
   async function save() {
@@ -130,7 +126,7 @@ export default function PageEditor() {
         <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="draft">Draft</option><option value="published">Published</option></select>
         {savedAt && <span className="muted" style={{ fontSize: 12 }}>Saved {savedAt}</span>}
         {page?.seo?.import_source && (
-          <button className="btn btn-secondary" onClick={aiRebuild} title="Restructure into a designed layout using the section catalog">✦ AI rebuild</button>
+          <button className="btn btn-secondary" onClick={() => setRebuildOpen(true)} title="Restructure into a designed layout using the section catalog">✦ AI rebuild</button>
         )}
         <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
       </div>
@@ -203,6 +199,14 @@ export default function PageEditor() {
       </div>
 
       <SectionPicker open={pickerOpen} onClose={() => setPickerOpen(false)} onPick={addFromCatalog} />
+      <AiRebuildModal
+        open={rebuildOpen}
+        pageId={pageId}
+        pageTitle={title}
+        snapshotUrl={page?.seo?.import_source?.snapshot_url}
+        onClose={() => setRebuildOpen(false)}
+        onDone={applyRebuild}
+      />
     </AppShell>
   )
 }
