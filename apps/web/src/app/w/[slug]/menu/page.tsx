@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { api } from '@/lib/api'
+import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 import { MenuTreeEditor, type Tree } from '@/components/MenuTreeEditor'
 
@@ -16,6 +16,8 @@ export default function MenuPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [note, setNote] = useState('')
+  const [tab, setTab] = useState<'preview' | 'links'>('preview')
+  const [previewKey, setPreviewKey] = useState(0)
 
   useEffect(() => {
     api<{ header: Tree; footer: Tree }>(`/workspaces/${slug}/menus`)
@@ -52,6 +54,7 @@ export default function MenuPage() {
     try {
       await api(`/workspaces/${slug}/menus`, { method: 'PUT', body: JSON.stringify({ header }) })
       setSavedAt(new Date().toLocaleTimeString())
+      setPreviewKey((k) => k + 1)  // refresh preview iframe with the saved state
     } catch (e: any) { setErr(e.message || 'Save failed') } finally { setSaving(false) }
   }
 
@@ -59,12 +62,15 @@ export default function MenuPage() {
 
   return (
     <AppShell title="Menu" currentSlug={slug} active="Menu">
-      <div className="dash-sub" style={{ marginBottom: 22 }}>
+      <div className="dash-sub" style={{ marginBottom: 18 }}>
         Edit the header navigation that appears on every published page. On import, we seed this from your old site's nav and main CTA — or let the AI propose a fresh one based on your pages.
       </div>
 
       <div className="ev-actions-row">
-        <div className="dash-h" style={{ margin: 0 }}>Header menu</div>
+        <div className="nav-tabs">
+          <button className={tab === 'preview' ? 'on' : ''} onClick={() => setTab('preview')}>Preview</button>
+          <button className={tab === 'links' ? 'on' : ''} onClick={() => setTab('links')}>Links</button>
+        </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-secondary" onClick={generateWithAi} disabled={generating}>
             {generating ? 'Generating…' : '✦ Generate with AI'}
@@ -75,12 +81,20 @@ export default function MenuPage() {
         </div>
       </div>
       {note && <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>{note}</div>}
-      <MenuTreeEditor tree={header} onChange={setHeader} maxItems={10} showCta />
+
+      {tab === 'preview' ? (
+        <div className="nav-preview-frame">
+          <iframe key={previewKey} src={`${API_URL}/workspaces/${slug}/menus/preview?t=${previewKey}`} title="Header preview" />
+        </div>
+      ) : (
+        <MenuTreeEditor tree={header} onChange={setHeader} maxItems={10} showCta />
+      )}
 
       <div className="err" style={{ marginTop: 14 }}>{err}</div>
       <div className="save-row" style={{ marginTop: 12 }}>
         <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save menu'}</button>
         {savedAt && <span className="saved-tag">Saved {savedAt}</span>}
+        {tab === 'preview' && <span className="muted" style={{ fontSize: 12, marginLeft: 'auto' }}>Preview reflects the last saved state — click Save to update.</span>}
       </div>
     </AppShell>
   )

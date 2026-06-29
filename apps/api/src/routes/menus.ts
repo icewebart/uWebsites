@@ -1,8 +1,9 @@
 import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
-import { db, workspaces, menus, pages } from '@uwebsites/db'
+import { db, workspaces, menus, pages, brandingTokens } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { analyzeBranding } from './import.js'
+import { renderHeader, renderFooter, fontsHead, siteCss, DEFAULT_TOKENS } from './publish.js'
 
 // Workspace-level menus — header + footer — applied to every published page.
 // The data shape kept flat for v1: tree = { items: [{label, href}], cta? }.
@@ -29,6 +30,35 @@ async function upsertMenu(workspaceId: string, location: 'header' | 'footer', tr
   else await db.insert(menus).values({ workspaceId, location, tree: tree as any })
 }
 export { upsertMenu }
+
+// GET /workspaces/:slug/menus/preview — full HTML doc with just the rendered
+// header + a thin placeholder body + rendered footer, using the workspace's
+// real branding tokens. The frontend drops this into an iframe (srcDoc) so
+// the user sees exactly how their nav will look on a live page.
+menusRouter.get('/:slug/menus/preview', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const { header, footer } = await getMenusFor(ws.id)
+  const [tokRow] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const t: any = tokRow?.tokens ?? DEFAULT_TOKENS
+  const logo = t?.brand_assets?.logo?.url || null
+  const base = `https://${ws.slug}.uwebsites.net`
+  const placeholder = `<section style="padding:60px 0;text-align:center"><div class="container"><div style="color:var(--text);opacity:.45;font-size:13px;letter-spacing:.04em;text-transform:uppercase">Your page content</div><div style="height:200px;margin-top:14px;border:2px dashed rgba(0,0,0,.08);border-radius:12px;background:rgba(0,0,0,.015);display:flex;align-items:center;justify-content:center;color:rgba(0,0,0,.25);font-size:12px">— page body lives here —</div></div></section>`
+  // If the iframe URL has a #footer hash, jump straight to the footer on load
+  // so the footer editor preview opens with the footer in view.
+  const scrollScript = `<script>(function(){if(location.hash==='#footer'){var el=document.getElementById('footer');if(el)el.scrollIntoView({block:'start'})}})()</script>`
+  const footerHtml = renderFooter(ws, footer).replace('<footer class="site-footer">', '<footer id="footer" class="site-footer">')
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(ws.name)} — nav preview</title>${fontsHead(t)}<style>${siteCss(t)}body{background:#f3f5f7}main{min-height:240px;background:#fff}</style></head><body>
+${renderHeader(ws, base, header, logo)}
+<main>${placeholder}</main>
+${footerHtml}
+${scrollScript}
+</body></html>`
+  res.type('text/html').send(html)
+})
+
+// Tiny escaper for the preview placeholder above.
+function esc(s: string): string { return String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' } as any)[c]) }
 
 menusRouter.get('/:slug/menus', requireAuth, async (req: AuthRequest, res) => {
   const ws = await ownedWs(String(req.params.slug), req.user!.accountId)

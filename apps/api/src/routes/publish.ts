@@ -73,7 +73,10 @@ const renderBlock = renderSection
 type MenuItem = { label: string; href: string }
 type MenuTree = { items: MenuItem[]; cta?: { label: string; href: string } | null }
 
-function renderHeader(ws: any, base: string, header: MenuTree | undefined, logoUrl?: string | null): string {
+// Exposed so menus.ts can use the same render for the visual preview tab.
+export { fontsHead, siteCss, DEFAULT_TOKENS }
+
+export function renderHeader(ws: any, base: string, header: MenuTree | undefined, logoUrl?: string | null): string {
   const brand = logoUrl
     ? `<a class="brand" href="${base}/"><img src="${esc(logoUrl)}" alt="${esc(ws.name)}"></a>`
     : `<a class="brand" href="${base}/">${esc(ws.name)}</a>`
@@ -83,7 +86,7 @@ function renderHeader(ws: any, base: string, header: MenuTree | undefined, logoU
   return `<header class="site-header"><div class="container">${brand}${nav}${cta}</div></header>`
 }
 
-function renderFooter(ws: any, footer: MenuTree | undefined): string {
+export function renderFooter(ws: any, footer: MenuTree | undefined): string {
   const navItems = (footer?.items || []).map((i) => `<a href="${esc(i.href)}">${esc(i.label)}</a>`).join('')
   const nav = navItems ? `<nav class="nav">${navItems}</nav>` : ''
   return `<footer class="site-footer"><div class="container"><div>© ${new Date().getFullYear()} ${esc(ws.name)} · built with uWebsites</div>${nav}</div></footer>`
