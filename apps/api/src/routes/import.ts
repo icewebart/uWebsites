@@ -9,15 +9,31 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 // snapshot. Much more reliable than CSS frequency for sites where the brand
 // colors live in image assets. Returns null on any failure — caller falls
 // back to CSS-based extraction.
-async function inferColorsFromVision(logoUrl: string | null, snapshotUrl: string | null, hint?: string): Promise<{ primary?: string; accent?: string } | null> {
+async function fetchImageBase64(url: string): Promise<{ data: string; mediaType: string } | null> {
+  try {
+    const r = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(20_000) })
+    if (!r.ok) return null
+    const ct = (r.headers.get('content-type') || 'image/jpeg').split(';')[0].trim()
+    if (!ct.startsWith('image/')) return null
+    const buf = Buffer.from(await r.arrayBuffer())
+    if (buf.length > 5 * 1024 * 1024) return null
+    return { data: buf.toString('base64'), mediaType: ct }
+  } catch { return null }
+}
+
+async function inferColorsFromVision(logoUrl: string | null, snapshotUrl: string | null, hint?: string): Promise<{ primary?: string; accent?: string; reason?: string } | null> {
   if (!process.env.ANTHROPIC_API_KEY) return null
-  const urls = [logoUrl, snapshotUrl].filter(Boolean) as string[]
-  if (!urls.length) return null
+  const candidates = [logoUrl, snapshotUrl].filter(Boolean) as string[]
+  if (!candidates.length) return null
+  // Fetch images ourselves and pass as base64 — far more reliable than URL
+  // sources (which can fail for thum.io's lazy-rendered snapshots).
+  const images = (await Promise.all(candidates.map(fetchImageBase64))).filter(Boolean) as { data: string; mediaType: string }[]
+  if (!images.length) { console.error('[vision] no images fetched (logo=', !!logoUrl, 'snapshot=', !!snapshotUrl, ')'); return null }
   try {
     const a = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
     const content: any[] = [
-      ...urls.map((u) => ({ type: 'image', source: { type: 'url', url: u } })),
-      { type: 'text', text: `Examine the brand assets above (logo and/or homepage screenshot${hint ? `; site context: ${hint}` : ''}).\n\nIdentify the brand's PRIMARY color (the dominant brand color, usually the logo colour or button colour) and ACCENT color (the secondary highlight). Return ONLY a single JSON object exactly in this format, no commentary:\n{"primary":"#rrggbb","accent":"#rrggbb"}` },
+      ...images.map((img) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: img.mediaType, data: img.data } })),
+      { type: 'text' as const, text: `Examine the brand assets above (logo and/or homepage screenshot${hint ? `; site context: ${hint}` : ''}).\n\nIdentify the brand's PRIMARY color (the dominant brand color, usually the logo colour or button colour) and ACCENT color (the secondary highlight). Return ONLY a single JSON object exactly in this format, no commentary:\n{"primary":"#rrggbb","accent":"#rrggbb"}` },
     ]
     const r = await a.messages.create({
       model: process.env.ANTHROPIC_MODEL || 'claude-opus-4-8',
@@ -26,15 +42,16 @@ async function inferColorsFromVision(logoUrl: string | null, snapshotUrl: string
     })
     const text = r.content.map((b: any) => b.type === 'text' ? b.text : '').join('')
     const m = text.match(/\{[\s\S]*?\}/)
-    if (!m) return null
+    if (!m) { console.error('[vision] no JSON in reply:', text.slice(0, 200)); return null }
     const parsed = JSON.parse(m[0])
     const ok = (s: any) => typeof s === 'string' && /^#[0-9a-fA-F]{6}$/.test(s)
     if (!ok(parsed.primary) && !ok(parsed.accent)) return null
     return {
       primary: ok(parsed.primary) ? parsed.primary.toLowerCase() : undefined,
       accent: ok(parsed.accent) ? parsed.accent.toLowerCase() : undefined,
+      reason: `Identified from ${images.length} image${images.length === 1 ? '' : 's'}`,
     }
-  } catch { return null }
+  } catch (e: any) { console.error('[vision] error:', e?.message || e); return null }
 }
 
 // Importer — TS port of the Phase-0 spike. `scanSite` pulls a WordPress site
@@ -282,12 +299,15 @@ export async function analyzeBranding(siteUrl: string) {
     // Collect CSS hrefs (same-origin) and Google Fonts families
     const cssHrefs = Array.from(home.matchAll(/<link[^>]+rel=["']stylesheet["'][^>]*href=["']([^"']+)["']/gi)).map((m) => m[1])
     const inlineCss = Array.from(home.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)).map((m) => m[1]).join('\n')
-    // Google Fonts: a single href can contain multiple `family=` params; capture them all.
     const googleFonts: string[] = []
+    const pushFont = (name: string) => {
+      const n = name.trim().replace(/^["']|["']$/g, '')
+      if (n && !/^(serif|sans-serif|monospace|system-ui|-apple-system|blinkmacsystemfont|inherit|initial|unset|var\(|--)/i.test(n) && !googleFonts.includes(n)) googleFonts.push(n)
+    }
+    // 1) From <link href="fonts.googleapis.com/css?family=A&family=B"> in HTML
     for (const linkMatch of home.matchAll(/fonts\.googleapis\.com\/css[^"'\s]+/gi)) {
       for (const fam of linkMatch[0].matchAll(/family=([^&"']+)/gi)) {
-        const name = decodeURIComponent(fam[1].split(':')[0].replace(/\+/g, ' ')).trim()
-        if (name && !googleFonts.includes(name)) googleFonts.push(name)
+        pushFont(decodeURIComponent(fam[1].split(':')[0].replace(/\+/g, ' ')))
       }
     }
 
@@ -300,6 +320,20 @@ export async function analyzeBranding(siteUrl: string) {
         css += '\n' + txt.slice(0, 200000) // cap per file
         if (css.length > 600000) break
       } catch { /* skip */ }
+    }
+
+    // 2) @font-face + @import in CSS (now that we have it concatenated)
+    for (const m of css.matchAll(/@font-face\s*\{[^}]*font-family\s*:\s*([^;]+)/gi)) {
+      pushFont(m[1].split(',')[0])
+    }
+    for (const m of css.matchAll(/@import[^;]*fonts\.googleapis\.com\/css[^;]+/gi)) {
+      for (const fam of m[0].matchAll(/family=([^&)"' ;]+)/gi)) {
+        pushFont(decodeURIComponent(fam[1].split(':')[0].replace(/\+/g, ' ')))
+      }
+    }
+    // 3) Last-resort: scan every font-family declaration for non-generic names
+    for (const m of css.matchAll(/font-family\s*:\s*([^;}]+)/gi)) {
+      for (const part of m[1].split(',')) pushFont(part)
     }
 
     // Color tally (hex only — fast & deterministic; rgb() converted on the fly)
