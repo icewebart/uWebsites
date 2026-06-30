@@ -4,6 +4,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { db, workspaces, pages, redirects, brandingTokens } from '@uwebsites/db'
 import { upsertMenu } from './menus.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
+import { sectionizeHtml } from '../lib/html-sectionizer.js'
+import { createImageMirror } from '../lib/image-host.js'
 
 // Ask Claude Vision for real brand colors based on the logo + homepage
 // snapshot. Much more reliable than CSS frequency for sites where the brand
@@ -615,4 +617,75 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
   }
 
   res.json({ ok: true, data: { created, skipped, discarded, redirects: redirectCount, total: scan.total, slug: ws.slug, mode, brandingApplied } })
+})
+
+// POST /import/sectionize-page — pixel-faithful rebuild of one page from its
+// source URL. Fetches the rendered HTML, splits it into top-level sections
+// (Elementor or generic), swaps the source's brand colors/fonts for our brand
+// tokens, mirrors images to the workspace's local /img dir, and replaces the
+// page's blocks with raw-html sections. This is the "Approach A" import — the
+// alternative to AI Rebuild, and the foundation for AI polish (Approach C).
+importRouter.post('/sectionize-page', requireAuth, async (req: AuthRequest, res) => {
+  const { pageId, url: overrideUrl } = req.body ?? {}
+  if (!pageId) return res.status(400).json({ ok: false, error: 'pageId required' })
+
+  const [row] = await db.select({
+    id: pages.id, title: pages.title, seo: pages.seo, blocks: pages.blocks,
+    wsId: pages.workspaceId, slug: workspaces.slug, accId: workspaces.accountId,
+  }).from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id))
+    .where(eq(pages.id, String(pageId))).limit(1)
+  if (!row || row.accId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'page not found' })
+
+  const sourceUrl = overrideUrl || (row.seo as any)?.import_source?.url
+  if (!sourceUrl) return res.status(400).json({ ok: false, error: 'no source URL on file; pass {url} to specify' })
+
+  // Pull the brand colors + fonts that were extracted on the original import,
+  // so the sectionizer can rewrite the source's brand colors into our tokens.
+  const [tokRow] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, row.wsId)).limit(1)
+  const tokens: any = tokRow?.tokens || {}
+
+  // Re-analyse the SOURCE site's colors so we know what to swap out. (The
+  // workspace's brandingTokens hold the values to swap IN.) We rerun
+  // analyzeBranding rather than caching because the user may have edited the
+  // workspace's tokens since import — the source values are deterministic.
+  let sourceColors: { primary?: string | null; accent?: string | null; secondary?: string | null } = {}
+  let sourceFonts: { heading?: string | null; body?: string | null } = {}
+  try {
+    const b = await analyzeBranding(sourceUrl)
+    sourceColors = { primary: b.tokens.color.primary, accent: b.tokens.color.accent }
+    sourceFonts = { heading: b.tokens.font.heading, body: b.tokens.font.body }
+  } catch {
+    // best-effort; sectionizer still runs without color rewrites
+  }
+
+  let html: string
+  try {
+    const r = await fetch(sourceUrl, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(20_000) })
+    if (!r.ok) return res.status(502).json({ ok: false, error: `Source fetch ${r.status}` })
+    html = await r.text()
+  } catch (e: any) {
+    return res.status(502).json({ ok: false, error: 'Could not fetch source: ' + (e?.message || 'unknown') })
+  }
+
+  const mirror = createImageMirror(row.slug)
+  const sections = await sectionizeHtml(html, {
+    baseUrl: sourceUrl,
+    brandColors: sourceColors,
+    brandFonts: sourceFonts,
+    imageMirror: mirror,
+  })
+
+  if (!sections.length) {
+    return res.status(502).json({ ok: false, error: 'Sectionizer found no usable sections in the source page' })
+  }
+
+  const blocks = sections.map((s) => ({ type: 'raw-html', props: { html: s.html, sourceLabel: s.sourceLabel || '' } }))
+
+  await db.update(pages).set({
+    blocks: blocks as any,
+    updatedAt: new Date(),
+    seo: { ...(row.seo as any || {}), sectionized_at: new Date().toISOString() } as any,
+  }).where(eq(pages.id, row.id))
+
+  res.json({ ok: true, data: { pageId: row.id, sections: sections.length, blocks } })
 })

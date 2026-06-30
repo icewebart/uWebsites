@@ -31,6 +31,19 @@ export default function PageEditor() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerMode, setPickerMode] = useState<'add' | 'replace'>('add')
   const [rebuildOpen, setRebuildOpen] = useState(false)
+  const [sectionizing, setSectionizing] = useState(false)
+
+  async function sectionizeFromSource() {
+    if (!window.confirm('Re-import this page from its source URL? This will replace the current blocks with pixel-faithful sections — colors/fonts swap to your brand, images get mirrored locally. Your text edits will be overwritten.')) return
+    setErr(''); setSectionizing(true)
+    try {
+      const r = await api<{ pageId: string; sections: number; blocks: any[] }>('/import/sectionize-page', {
+        method: 'POST', body: JSON.stringify({ pageId }),
+      })
+      setBlocks(r.blocks); setPreviewKey((k) => k + 1); setSelected(null)
+      setSavedAt(`${r.sections} sections imported`)
+    } catch (e: any) { setErr(e.message || 'Sectionize failed') } finally { setSectionizing(false) }
+  }
   const [catalog, setCatalog] = useState<Record<string, Section>>({})
 
   useEffect(() => {
@@ -127,7 +140,12 @@ export default function PageEditor() {
         {savedAt && <span className="muted" style={{ fontSize: 12 }}>Saved {savedAt}</span>}
         <a className="btn btn-ghost" href={`${API_URL}/pages/${pageId}/preview`} target="_blank" rel="noreferrer" title="Open in a new tab (without editor UI)">↗ Preview</a>
         {page?.seo?.import_source && (
-          <button className="btn btn-secondary" onClick={() => setRebuildOpen(true)} title="Restructure into a designed layout using the section catalog">✦ AI rebuild</button>
+          <>
+            <button className="btn btn-secondary" onClick={sectionizeFromSource} disabled={sectionizing} title="Pixel-faithful import — recopy the source page's layout, swap colors/fonts to your brand, mirror images locally.">
+              {sectionizing ? 'Importing…' : '⌕ Re-import from source'}
+            </button>
+            <button className="btn btn-secondary" onClick={() => setRebuildOpen(true)} title="Restructure into a designed layout using the section catalog">✦ AI rebuild</button>
+          </>
         )}
         <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
       </div>

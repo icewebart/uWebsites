@@ -11,6 +11,7 @@ export type SectionKind =
   | 'hero' | 'hero-image' | 'richtext' | 'image'
   | 'features-3' | 'cta-banner'
   | 'testimonials-3' | 'pricing-3' | 'faq' | 'logo-cloud' | 'image-text' | 'stats-row'
+  | 'raw-html'
 
 export type SectionMeta = {
   kind: SectionKind
@@ -137,6 +138,19 @@ export const SECTIONS: SectionMeta[] = [
     },
   },
   {
+    // The 'raw-html' kind preserves a chunk of the original site's HTML as-is
+    // (with colors/fonts rewritten to brand tokens, images mirrored locally,
+    // scripts stripped). Produced by the HTML sectionizer (/import/sectionize-page)
+    // when the user wants pixel-faithful import rather than a typed rebuild.
+    // Editable in two ways: (a) raw HTML textarea, (b) future 'typify' AI flow
+    // that converts it back to a typed section.
+    kind: 'raw-html',
+    name: 'Original section',
+    description: 'A section copied verbatim from the imported site. Colors and fonts swap to brand tokens; can be replaced or AI-rewritten later.',
+    category: 'content',
+    defaults: { html: '', sourceLabel: '' },
+  },
+  {
     kind: 'stats-row',
     name: 'Stats row',
     description: 'A row of big numbers with short labels — proof, scale, results.',
@@ -175,6 +189,7 @@ export function sectionHasContent(b: any): boolean {
     case 'logo-cloud': return arrOk(p.logos) && p.logos.some((l: any) => has(l?.url))
     case 'image-text': return has(p.heading) || has(p.html) || has(p.image_url)
     case 'stats-row': return arrOk(p.items) && p.items.some((i: any) => has(i?.value) || has(i?.label))
+    case 'raw-html': return has(p.html)
     default: return false
   }
 }
@@ -272,6 +287,16 @@ export const SECTION_CSS = `
 .stats-row .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:24px;text-align:center}
 .stats-row .stat .val{font-size:2.6rem;font-weight:700;letter-spacing:-.02em;line-height:1;color:var(--primary);margin-bottom:6px}
 .stats-row .stat .lbl{font-size:.85rem;opacity:.7;text-transform:uppercase;letter-spacing:.06em}
+
+/* raw-html — imported sections rendered verbatim. Contain runaway widths and
+   set sensible image defaults; brand colors/fonts come from the wrapping
+   CSS variables which the sectionizer already swapped in. */
+.uw-raw{padding:0;overflow:hidden}
+.uw-raw > *:first-child{margin-top:0}
+.uw-raw img{max-width:100%;height:auto;display:block}
+/* Hide images that fail to load so we don't show a broken-icon box. The site
+   renders them with onerror; the CSS rule below is the SSR-time fallback. */
+.uw-raw img[data-broken="1"]{display:none}
 `
 
 // ---- per-kind static HTML renderer (used by publish.ts) ----
@@ -336,6 +361,17 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
     case 'stats-row': {
       const items = (Array.isArray(p.items) ? p.items : []).map((it: any) => `<div class="stat"><div class="val">${esc(it.value)}</div><div class="lbl">${esc(it.label)}</div></div>`).join('')
       return `<section class="stats-row"><div class="container">${p.heading ? `<div class="head"><h2${f('heading')}>${esc(p.heading)}</h2></div>` : ''}<div class="row">${items}</div></div></section>`
+    }
+    case 'raw-html': {
+      // Source HTML passes through with no extra escaping — the sectionizer
+      // is responsible for already having sanitised + brand-themed it. The
+      // wrapper applies our base CSS variables so child elements that USE
+      // var(--primary) etc. inherit the workspace's tokens. Empty raw-html
+      // doesn't render anything except (in edit mode) the placeholder.
+      const html = typeof p.html === 'string' ? p.html : ''
+      if (!html) return ''
+      const label = p.sourceLabel ? `<!-- source: ${esc(p.sourceLabel)} -->` : ''
+      return `${label}<section class="uw-raw">${html}</section>`
     }
     default:
       return `<!-- unknown section: ${esc(String(b.type))} -->`
