@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
-type Me = { id: string; email: string }
+type Me = { user: { id: string; email: string; accountId?: string } }
 type SiteItem = {
   id: string; name: string; slug: string; createdAt: string
   pages: number; drafts: number; published: number; articles: number
@@ -62,7 +62,7 @@ export default function Dashboard() {
   }, [])
 
   if (loading) return <div className="empty">Loading…</div>
-  const name = me?.email?.split('@')[0] || 'there'
+  const name = me?.user?.email?.split('@')[0] || 'there'
   const empty = items.length === 0
   const firstSlug = items[0]?.slug
 
