@@ -6,6 +6,7 @@ import { upsertMenu } from './menus.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { sectionizeHtml } from '../lib/html-sectionizer.js'
 import { createImageMirror } from '../lib/image-host.js'
+import { headlessRender } from '../lib/headless.js'
 
 // Ask Claude Vision for real brand colors based on the logo + homepage
 // snapshot. Much more reliable than CSS frequency for sites where the brand
@@ -658,21 +659,39 @@ importRouter.post('/sectionize-page', requireAuth, async (req: AuthRequest, res)
     // best-effort; sectionizer still runs without color rewrites
   }
 
+  // Default: render in real Chromium so we capture the page exactly as a
+  // browser sees it (Elementor JS-driven classes, lazy-loaded images, dynamic
+  // CSS). Body param { mode: 'fetch' } opts out for debugging.
+  const useHeadless = (req.body?.mode ?? 'headless') === 'headless'
   let html: string
+  let preloadedStylesheets: { href: string; css: string }[] | undefined
+  let preloadedInlineStyles: string | undefined
+  let resolvedUrl = sourceUrl
+
   try {
-    const r = await fetch(sourceUrl, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(20_000) })
-    if (!r.ok) return res.status(502).json({ ok: false, error: `Source fetch ${r.status}` })
-    html = await r.text()
+    if (useHeadless) {
+      const r = await headlessRender(sourceUrl)
+      html = r.html
+      preloadedStylesheets = r.stylesheets
+      preloadedInlineStyles = r.inlineStyles
+      resolvedUrl = r.finalUrl || sourceUrl
+    } else {
+      const r = await fetch(sourceUrl, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(20_000) })
+      if (!r.ok) return res.status(502).json({ ok: false, error: `Source fetch ${r.status}` })
+      html = await r.text()
+    }
   } catch (e: any) {
-    return res.status(502).json({ ok: false, error: 'Could not fetch source: ' + (e?.message || 'unknown') })
+    return res.status(502).json({ ok: false, error: 'Could not render source: ' + (e?.message || 'unknown') })
   }
 
   const mirror = createImageMirror(row.slug)
   const sections = await sectionizeHtml(html, {
-    baseUrl: sourceUrl,
+    baseUrl: resolvedUrl,
     brandColors: sourceColors,
     brandFonts: sourceFonts,
     imageMirror: mirror,
+    preloadedStylesheets,
+    preloadedInlineStyles,
   })
 
   if (!sections.length) {

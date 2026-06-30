@@ -28,6 +28,12 @@ type SectionizeOpts = {
   // is downloaded into the workspace's local /img dir and the URL is rewritten
   // to the local path. Skipped if null (URLs stay as-is).
   imageMirror?: ImageMirror | null
+  // When a headless render already captured every stylesheet the browser
+  // loaded, pass them here so we skip the (less reliable) re-fetch path. Both
+  // external + inline blocks are accepted. Provided in render order; we
+  // concatenate verbatim.
+  preloadedStylesheets?: Array<{ href: string; css: string }>
+  preloadedInlineStyles?: string
 }
 
 export type RawSection = { html: string; sourceLabel?: string }
@@ -244,13 +250,26 @@ function findSections(bodyHtml: string): { html: string; label?: string }[] {
 }
 
 export async function sectionizeHtml(html: string, opts: SectionizeOpts): Promise<RawSection[]> {
-  // 1. Capture CSS BEFORE we strip <style>/<link>. We need both:
-  //    (a) inline <style> blocks (Elementor sometimes ships per-page CSS this way)
-  //    (b) external stylesheets the page links to (where most layout lives)
-  const inlineCss = collectInlineStyles(html)
-  const sheetUrls = collectStylesheetHrefs(html, opts.baseUrl)
-  const externalCss = await fetchAndConcatCss(sheetUrls, UA)
-  let allCss = `${inlineCss}\n${externalCss}`
+  // 1. CSS strategy depends on whether the caller pre-loaded stylesheets (the
+  //    headless render path) or not (raw-fetch fallback).
+  let allCss = ''
+  if (opts.preloadedStylesheets && opts.preloadedStylesheets.length) {
+    // Headless render gave us EXACTLY the stylesheets the browser used —
+    // includes Elementor's post-N.css, theme CSS, and any JS-injected styles
+    // captured as text/css responses. Skip the WP defaults that bloat without
+    // adding layout signal.
+    const skip = /wp-emoji|wp-block-library|classic-themes|woocommerce|font-awesome|wc-blocks|smallscreen/i
+    const useful = opts.preloadedStylesheets.filter((s) => !skip.test(s.href))
+    allCss = useful.map((s) => `/* ${s.href} */\n${s.css}`).join('\n\n')
+    if (opts.preloadedInlineStyles) allCss += '\n\n' + opts.preloadedInlineStyles
+  } else {
+    // Raw-fetch fallback (no headless render): try the link tags in the HTML.
+    // Less reliable for JS-driven sites but cheap.
+    const inlineCss = collectInlineStyles(html)
+    const sheetUrls = collectStylesheetHrefs(html, opts.baseUrl)
+    const externalCss = await fetchAndConcatCss(sheetUrls, UA)
+    allCss = `${inlineCss}\n${externalCss}`
+  }
 
   // Apply the same brand-token rewrites to the CSS itself, so .my-button
   // { color: #F9B716 } becomes color: var(--primary) and the workspace's

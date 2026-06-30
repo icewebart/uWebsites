@@ -53,6 +53,12 @@ jobs:
             pnpm $FLAG --filter @uwebsites/shared build
             pnpm $FLAG --filter @uwebsites/db build
             pnpm $FLAG --filter @uwebsites/api build
+            # Playwright headless render needs Chromium + its system deps. The
+            # browser binary lives under ~/.cache/ms-playwright/ and survives
+            # across deploys; install only fetches when the version changes.
+            # System deps (libnss3, fonts-liberation, etc.) install once via
+            # apt — silent no-op when already present.
+            pnpm --filter @uwebsites/api exec playwright install chromium --with-deps || pnpm --filter @uwebsites/api exec playwright install chromium
             # Web (Next standalone): build, then copy static/public into the standalone tree
             pnpm $FLAG --filter @uwebsites/web build
             # Hard fail if the build silently skipped static asset generation —
