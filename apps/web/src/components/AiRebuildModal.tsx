@@ -35,10 +35,10 @@ export function AiRebuildModal({ open, pageId, pageTitle, snapshotUrl, onClose, 
   if (!open) return null
 
   async function rebuild() {
+    if (!extra.trim()) { setErr('Tell me what to change. AI Rebuild is a destructive op — empty instruction = no change.'); return }
     setErr(''); setBusy(true)
-    const payload: any = { pageId }
+    const payload: any = { pageId, tone: extra.trim() }
     if (dir.id !== 'auto') payload.aesthetic = dir.id
-    if (extra.trim()) payload.tone = extra.trim()
     try {
       const r = await api<{ title: string; blocks: any[] }>('/ai/rebuild-page', {
         method: 'POST', body: JSON.stringify(payload),
@@ -70,15 +70,16 @@ export function AiRebuildModal({ open, pageId, pageTitle, snapshotUrl, onClose, 
               </button>
             ))}
           </div>
-          <p className="rebuild-label">Anything specific? <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text-faint)' }}>(optional)</span></p>
-          <textarea className="inp" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder='e.g. "Add a testimonials section near the top" or "lead with the offer, not the story"' />
+          <p className="rebuild-label">What should I change? <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text-faint)' }}>(required — AI only does what you ask)</span></p>
+          <textarea className="inp" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder='e.g. "Add a testimonials section near the top" or "Replace the hero with a shorter, sharper headline" or "Drop the pricing section"' />
+          <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>To polish copy on a single section without changing layout, close this and use <b>✦ AI rewrite copy</b> in the section panel instead.</p>
           {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
         </div>
 
         <div className="rebuild-actions">
           <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="btn btn-primary" onClick={rebuild} disabled={busy}>
-            {busy ? 'Rebuilding…' : '✦ Rebuild with AI'}
+          <button className="btn btn-primary" onClick={rebuild} disabled={busy || !extra.trim()}>
+            {busy ? 'Applying…' : '✦ Apply change'}
           </button>
         </div>
       </div>

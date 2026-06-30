@@ -403,6 +403,14 @@ aiRouter.post('/rebuild-page', requireAuth, async (req: AuthRequest, res) => {
   if (!a) return res.status(503).json({ ok: false, error: 'AI not configured.' })
   const { pageId, tone, aesthetic: aestheticOverride } = req.body ?? {}
   if (!pageId) return res.status(400).json({ ok: false, error: 'pageId required' })
+  // Rebuild is destructive — it replaces the whole page. Require an explicit
+  // instruction so it never runs on a vague click. To polish copy in place
+  // without restructure, the editor calls /ai/rewrite-section-html per
+  // section (preserves layout, only edits text).
+  const userInstruction = String(tone || '').trim()
+  if (!userInstruction) {
+    return res.status(400).json({ ok: false, error: 'Tell me what to change — leave the instruction empty if you want me to leave the page alone.' })
+  }
 
   const [row] = await db.select({
     id: pages.id, title: pages.title, blocks: pages.blocks, seo: pages.seo,
@@ -429,17 +437,24 @@ aiRouter.post('/rebuild-page', requireAuth, async (req: AuthRequest, res) => {
     const r = await a.messages.create({
       model: MODEL,
       max_tokens: 5000,
-      system: `Rebuild this page into a real, opinionated layout that reflects the named aesthetic below — NOT a generic template. THINK in two steps before emitting: (1) pick the section order using the aesthetic's preferred roster, (2) WRITE THE COPY IN THE AESTHETIC'S VOICE, drawing source material from the original page body but PUNCHING IT UP so it doesn't read like a content-management dump.
+      system: `Modify a uWebsites page per a SPECIFIC user instruction. You are NOT asked to reinvent the page; you are asked to apply the instruction precisely.
 
-You may rewrite headlines, condense paragraphs into bullets, hoist the strongest claim into the hero, and split a wall of text into 3 features. Preserve image URLs and any concrete facts (prices, dates, named people, place names). Do NOT invent facts.
+GUARD RAILS:
+- The user instruction below is the single source of authority. Do ONLY what it says.
+- If the instruction does NOT mention restructuring, KEEP the same section order and the same content. Touch only what the instruction names.
+- If the instruction does NOT mention rewriting copy, preserve every sentence verbatim. Don't 'punch it up' uninvited.
+- If the instruction does not mention adding sections, do NOT add sections.
+- Always preserve image URLs and concrete facts (prices, dates, names, places).
+- Output the resulting page via the tool with the FULL block tree (modified parts + unchanged parts).
 
-Section catalog: ${SECTION_KINDS_LIST.join(', ')}
+Section catalog (use these kinds when adding or replacing sections): ${SECTION_KINDS_LIST.join(', ')}
 
 ${aestheticPrompt(aesthetic)}
 
 ${COPY_RULES}
 
-CRITICAL: every section must be FULLY populated per the tool schema. Empty items[]/tiers[]/logos[] render as blank white space — skip those sections instead. Aim for 4–6 strong sections, not 6 thin ones.${tone ? '\n\nAdditional tone notes: ' + tone : ''}${brief ? '\n\nSITE CONTEXT (anchor industry, audience, voice — refer back to it in your copy):\n' + brief : ''}`,
+USER INSTRUCTION (this is the ONLY thing that drives changes):
+> ${userInstruction}${brief ? '\n\nSITE CONTEXT (background only — do not regenerate from this):\n' + brief : ''}`,
       tools: [{ name: 'page', description: 'The rebuilt page.', input_schema: BLOCK_SCHEMA as any }],
       tool_choice: { type: 'tool', name: 'page' },
       // Vision: when we have a snapshot of the original, pass it so Claude can
@@ -447,7 +462,7 @@ CRITICAL: every section must be FULLY populated per the tool schema. Empty items
       // overall visual style) instead of guessing from text alone.
       messages: [{ role: 'user', content: [
         ...(snapshotUrl ? [{ type: 'image' as const, source: { type: 'url' as const, url: snapshotUrl } }] : []),
-        { type: 'text' as const, text: `Here is the source page${snapshotUrl ? ' (image above)' : ''}.\n\nTitle: ${heroTitle}\nSubhead: ${heroSub}\nSource URL: ${sourceUrl || '(unknown)'}\nAvailable images: ${images.join(', ') || '(none)'}\n\nBody HTML:\n${bodyHtml || '(empty)'}\n\nReproduce the structure and feel of the original where it makes sense — match section order and the kind of content the original surfaces. Improve clarity and typography, but don't invent content that isn't there.` },
+        { type: 'text' as const, text: `Current page state for reference:\n\nTitle: ${heroTitle}\nSubhead: ${heroSub}\nSource URL: ${sourceUrl || '(unknown)'}\nAvailable images: ${images.join(', ') || '(none)'}\n\nCurrent block tree (JSON):\n${JSON.stringify(cur, null, 2).slice(0, 30000)}\n\nApply ONLY the user instruction. Return the FULL block tree with that change applied.` },
       ] }],
     })
     const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any

@@ -23,7 +23,10 @@ app.use(cors({
   origin: (origin, cb) => (!origin || allowed.includes(origin)) ? cb(null, true) : cb(new Error('CORS')),
   credentials: true,
 }))
-app.use(express.json())
+// 6 MB body cap — raw-html blocks from the sectionizer include inlined CSS
+// (up to 800 KB per page) so a multi-section save easily exceeds the default
+// 100 KB. 6 MB is generous; pages much bigger than this should be split.
+app.use(express.json({ limit: '6mb' }))
 app.use(cookieParser())
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'uwebsites-api', version: '0.1.0', ts: new Date().toISOString() }))
