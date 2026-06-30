@@ -55,6 +55,14 @@ jobs:
             pnpm $FLAG --filter @uwebsites/api build
             # Web (Next standalone): build, then copy static/public into the standalone tree
             pnpm $FLAG --filter @uwebsites/web build
+            # Hard fail if the build silently skipped static asset generation —
+            # without these chunks, every JS file 404s and the app shows
+            # 'Loading…' forever. This caught us once when pnpm's new
+            # ignored-builds policy aborted install but build kept running.
+            if [ ! -d apps/web/.next/static/chunks ] || [ -z "$(ls apps/web/.next/static/chunks 2>/dev/null)" ]; then
+              echo "FATAL: apps/web/.next/static/chunks is missing or empty after build" >&2
+              exit 1
+            fi
             rm -rf apps/web/.next/standalone/apps/web/.next/static
             cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
             [ -d apps/web/public ] && cp -r apps/web/public apps/web/.next/standalone/apps/web/public || true
