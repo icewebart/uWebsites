@@ -6,6 +6,7 @@ import { db, workspaces, pages, brandingTokens, builds } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { renderSection, SECTION_CSS, SECTIONS, sectionHasContent, esc as escSh } from '../lib/sections.js'
 import { getMenusFor } from './menus.js'
+import { GOOGLE_FONT_NAMES } from '@uwebsites/shared'
 
 // Publisher — compiles a workspace's pages (+ branding tokens) to static
 // HTML/CSS on disk, served by nginx. One box (ADR-012), so we write locally;
@@ -21,12 +22,10 @@ const DEFAULT_TOKENS: any = {
   shape: { buttonRadius: '12px', cardRadius: '16px', borderWidth: '1px' },
   space: { sectionGap: '64px', sectionPaddingY: '48px', container: '1200px' },
 }
-const GOOGLE_FONTS = new Set(['Space Grotesk', 'Inter', 'Poppins'])
-
 const esc = escSh
 
 function fontsHead(t: any) {
-  const fams = [...new Set([t.font.heading, t.font.body])].filter((f) => GOOGLE_FONTS.has(f))
+  const fams = [...new Set([t.font.heading, t.font.body])].filter((f) => GOOGLE_FONT_NAMES.has(f))
   if (!fams.length) return ''
   const q = fams.map((f) => `family=${f.replace(/ /g, '+')}:wght@400;600;700`).join('&')
   return `<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?${q}&display=swap" rel="stylesheet">`

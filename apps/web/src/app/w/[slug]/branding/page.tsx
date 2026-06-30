@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
+import { GOOGLE_FONTS, GOOGLE_FONT_NAMES } from '@uwebsites/shared'
 
 type BrandAssets = {
   logo?: { url: string; alt?: string } | null
@@ -18,7 +19,21 @@ type Tokens = {
   brand_assets?: BrandAssets
 }
 
-const FONTS = ['Space Grotesk', 'Inter', 'Poppins', 'Georgia', 'system-ui']
+// Loads the chosen Google Fonts so the preview cards on this page actually
+// render in the font the user picked. Inert for system fonts.
+function useGoogleFontPreview(...names: string[]) {
+  useEffect(() => {
+    const gfonts = [...new Set(names)].filter((n) => GOOGLE_FONT_NAMES.has(n))
+    if (!gfonts.length) return
+    const id = 'uw-gfont-' + gfonts.join('|').replace(/\W/g, '_')
+    if (document.getElementById(id)) return
+    const q = gfonts.map((f) => `family=${f.replace(/ /g, '+')}:wght@400;600;700`).join('&')
+    const link = document.createElement('link')
+    link.id = id; link.rel = 'stylesheet'
+    link.href = `https://fonts.googleapis.com/css2?${q}&display=swap`
+    document.head.appendChild(link)
+  }, [names.join('|')])
+}
 const px = (v: string) => parseInt(String(v)) || 0
 
 // BrandShowcase — at-a-glance cards showing the active palette, fonts in use,
@@ -154,7 +169,25 @@ export default function Branding() {
     } catch (e: any) { setErr(e.message || 'Save failed') } finally { setSaving(false) }
   }
 
+  // Load the currently-selected Google Fonts so BrandShowcase + previews render correctly.
+  useGoogleFontPreview(t?.font?.heading || '', t?.font?.body || '')
+
   if (loading || !t) return <div className="empty">Loading…</div>
+
+  // Build the dropdown options: curated list grouped + ALWAYS include the
+  // current value (it may have come from import — e.g. Quicksand) even if not
+  // in the curated list, so the picker shows it as selected.
+  const renderFontOptions = (current: string) => {
+    const inList = [...GOOGLE_FONTS.sans, ...GOOGLE_FONTS.serif, ...GOOGLE_FONTS.display, ...GOOGLE_FONTS.mono, ...GOOGLE_FONTS.system].includes(current as any)
+    return (<>
+      {!inList && current && <optgroup label="Imported"><option value={current}>{current}</option></optgroup>}
+      <optgroup label="Sans">{GOOGLE_FONTS.sans.map((f) => <option key={f} value={f}>{f}</option>)}</optgroup>
+      <optgroup label="Serif">{GOOGLE_FONTS.serif.map((f) => <option key={f} value={f}>{f}</option>)}</optgroup>
+      <optgroup label="Display">{GOOGLE_FONTS.display.map((f) => <option key={f} value={f}>{f}</option>)}</optgroup>
+      <optgroup label="Mono">{GOOGLE_FONTS.mono.map((f) => <option key={f} value={f}>{f}</option>)}</optgroup>
+      <optgroup label="System">{GOOGLE_FONTS.system.map((f) => <option key={f} value={f}>{f}</option>)}</optgroup>
+    </>)
+  }
 
   const Swatch = ({ k }: { k: keyof Tokens['color'] }) => (
     <div className="swatch">
@@ -187,10 +220,10 @@ export default function Branding() {
           <div className="ctl-group">
             <h3>Typography</h3>
             <div className="ctl-row"><label>Heading font</label>
-              <select value={t.font.heading} onChange={(e) => patch('font', 'heading', e.target.value)}>{FONTS.map((f) => <option key={f}>{f}</option>)}</select>
+              <select value={t.font.heading} onChange={(e) => patch('font', 'heading', e.target.value)}>{renderFontOptions(t.font.heading)}</select>
             </div>
             <div className="ctl-row"><label>Body font</label>
-              <select value={t.font.body} onChange={(e) => patch('font', 'body', e.target.value)}>{FONTS.map((f) => <option key={f}>{f}</option>)}</select>
+              <select value={t.font.body} onChange={(e) => patch('font', 'body', e.target.value)}>{renderFontOptions(t.font.body)}</select>
             </div>
             <div className="ctl-row"><label>Type scale</label>
               <input className="num" type="number" step={0.05} min={1} max={2} value={t.font.scale} onChange={(e) => patch('font', 'scale', parseFloat(e.target.value))} />
