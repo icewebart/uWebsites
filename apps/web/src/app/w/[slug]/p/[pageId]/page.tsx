@@ -33,6 +33,31 @@ export default function PageEditor() {
   const [rebuildOpen, setRebuildOpen] = useState(false)
   const [sectionizing, setSectionizing] = useState(false)
 
+  async function rewriteRawHtml(idx: number) {
+    const instruction = window.prompt('How should I rewrite the copy in this section? Leave blank for a general polish on-aesthetic.', '')
+    if (instruction === null) return  // user cancelled
+    setErr('')
+    try {
+      const r = await api<{ sectionIndex: number; blocks: any[] }>('/ai/rewrite-section-html', {
+        method: 'POST', body: JSON.stringify({ pageId, sectionIndex: idx, instruction }),
+      })
+      setBlocks(r.blocks); setPreviewKey((k) => k + 1)
+      setSavedAt('Section rewritten')
+    } catch (e: any) { setErr(e.message || 'AI rewrite failed') }
+  }
+
+  async function typifySection(idx: number) {
+    if (!window.confirm('Convert this imported HTML to a typed catalog section? This replaces the raw HTML with structured props (hero / features / etc.) — you lose the original layout but gain granular editing.')) return
+    setErr('')
+    try {
+      const r = await api<{ sectionIndex: number; blocks: any[] }>('/ai/typify-section', {
+        method: 'POST', body: JSON.stringify({ pageId, sectionIndex: idx }),
+      })
+      setBlocks(r.blocks); setPreviewKey((k) => k + 1)
+      setSavedAt('Section converted to typed')
+    } catch (e: any) { setErr(e.message || 'Convert failed') }
+  }
+
   async function sectionizeFromSource() {
     if (!window.confirm('Re-import this page from its source URL? This will replace the current blocks with pixel-faithful sections — colors/fonts swap to your brand, images get mirrored locally. Your text edits will be overwritten.')) return
     setErr(''); setSectionizing(true)
@@ -202,7 +227,12 @@ export default function PageEditor() {
               <h4>{selMeta?.name || sel.type}</h4>
               <SectionForm block={sel} onChange={(partial) => upd(selected, partial)} />
               <div className="ev-actions">
-                <button onClick={() => aiRewrite(selected)} title="Rewrite with AI">↻ AI rewrite</button>
+                {sel.type === 'raw-html' ? (<>
+                  <button onClick={() => rewriteRawHtml(selected)} title="Rewrite the copy IN PLACE — keeps the layout, only changes the text">✦ AI rewrite copy</button>
+                  <button onClick={() => typifySection(selected)} title="Convert this raw HTML section to a typed catalog section (hero / features / etc.)">⇆ Convert to typed</button>
+                </>) : (
+                  <button onClick={() => aiRewrite(selected)} title="Rewrite with AI">↻ AI rewrite</button>
+                )}
                 <button onClick={() => { setPickerMode('replace'); setPickerOpen(true) }} title="Replace with another section kind">⇄ Replace</button>
                 <button onClick={() => move(selected, -1)} disabled={selected === 0} title="Move up">↑</button>
                 <button onClick={() => move(selected, 1)} disabled={selected === blocks.length - 1} title="Move down">↓</button>
@@ -372,6 +402,24 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
           {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
         </div>
       </>)
+    case 'raw-html': {
+      const html: string = p.html || ''
+      const len = html.length
+      const label: string = p.sourceLabel || 'Imported section'
+      return (<>
+        <div className="field"><label>Source</label>
+          <div className="muted" style={{ fontSize: 13 }}>{label} · {len.toLocaleString()} chars of HTML</div>
+          <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+            This section was imported as raw HTML from your source site. Colors and fonts swap with your branding. Use <b>✦ AI rewrite copy</b> to refresh the text in place, or <b>⇆ Convert to typed</b> to turn it into a structured catalog section.
+          </p>
+        </div>
+        <details style={{ marginTop: 8 }}>
+          <summary className="muted" style={{ fontSize: 12, cursor: 'pointer' }}>View / edit raw HTML</summary>
+          <textarea className="inp" style={{ marginTop: 6, minHeight: 240, fontFamily: 'SF Mono, Fira Code, monospace', fontSize: 11 }}
+            value={html} onChange={(e) => onChange({ html: e.target.value })} />
+        </details>
+      </>)
+    }
     default:
       return <div className="muted" style={{ fontSize: 13 }}>No editor for "{block.type}" sections yet.</div>
   }

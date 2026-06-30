@@ -612,3 +612,107 @@ aiRouter.post('/rewrite-block', requireAuth, async (req: AuthRequest, res) => {
     res.status(502).json({ ok: false, error: 'AI rewrite failed: ' + (e?.message || 'unknown') })
   }
 })
+
+// ---- Approach C: AI polish over raw-html sections (from the sectionizer) ----
+// Two operations:
+//   - rewrite-section-html  rewrite copy IN PLACE while preserving the
+//                           layout / class names / structure. The model only
+//                           edits visible text inside text-bearing tags.
+//   - typify-section        convert a raw-html section to a typed catalog
+//                           section (hero/features-3/etc) by extracting its
+//                           text + image URLs into the proper props.
+
+aiRouter.post('/rewrite-section-html', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured.' })
+  const { pageId, sectionIndex, instruction } = req.body ?? {}
+  if (!pageId || typeof sectionIndex !== 'number') return res.status(400).json({ ok: false, error: 'pageId + sectionIndex required' })
+
+  const [row] = await db.select({ id: pages.id, blocks: pages.blocks, wsId: pages.workspaceId, accId: workspaces.accountId, name: workspaces.name })
+    .from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id))
+    .where(eq(pages.id, String(pageId))).limit(1)
+  if (!row || row.accId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'page not found' })
+  const blocks = (Array.isArray(row.blocks) ? row.blocks : []) as any[]
+  const target = blocks[sectionIndex]
+  if (!target || target.type !== 'raw-html') return res.status(400).json({ ok: false, error: 'target section is not raw-html' })
+
+  const brief = await siteBrief(row.wsId, row.name)
+  const aesthetic = await resolveAesthetic(row.wsId)
+
+  try {
+    const r = await a.messages.create({
+      model: MODEL,
+      max_tokens: 4000,
+      system: `You rewrite visible TEXT inside an HTML fragment while preserving every tag, attribute, class name, and visual structure. ABSOLUTE RULES:
+- Output the WHOLE fragment with the same outer markup. Same tag tree. Same classes. Same id attributes. Same image src URLs (do not change images).
+- Only change the TEXT NODES — the words a visitor reads.
+- Do NOT add or remove any tags.
+- Do NOT change href URLs unless the instruction explicitly says to.
+- If the instruction is vague ("punch it up", "shorter") apply our aesthetic + copy rules below. If specific ("change the hero headline to X"), follow it precisely.
+- Output ONLY the modified HTML fragment — no commentary, no markdown fences.
+
+${aestheticPrompt(aesthetic)}
+
+${COPY_RULES}${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
+      messages: [{ role: 'user', content: `Instruction: ${instruction || 'Polish the copy per the aesthetic and copy rules. Make every claim specific. Avoid filler.'}\n\nHTML fragment:\n${target.props?.html || ''}` }],
+    })
+    let txt = r.content.map((b: any) => b.type === 'text' ? b.text : '').join('').trim()
+    // Strip accidental markdown fences if Claude added them
+    txt = txt.replace(/^```(?:html)?\s*/i, '').replace(/```\s*$/i, '').trim()
+    if (!txt) return res.status(502).json({ ok: false, error: 'empty response' })
+
+    const newBlocks = blocks.slice()
+    newBlocks[sectionIndex] = { ...target, props: { ...(target.props || {}), html: txt } }
+    await db.update(pages).set({ blocks: newBlocks as any, updatedAt: new Date() }).where(eq(pages.id, row.id))
+    await logAiJob(row.wsId, 'edit', 'done', { source: 'rewrite-section-html', sectionIndex }, 1, row.id)
+    res.json({ ok: true, data: { sectionIndex, blocks: newBlocks } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'AI rewrite failed: ' + (e?.message || 'unknown') })
+  }
+})
+
+const TYPIFY_SCHEMA = {
+  type: 'object',
+  properties: {
+    type: { type: 'string', enum: SECTION_KINDS_LIST, description: 'The catalog kind that best matches the source HTML.' },
+    props: { type: 'object', description: 'Section props for the chosen kind — match the schema in lib/sections.ts. Extract text from the HTML; use IMAGE URLs that appear in the HTML verbatim (do not invent).' },
+  },
+  required: ['type', 'props'],
+}
+
+aiRouter.post('/typify-section', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured.' })
+  const { pageId, sectionIndex } = req.body ?? {}
+  if (!pageId || typeof sectionIndex !== 'number') return res.status(400).json({ ok: false, error: 'pageId + sectionIndex required' })
+
+  const [row] = await db.select({ id: pages.id, blocks: pages.blocks, wsId: pages.workspaceId, accId: workspaces.accountId, name: workspaces.name })
+    .from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id))
+    .where(eq(pages.id, String(pageId))).limit(1)
+  if (!row || row.accId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'page not found' })
+  const blocks = (Array.isArray(row.blocks) ? row.blocks : []) as any[]
+  const target = blocks[sectionIndex]
+  if (!target || target.type !== 'raw-html') return res.status(400).json({ ok: false, error: 'target section is not raw-html' })
+
+  try {
+    const r = await a.messages.create({
+      model: MODEL,
+      max_tokens: 1500,
+      system: `Convert an HTML fragment into one of our typed catalog sections: ${SECTION_KINDS_LIST.join(', ')}. Pick the BEST-matching kind. Extract text content verbatim into the kind's props (heading, sub, items, etc per the catalog schema). For image-bearing kinds, use image URLs that already appear in the HTML — do not invent. Return via the section tool.`,
+      tools: [{ name: 'section', description: 'The typed section.', input_schema: TYPIFY_SCHEMA as any }],
+      tool_choice: { type: 'tool', name: 'section' },
+      messages: [{ role: 'user', content: `HTML fragment:\n${target.props?.html || ''}` }],
+    })
+    const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!toolUse) return res.status(502).json({ ok: false, error: 'Model returned no typed section' })
+    const { type, props } = toolUse.input as { type: string; props: any }
+
+    const newBlocks = blocks.slice()
+    newBlocks[sectionIndex] = { type, props: props || {} }
+    await db.update(pages).set({ blocks: newBlocks as any, updatedAt: new Date() }).where(eq(pages.id, row.id))
+    await logAiJob(row.wsId, 'edit', 'done', { source: 'typify-section', sectionIndex, type }, 1, row.id)
+    res.json({ ok: true, data: { sectionIndex, blocks: newBlocks } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Typify failed: ' + (e?.message || 'unknown') })
+  }
+})
