@@ -1,12 +1,26 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api'
+
+// useSearchParams forces this client component to opt out of static
+// prerender. The Suspense wrapper at the bottom lets the rest of the page
+// render while query params resolve.
+export const dynamic = 'force-dynamic'
 
 type Workspace = { id: string; name: string; slug: string }
 
-export default function Onboarding() {
+export default function OnboardingPage() {
+  return <Suspense fallback={<div className="empty">Loading…</div>}><Onboarding /></Suspense>
+}
+
+function Onboarding() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // ?new=1 means the user explicitly chose 'Create new workspace' from the
+  // topbar dropdown — they already have workspaces and want another. Skip
+  // the auto-redirect-to-dashboard.
+  const forceNew = searchParams.get('new') === '1'
   const [step, setStep] = useState<1 | 2>(1)
   const [ws, setWs] = useState('')
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
@@ -14,14 +28,21 @@ export default function Onboarding() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [checking, setChecking] = useState(true)
+  const [existingCount, setExistingCount] = useState(0)
 
-  // Onboarding is for new accounts only. If you already have a workspace, go
-  // straight to the dashboard instead of being asked to name one again.
+  // First-run onboarding sends users with workspaces back to the dashboard.
+  // When forceNew is true (clicked 'Create new workspace' from the dropdown),
+  // we skip that redirect and let them create another.
   useEffect(() => {
     api<Workspace[]>('/workspaces')
-      .then((list) => { if (Array.isArray(list) && list.length > 0) router.replace('/'); else setChecking(false) })
+      .then((list) => {
+        const n = Array.isArray(list) ? list.length : 0
+        setExistingCount(n)
+        if (!forceNew && n > 0) router.replace('/')
+        else setChecking(false)
+      })
       .catch(() => setChecking(false))
-  }, [])
+  }, [forceNew])
 
   // Step 1 — create the workspace, then advance.
   async function createWorkspace(e: React.FormEvent) {
@@ -47,6 +68,11 @@ export default function Onboarding() {
   return (
     <div className="ob">
       <img className="auth-logo-img" src="/uwebsites.svg" alt="uWebsites" />
+      {forceNew && existingCount > 0 && (
+        <div style={{ textAlign: 'center', marginTop: -8, marginBottom: 12 }}>
+          <a href="/" className="muted" style={{ fontSize: 12 }}>← Back to dashboard</a>
+        </div>
+      )}
 
       <div className="steps">
         <span className={`dot${step >= 1 ? ' on' : ''}`}>1</span>

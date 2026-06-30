@@ -158,7 +158,7 @@ export default function Dashboard() {
                 </div>
               </a>
             ))}
-            <a className="site-card-add" href="/onboarding">＋ New site</a>
+            <a className="site-card-add" href="/onboarding?new=1">＋ New site</a>
           </div>
         </>
       )}

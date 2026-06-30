@@ -39,20 +39,76 @@ function extractBody(html: string): string {
   return m ? m[1] : html
 }
 
-// Strip elements that can't survive an import: scripts, noscripts, link/preload,
-// style tags (the sectionizer assumes the section CARRIES enough inline-style
-// to render alone — global stylesheet rules wouldn't reach us). Also strip
-// common Elementor instrumentation.
+// Strip elements that genuinely can't survive an import: scripts, iframes,
+// inline event handlers, link/style tags (we re-inline cleaned CSS separately).
+// NOTE: <style> blocks get removed here AFTER we've extracted their contents
+// in collectInlineStyles(). Class names stay on the elements so the inlined
+// CSS can target them.
 function stripUnsafe(html: string): string {
   let s = html
   s = s.replace(/<script\b[\s\S]*?<\/script>/gi, '')
   s = s.replace(/<noscript\b[\s\S]*?<\/noscript>/gi, '')
   s = s.replace(/<style\b[\s\S]*?<\/style>/gi, '')
   s = s.replace(/<link\b[^>]*\/?>/gi, '')
-  s = s.replace(/<iframe\b[\s\S]*?<\/iframe>/gi, '')   // YT, ads, embeds — replace later with placeholder if needed
-  s = s.replace(/\son\w+=("[^"]*"|'[^']*'|[^\s>]+)/gi, '')  // strip inline event handlers (onclick, onerror, etc)
+  s = s.replace(/<iframe\b[\s\S]*?<\/iframe>/gi, '')
+  s = s.replace(/\son\w+=("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
   return s
 }
+
+// Pull every <style> block's contents out of the raw HTML BEFORE stripUnsafe
+// erases them. These hold the inline rules (especially Elementor's
+// per-post CSS embedded in the head).
+function collectInlineStyles(html: string): string {
+  let css = ''
+  for (const m of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) css += m[1] + '\n'
+  return css
+}
+
+// Collect <link rel="stylesheet"> hrefs from the raw HTML; we'll fetch each
+// one and concatenate its contents into the section's inline CSS. We cap the
+// number of stylesheets so a runaway WP install with 40+ CSS files can't
+// blow our budget — we skip WooCommerce and font-awesome by default since
+// they bloat the output without adding layout signal.
+function collectStylesheetHrefs(html: string, baseUrl: string): string[] {
+  const out: string[] = []
+  const matches = Array.from(html.matchAll(/<link\b[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["']/gi))
+  for (const m of matches) {
+    const raw = m[1]
+    if (/woocommerce|font-awesome|jet-elements|wc-blocks|smallscreen/i.test(raw)) continue
+    try { out.push(new URL(raw, baseUrl).toString()) } catch { /* skip */ }
+  }
+  return out.slice(0, 12)  // sanity cap
+}
+
+// Fetch a list of stylesheets and return the concatenated CSS. Each file is
+// capped at 250KB and the total at 800KB to avoid embedding mountains of CSS
+// on every saved block.
+async function fetchAndConcatCss(urls: string[], ua: string): Promise<string> {
+  const out: string[] = []
+  let totalLen = 0
+  for (const u of urls) {
+    if (totalLen > 800_000) break
+    try {
+      const ctrl = new AbortController()
+      const t = setTimeout(() => ctrl.abort(), 8_000)
+      const r = await fetch(u, { headers: { 'User-Agent': ua }, signal: ctrl.signal })
+      clearTimeout(t)
+      if (!r.ok) continue
+      const txt = (await r.text()).slice(0, 250_000)
+      // Resolve relative URLs INSIDE the CSS (background-image:url(...), @import)
+      // against the CSS file's own URL.
+      const cssBase = u
+      const resolved = txt.replace(/url\(["']?([^"')]+)["']?\)/gi, (_m, p) => {
+        try { return `url("${new URL(p, cssBase).toString()}")` } catch { return _m }
+      })
+      out.push(`/* ${u} */\n${resolved}`)
+      totalLen += resolved.length
+    } catch { /* skip */ }
+  }
+  return out.join('\n\n')
+}
+
+const UA = 'Mozilla/5.0 (compatible; uWebsitesImporter/1.0)'
 
 // Resolve all relative URLs in href/src/srcset/background-image to absolute,
 // using the page's base URL. Anything already http(s) or data:/ stays.
@@ -188,21 +244,44 @@ function findSections(bodyHtml: string): { html: string; label?: string }[] {
 }
 
 export async function sectionizeHtml(html: string, opts: SectionizeOpts): Promise<RawSection[]> {
+  // 1. Capture CSS BEFORE we strip <style>/<link>. We need both:
+  //    (a) inline <style> blocks (Elementor sometimes ships per-page CSS this way)
+  //    (b) external stylesheets the page links to (where most layout lives)
+  const inlineCss = collectInlineStyles(html)
+  const sheetUrls = collectStylesheetHrefs(html, opts.baseUrl)
+  const externalCss = await fetchAndConcatCss(sheetUrls, UA)
+  let allCss = `${inlineCss}\n${externalCss}`
+
+  // Apply the same brand-token rewrites to the CSS itself, so .my-button
+  // { color: #F9B716 } becomes color: var(--primary) and the workspace's
+  // primary takes over wherever it's painted.
+  allCss = rewriteBrandColors(allCss, opts.brandColors)
+  allCss = rewriteBrandFonts(allCss, opts.brandFonts)
+  // Mirror background-image:url() references inside the CSS so they don't
+  // hotlink either.
+  if (opts.imageMirror) allCss = await mirrorImages(allCss, opts.imageMirror)
+
+  // 2. Strip + absolutise + sectionize the body
   const body = extractBody(html)
   const safe = stripUnsafe(body)
   const absolute = absolutizeUrls(safe, opts.baseUrl)
   const sections = findSections(absolute)
 
   const out: RawSection[] = []
-  for (const s of sections) {
+  for (let i = 0; i < sections.length; i++) {
+    const s = sections[i]
     let chunk = s.html
     chunk = rewriteBrandColors(chunk, opts.brandColors)
     chunk = rewriteBrandFonts(chunk, opts.brandFonts)
     if (opts.imageMirror) chunk = await mirrorImages(chunk, opts.imageMirror)
-    // Add an onerror handler to every <img> so broken images vanish instead
-    // of showing the browser's broken-icon. The CSS in sections.ts hides
-    // [data-broken="1"] images for the same reason on SSR.
     chunk = chunk.replace(/<img\b/gi, '<img onerror="this.setAttribute(\'data-broken\',\'1\')"')
+
+    // Inline the collected CSS at the top of the FIRST section only — it's
+    // global to the whole imported page. Cheap and effective; modern browsers
+    // dedupe identical <style> blocks anyway if other sections did the same.
+    if (i === 0 && allCss.trim()) {
+      chunk = `<style>${allCss}</style>${chunk}`
+    }
     out.push({ html: chunk, sourceLabel: s.label })
   }
   return out

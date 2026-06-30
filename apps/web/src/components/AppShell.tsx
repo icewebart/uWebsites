@@ -107,7 +107,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
                       <span className="ws-ava">{w.name.slice(0, 1).toUpperCase()}</span><span>{w.name}</span>
                     </a>
                   ))}
-                  <a className="ws-item add" href="/onboarding">＋ Create new workspace</a>
+                  <a className="ws-item add" href="/onboarding?new=1">＋ Create new workspace</a>
                 </div>
               )}
             </div>
