@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
-type Me = { user: { id: string; email: string; accountId?: string } }
+type Me = { user: { id: string; name?: string; email: string; accountId?: string } }
 type SiteItem = {
   id: string; name: string; slug: string; createdAt: string
   pages: number; drafts: number; published: number; articles: number
@@ -62,9 +62,9 @@ export default function Dashboard() {
   }, [])
 
   if (loading) return <div className="empty">Loading…</div>
-  const name = me?.user?.email?.split('@')[0] || 'there'
   const empty = items.length === 0
   const firstSlug = items[0]?.slug
+  const greetName = me?.user?.name?.trim().split(/\s+/)[0] || me?.user?.email?.split('@')[0] || 'there'
 
   function submitPrompt(q: string) {
     const text = q.trim(); if (!text || !firstSlug) return
@@ -79,8 +79,8 @@ export default function Dashboard() {
   ]
 
   return (
-    <AppShell title="Dashboard" active="Dashboard" hideWorkspaceSwitch>
-      <div className="dash-greet">Hi, {name}.</div>
+    <AppShell title="Dashboard" active="Dashboard" currentSlug={firstSlug}>
+      <div className="dash-greet">Hi, {greetName}.</div>
       <div className="dash-sub">{empty ? 'Let\'s set up your first website.' : `Here's what's happening across your ${items.length} ${items.length === 1 ? 'workspace' : 'workspaces'}.`}</div>
 
       {empty && (

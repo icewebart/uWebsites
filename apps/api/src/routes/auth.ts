@@ -47,9 +47,19 @@ authRouter.post('/login', async (req, res) => {
   res.json({ ok: true, data: { user: { id: user.id, name: user.name, email: user.email } } })
 })
 
-// GET /auth/me
+// GET /auth/me — JWT carries id+accountId+email, hydrate name from the DB so
+// the UI can show the user's real name (not the email handle).
 authRouter.get('/me', requireAuth, async (req: AuthRequest, res) => {
-  res.json({ ok: true, data: { user: req.user } })
+  const [row] = await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.id, req.user!.id)).limit(1)
+  res.json({ ok: true, data: { user: row ? { ...row, accountId: req.user!.accountId } : req.user } })
+})
+
+// PUT /auth/me — update name (email change requires re-verification, out of scope for v1)
+authRouter.put('/me', requireAuth, async (req: AuthRequest, res) => {
+  const name = String(req.body?.name || '').trim().slice(0, 80)
+  if (!name) return res.status(400).json({ ok: false, error: 'name required' })
+  const [row] = await db.update(users).set({ name }).where(eq(users.id, req.user!.id)).returning({ id: users.id, name: users.name, email: users.email })
+  res.json({ ok: true, data: { user: { ...row, accountId: req.user!.accountId } } })
 })
 
 // POST /auth/logout

@@ -6,7 +6,7 @@ import { IconDashboard, IconWebsite, IconArticles, IconBranding, IconStats, Icon
 import { ChatPanel } from './ChatPanel'
 
 type Workspace = { id: string; name: string; slug: string }
-type Me = { user: { id: string; email: string } }
+type Me = { user: { id: string; name?: string; email: string } }
 
 type NavEntry = { label: string; Icon: (p: { size?: number }) => React.JSX.Element; sub?: boolean }
 const NAV: NavEntry[] = [
@@ -40,7 +40,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
 
   const current = workspaces.find((w) => w.slug === currentSlug) || workspaces[0] || null
   const others = workspaces.filter((w) => w.id !== current?.id)
-  const displayName = me?.user?.email ? me.user.email.split('@')[0] : 'You'
+  const displayName = me?.user?.name?.trim() || (me?.user?.email ? me.user.email.split('@')[0] : 'You')
 
   async function logout() {
     try { await api('/auth/logout', { method: 'POST' }) } catch {}
