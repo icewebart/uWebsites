@@ -62,4 +62,10 @@ jobs:
             pm2 restart uwebsites-api --update-env || pm2 start ecosystem.config.cjs --only uwebsites-api
             pm2 restart uwebsites-web --update-env || pm2 start ecosystem.config.cjs --only uwebsites-web
             pm2 save
+            # AAPanel's default proxy.conf turns on proxy_cache cache_one for
+            # every reverse-proxy site (1-day inactive). That caches our app's
+            # HTML and silently serves stale builds after deploy. Purge it on
+            # every deploy. (The vhost confs also have proxy_cache off; — both
+            # belts and braces.)
+            rm -rf /www/server/nginx/proxy_cache_dir/* 2>/dev/null || true
           REMOTE
