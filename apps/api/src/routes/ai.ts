@@ -422,12 +422,45 @@ aiRouter.post('/rebuild-page', requireAuth, async (req: AuthRequest, res) => {
     .where(eq(pages.id, String(pageId))).limit(1)
   if (!row || row.accId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'page not found' })
 
-  // Source material: concatenate any richtext html, capture hero title and any image urls
+  // Source material: gather text + images from EVERY block kind, including
+  // raw-html (what re-import-from-source produces). Without this, a page that
+  // was just re-imported has no richtext/image blocks, so the rebuild would
+  // see an empty body + no images and emit only a bare hero.
   const cur = (Array.isArray(row.blocks) ? row.blocks : []) as any[]
-  const heroTitle = cur.find((b) => b.type === 'hero' || b.type === 'hero-image')?.props?.heading || row.title
-  const heroSub = cur.find((b) => b.type === 'hero' || b.type === 'hero-image')?.props?.sub || ''
-  const images: string[] = cur.flatMap((b) => b.type === 'image' && b.props?.url ? [b.props.url] : b.type === 'hero-image' && b.props?.image_url ? [b.props.image_url] : [])
-  const bodyHtml = cur.filter((b) => b.type === 'richtext').map((b) => b.props?.html || '').join('\n\n').slice(0, 60000)
+  const heroTitle = cur.find((b) => b.type === 'hero' || b.type === 'hero-image' || b.type === 'hero-blob')?.props?.heading || row.title
+  const heroSub = cur.find((b) => b.type === 'hero' || b.type === 'hero-image' || b.type === 'hero-blob')?.props?.sub || ''
+
+  // Strip <style>/<script> from raw-html but keep tags so the AI can see the
+  // content structure (headings, paragraphs, lists). Cap per section.
+  const cleanRaw = (h: string) => String(h || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\sstyle=("[^"]*"|'[^']*')/gi, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 9000)
+
+  const images: string[] = []
+  const bodyParts: string[] = []
+  for (const b of cur) {
+    const p = b?.props || {}
+    if (b.type === 'richtext' && p.html) bodyParts.push(p.html)
+    if (b.type === 'raw-html' && p.html) {
+      bodyParts.push(cleanRaw(p.html))
+      for (const m of String(p.html).matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) images.push(m[1])
+      for (const m of String(p.html).matchAll(/background-image\s*:\s*url\(["']?([^"')]+)["']?\)/gi)) images.push(m[1])
+    }
+    if (b.type === 'image' && p.url) images.push(p.url)
+    if ((b.type === 'hero-image' || b.type === 'hero-blob' || b.type === 'image-text') && p.image_url) images.push(p.image_url)
+    // typed sections carry their own text — hand it to the model as prose so
+    // it doesn't lose content when reshaping an already-typed page
+    if (p.heading) bodyParts.push(`<h2>${p.heading}</h2>`)
+    if (p.sub) bodyParts.push(`<p>${p.sub}</p>`)
+    if (Array.isArray(p.items)) for (const it of p.items) { if (it?.title) bodyParts.push(`<h3>${it.title}</h3>`); if (it?.desc) bodyParts.push(`<p>${it.desc}</p>`); if (it?.quote) bodyParts.push(`<blockquote>${it.quote} — ${it.author || ''}</blockquote>`); if (it?.q) bodyParts.push(`<p><b>${it.q}</b> ${it.a || ''}</p>`) }
+  }
+  // Dedupe images, keep http(s) only, cap.
+  const uniqImages = [...new Set(images.filter((u) => /^https?:\/\//i.test(u)))].slice(0, 20)
+  const bodyHtml = bodyParts.join('\n\n').slice(0, 60000)
   const sourceUrl = (row.seo as any)?.import_source?.url
   const snapshotUrl = (row.seo as any)?.import_source?.snapshot_url
   // Pull workspace name for the brief; we already loaded accId on the join,
@@ -467,7 +500,19 @@ USER INSTRUCTION (this is the ONLY thing that drives changes):
       // overall visual style) instead of guessing from text alone.
       messages: [{ role: 'user', content: [
         ...(snapshotUrl ? [{ type: 'image' as const, source: { type: 'url' as const, url: snapshotUrl } }] : []),
-        { type: 'text' as const, text: `Current page state for reference:\n\nTitle: ${heroTitle}\nSubhead: ${heroSub}\nSource URL: ${sourceUrl || '(unknown)'}\nAvailable images: ${images.join(', ') || '(none)'}\n\nCurrent block tree (JSON):\n${JSON.stringify(cur, null, 2).slice(0, 30000)}\n\nApply ONLY the user instruction. Return the FULL block tree with that change applied.` },
+        { type: 'text' as const, text: `Here is the page's ACTUAL content — use ALL of it. Lay every distinct piece out across appropriate typed sections (hero, features-3, program-cards, image-text, testimonials-3, stats-band, faq, cta-banner…). Do NOT collapse the whole page into one hero. Preserve the wording verbatim; only restructure.
+
+Title: ${heroTitle}
+Subhead: ${heroSub}
+Source URL: ${sourceUrl || '(unknown)'}
+
+Images available (reuse these real URLs in image/hero sections — do NOT invent image URLs):
+${uniqImages.length ? uniqImages.map((u) => '- ' + u).join('\n') : '(none found)'}
+
+CONTENT (headings, paragraphs, lists, cards — this is the material to arrange):
+${bodyHtml || '(the page has no readable text content — build a sensible starter layout from the title + site context)'}
+
+Apply ONLY the user instruction. Return the FULL rebuilt block tree.` },
       ] }],
     })
     const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
