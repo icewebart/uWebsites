@@ -32,7 +32,13 @@ function fontsHead(t: any) {
 }
 
 function siteCss(t: any) {
-  return `:root{--primary:${t.color.primary};--accent:${t.color.accent};--surface:${t.color.surface};--text:${t.color.text};--btn-r:${t.shape.buttonRadius};--card-r:${t.shape.cardRadius};--bw:${t.shape.borderWidth};--gap:${t.space.sectionGap};--pad:${t.space.sectionPaddingY};--container:${t.space.container}}
+  // Extra design-system tokens the workspace can override:
+  //   footerBg   = dark tint under the footer (default = --text)
+  //   footerFg   = footer text color (default = --surface)
+  // Falls back so existing sites without these keys keep working.
+  const footerBg = t.color?.footerBg || t.color.text
+  const footerFg = t.color?.footerFg || t.color.surface
+  return `:root{--primary:${t.color.primary};--accent:${t.color.accent};--surface:${t.color.surface};--text:${t.color.text};--footer-bg:${footerBg};--footer-fg:${footerFg};--btn-r:${t.shape.buttonRadius};--card-r:${t.shape.cardRadius};--bw:${t.shape.borderWidth};--gap:${t.space.sectionGap};--pad:${t.space.sectionPaddingY};--container:${t.space.container}}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'${t.font.body}',system-ui,-apple-system,sans-serif;color:var(--text);background:var(--surface);line-height:${t.font.lineHeight};-webkit-font-smoothing:antialiased}
 a{color:var(--primary)}
@@ -48,20 +54,41 @@ section + section{padding-top:0}
 .rt :where(p,ul,ol){margin-bottom:1em}
 .rt img{max-width:100%;height:auto;border-radius:var(--card-r)}
 .img img{display:block;width:100%;height:auto;border-radius:var(--card-r)}
-.site-header{border-bottom:var(--bw) solid rgba(0,0,0,.08);background:var(--surface)}
-.site-header .container{display:flex;align-items:center;justify-content:space-between;padding-top:16px;padding-bottom:16px;gap:24px}
-.site-header .nav{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
-.site-header .nav a{color:var(--text);opacity:.78;font-size:14px;text-decoration:none}
+
+/* Kids.ro-style floating pill header — white bar with a subtle shadow, sticky
+   at the top, colorful brand on the left, centered nav, purple pill CTA on
+   the right. Falls back to a normal in-flow band on narrow viewports. */
+.site-header{background:transparent;padding:20px 0;position:sticky;top:16px;z-index:100}
+.site-header .container{background:#fff;border-radius:999px;padding:12px 12px 12px 22px;box-shadow:0 6px 28px rgba(60,20,90,.08);display:flex;align-items:center;gap:24px;min-height:64px}
+.site-header .brand{font-family:'${t.font.heading}',sans-serif;font-weight:700;font-size:18px;color:var(--primary);text-decoration:none;display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.site-header .brand img{height:32px;width:auto;display:block}
+.site-header .nav{flex:1;display:flex;justify-content:center;gap:26px;align-items:center;flex-wrap:wrap}
+.site-header .nav a{color:var(--text);opacity:.85;font-size:14px;font-weight:600;text-decoration:none;padding:6px 4px}
 .site-header .nav a:hover{opacity:1;color:var(--primary)}
-.site-header .header-cta{background:var(--primary);color:#fff;border-radius:var(--btn-r);padding:8px 16px;font-weight:600;font-size:13px;text-decoration:none}
-.brand{font-family:'${t.font.heading}',sans-serif;font-weight:700;font-size:18px;color:var(--text);text-decoration:none;display:flex;align-items:center;gap:10px}
-.brand img{height:28px;width:auto;display:block}
-.site-footer{border-top:var(--bw) solid rgba(0,0,0,.08);padding:36px 0;font-size:13px;opacity:.7}
-.site-footer .container{display:flex;flex-wrap:wrap;justify-content:space-between;gap:18px}
-.site-footer .nav{display:flex;flex-wrap:wrap;gap:18px}
-.site-footer a{color:var(--text);text-decoration:none}
-.site-footer a:hover{color:var(--primary)}
-@media(max-width:760px){.site-header .container{flex-wrap:wrap}.site-header .nav{gap:14px}.site-header .nav a{font-size:13px}}
+.site-header .header-cta{background:var(--primary);color:#fff;border-radius:999px;padding:10px 22px;font-weight:700;font-size:14px;text-decoration:none;flex:0 0 auto;font-family:'${t.font.heading}',sans-serif}
+.site-header .header-cta:hover{filter:brightness(1.08)}
+
+/* Kids.ro-style dark footer — rounded top, three-column info + brand block,
+   cream text on the workspace's footer-bg (defaults to --text). */
+.site-footer{background:var(--footer-bg);color:var(--footer-fg);margin-top:calc(var(--pad) + 20px);padding:64px 0 32px;position:relative;border-radius:32px 32px 0 0}
+.site-footer .container{display:grid;grid-template-columns:1.4fr 1fr 1fr 1.4fr;gap:40px;align-items:start}
+.site-footer .brand-col{display:flex;flex-direction:column;gap:16px}
+.site-footer .brand-col .brand{font-family:'${t.font.heading}',sans-serif;font-weight:800;font-size:22px;color:var(--footer-fg);display:flex;align-items:center;gap:10px}
+.site-footer .brand-col .brand img{height:32px;width:auto;filter:brightness(1.4)}
+.site-footer .brand-col p{font-size:14px;opacity:.72;max-width:32ch;line-height:1.5}
+.site-footer h4{font-family:'${t.font.heading}',sans-serif;font-weight:700;font-size:15px;margin-bottom:14px;color:var(--footer-fg)}
+.site-footer .col a{display:block;color:var(--footer-fg);opacity:.72;padding:6px 0;font-size:14px;text-decoration:none;transition:opacity .15s}
+.site-footer .col a:hover{opacity:1;text-decoration:underline}
+.site-footer .newsletter form{display:flex;background:rgba(255,255,255,.08);border-radius:999px;padding:4px;gap:4px;margin-top:2px}
+.site-footer .newsletter input{flex:1;background:transparent;border:0;color:var(--footer-fg);padding:10px 14px;font-family:inherit;font-size:14px;outline:none}
+.site-footer .newsletter input::placeholder{color:var(--footer-fg);opacity:.5}
+.site-footer .newsletter button{background:var(--accent);color:#2a1a3a;border:0;border-radius:999px;padding:10px 18px;font-weight:800;cursor:pointer;font-family:inherit;font-size:13px}
+.site-footer .bottom{grid-column:1/-1;border-top:1px solid rgba(255,255,255,.12);margin-top:20px;padding-top:20px;display:flex;justify-content:space-between;align-items:center;font-size:12px;opacity:.72;flex-wrap:wrap;gap:12px}
+.site-footer .bottom a{color:var(--footer-fg);opacity:.85;text-decoration:none}
+.site-footer .bottom a:hover{opacity:1;text-decoration:underline}
+
+@media(max-width:900px){.site-header{position:relative;top:0}.site-header .container{flex-wrap:wrap;border-radius:24px;padding:12px 16px}.site-header .nav{gap:14px;justify-content:flex-start}.site-header .nav a{font-size:13px}.site-footer .container{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.site-footer .container{grid-template-columns:1fr}}
 ${SECTION_CSS}`
 }
 
@@ -85,10 +112,27 @@ export function renderHeader(ws: any, base: string, header: MenuTree | undefined
   return `<header class="site-header"><div class="container">${brand}${nav}${cta}</div></header>`
 }
 
-export function renderFooter(ws: any, footer: MenuTree | undefined): string {
-  const navItems = (footer?.items || []).map((i) => `<a href="${esc(i.href)}">${esc(i.label)}</a>`).join('')
-  const nav = navItems ? `<nav class="nav">${navItems}</nav>` : ''
-  return `<footer class="site-footer"><div class="container"><div>© ${new Date().getFullYear()} ${esc(ws.name)} · built with uWebsites</div>${nav}</div></footer>`
+// Split the flat footer.items list into 2 balanced column groups. First half
+// becomes the 'Programe' column (or 'Site' if items are non-vertical), second
+// half 'Companie'. Legal-looking items (Termeni / Privacy / GDPR / Confidențialitate)
+// get hoisted to the bottom bar. This keeps the flat items[] data shape while
+// giving the render the multi-column structure the Kids.ro system uses.
+export function renderFooter(ws: any, footer: MenuTree | undefined, tagline?: string | null): string {
+  const all = footer?.items || []
+  const legalRe = /(termen|privacy|gdpr|confiden|politica|cookie|legal)/i
+  const bottomItems = all.filter((i) => legalRe.test(i.label))
+  const mainItems = all.filter((i) => !legalRe.test(i.label))
+  const mid = Math.ceil(mainItems.length / 2)
+  const colA = mainItems.slice(0, mid)
+  const colB = mainItems.slice(mid)
+  const linkFor = (i: MenuItem) => `<a href="${esc(i.href)}">${esc(i.label)}</a>`
+  const colHtml = (title: string, items: MenuItem[]) => items.length
+    ? `<div class="col"><h4>${esc(title)}</h4>${items.map(linkFor).join('')}</div>`
+    : '<div class="col"></div>'
+  const brand = `<div class="brand-col"><div class="brand">${esc(ws.name)}</div>${tagline ? `<p>${esc(tagline)}</p>` : ''}</div>`
+  const nl = `<div class="col newsletter"><h4>Newsletter</h4><form onsubmit="event.preventDefault();alert('Îți mulțumim! (formularul de newsletter va fi conectat în curând)')"><input type="email" placeholder="emailul tău" aria-label="Email"><button type="submit">OK</button></form></div>`
+  const bottomLinks = bottomItems.map(linkFor).join(' · ')
+  return `<footer class="site-footer"><div class="container">${brand}${colHtml('Programe', colA)}${colHtml('Companie', colB)}${nl}<div class="bottom"><div>© ${new Date().getFullYear()} ${esc(ws.name)}</div><div>${bottomLinks || 'built with uWebsites'}</div></div></div></footer>`
 }
 
 function renderPage(page: any, body: string, t: any, ws: any, base: string, opts?: { header?: MenuTree; footer?: MenuTree }) {
