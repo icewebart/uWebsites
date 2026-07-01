@@ -37,6 +37,7 @@ export type HeadlessResult = {
   stylesheets: { href: string; css: string }[]  // every loaded external stylesheet
   inlineStyles: string                          // concatenated <style> blocks (after JS)
   resourceCount: number                         // count of all network responses (debug)
+  capturedSections: string[]                    // top-level section/container outerHTML (DOM-split)
 }
 
 // Render `url` with a real browser and return everything the sectionizer needs.
@@ -117,8 +118,38 @@ export async function headlessRender(url: string): Promise<HeadlessResult> {
 
     const stylesheets = Array.from(sheetByHref.entries()).map(([href, css]) => ({ href, css: css.slice(0, 300_000) }))
 
+    // Split the page into top-level visual sections IN THE BROWSER — a DOM query
+    // handles nested <div> containers that regex can't. Covers newer Elementor
+    // flexbox containers (data-element_type=container / e-parent), classic
+    // Elementor sections, and generic <section>. Returns each block's outerHTML.
+    const capturedSections = await page.evaluate(() => {
+      const push = (els: Element[], out: string[]) => {
+        for (const el of els) { const h = (el as HTMLElement).outerHTML; if (h && h.length < 400_000) out.push(h) }
+      }
+      // 1) Elementor: top-level sections OR top-level flexbox containers.
+      let els = Array.from(document.querySelectorAll(
+        '.elementor > .elementor-section.elementor-top-section, ' +
+        '.elementor > .e-con.e-parent, ' +
+        '.elementor > [data-element_type="container"], ' +
+        '[data-elementor-type="wp-page"] > .e-con, ' +
+        '[data-elementor-type] > .elementor-section'
+      ))
+      // Some themes nest the elementor wrapper deeper — widen if nothing matched.
+      if (els.length < 2) {
+        els = Array.from(document.querySelectorAll('.elementor-top-section, .e-con.e-parent'))
+          .filter((el) => !el.parentElement?.closest('.e-con, .elementor-section'))
+      }
+      // 2) Generic fallback — top-level <section>/<article> in main/body.
+      if (els.length < 2) {
+        els = Array.from(document.querySelectorAll('main > section, body > section, main > article'))
+      }
+      const out: string[] = []
+      push(els, out)
+      return out
+    }).catch(() => [] as string[])
+
     if (!html && goError) throw goError
-    return { finalUrl, html, stylesheets, inlineStyles, resourceCount }
+    return { finalUrl, html, stylesheets, inlineStyles, resourceCount, capturedSections }
   } finally {
     try { await context?.close() } catch { /* ignore */ }
     release()

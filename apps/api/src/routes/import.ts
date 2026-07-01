@@ -771,6 +771,7 @@ export async function sectionizeUrl(
     imageMirror: mirror,
     preloadedStylesheets: r.stylesheets,
     preloadedInlineStyles: r.inlineStyles,
+    preSplitSections: r.capturedSections,
   })
   return sections.map((s) => ({ type: 'raw-html' as const, props: { html: s.html, sourceLabel: s.sourceLabel || '' } }))
 }
@@ -821,6 +822,7 @@ importRouter.post('/sectionize-page', requireAuth, async (req: AuthRequest, res)
   let html: string
   let preloadedStylesheets: { href: string; css: string }[] | undefined
   let preloadedInlineStyles: string | undefined
+  let capturedSections: string[] | undefined
   let resolvedUrl = sourceUrl
 
   try {
@@ -829,6 +831,7 @@ importRouter.post('/sectionize-page', requireAuth, async (req: AuthRequest, res)
       html = r.html
       preloadedStylesheets = r.stylesheets
       preloadedInlineStyles = r.inlineStyles
+      capturedSections = r.capturedSections
       resolvedUrl = r.finalUrl || sourceUrl
     } else {
       const r = await fetch(sourceUrl, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(20_000) })
@@ -847,6 +850,7 @@ importRouter.post('/sectionize-page', requireAuth, async (req: AuthRequest, res)
     imageMirror: mirror,
     preloadedStylesheets,
     preloadedInlineStyles,
+    preSplitSections: capturedSections,
   })
 
   if (!sections.length) {

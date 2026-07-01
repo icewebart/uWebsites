@@ -34,6 +34,9 @@ type SectionizeOpts = {
   // concatenate verbatim.
   preloadedStylesheets?: Array<{ href: string; css: string }>
   preloadedInlineStyles?: string
+  // Sections already split by the headless DOM query (handles nested container
+  // layouts regex can't). When present, we use these instead of regex findSections.
+  preSplitSections?: string[]
 }
 
 export type RawSection = { html: string; sourceLabel?: string }
@@ -280,16 +283,26 @@ export async function sectionizeHtml(html: string, opts: SectionizeOpts): Promis
   // hotlink either.
   if (opts.imageMirror) allCss = await mirrorImages(allCss, opts.imageMirror)
 
-  // 2. Strip + absolutise + sectionize the body
-  const body = extractBody(html)
-  const safe = stripUnsafe(body)
-  const absolute = absolutizeUrls(safe, opts.baseUrl)
-  const sections = findSections(absolute)
+  // 2. Strip + absolutise + sectionize the body. Prefer the DOM-split sections
+  // from the headless render (handles nested Elementor containers); fall back
+  // to regex findSections over the body.
+  const sections = (opts.preSplitSections && opts.preSplitSections.length >= 2)
+    ? opts.preSplitSections.map((h, i) => ({ html: h, label: `Section ${i + 1}` }))
+    : findSections(absolutizeUrls(stripUnsafe(extractBody(html)), opts.baseUrl))
 
+  const usingPreSplit = !!(opts.preSplitSections && opts.preSplitSections.length >= 2)
   const out: RawSection[] = []
   for (let i = 0; i < sections.length; i++) {
     const s = sections[i]
     let chunk = s.html
+    // DOM-split chunks are raw outerHTML — sanitise + absolutise them here
+    // (the regex path already did this on the whole body).
+    if (usingPreSplit) {
+      chunk = absolutizeUrls(stripUnsafe(chunk), opts.baseUrl)
+    }
+    // Strip leaked server-side PHP notices/warnings that some WP sites emit
+    // into the page ("Warning: Undefined array key … on line 1788").
+    chunk = chunk.replace(/(?:Notice|Warning|Deprecated|Fatal error)\s*:.*?on line\s*\d+/gi, '')
     chunk = rewriteBrandColors(chunk, opts.brandColors)
     chunk = rewriteBrandFonts(chunk, opts.brandFonts)
     if (opts.imageMirror) chunk = await mirrorImages(chunk, opts.imageMirror)
