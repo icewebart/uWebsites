@@ -87,6 +87,29 @@ function LogoMark({ a, dark }: { a: BrandAssets; dark?: boolean }) {
   return null
 }
 
+// Decor — Kids.ro-style playful decorations, tinted with brand colors.
+function Decor({ kind, color, accent }: { kind: 'star-fill' | 'star-outline' | 'star-group' | 'dots' | 'dotline' | 'cloud' | 'blob'; color: string; accent?: string }) {
+  const starPath = 'M24 4l5 11 12 1.4-9 8 2.5 12L24 40l-11 6.4L15.5 34.4l-9-8L18.5 16.4z'
+  switch (kind) {
+    case 'star-fill':
+      return <svg viewBox="0 0 48 48" width="40" height="40"><path d={starPath} fill={color} strokeLinejoin="round" strokeWidth="3" stroke={color} /></svg>
+    case 'star-outline':
+      return <svg viewBox="0 0 48 48" width="40" height="40"><path d={starPath} fill="none" stroke={color} strokeWidth="3" strokeLinejoin="round" /></svg>
+    case 'star-group':
+      return <svg viewBox="0 0 72 48" width="60" height="40"><path d={starPath} fill={color} transform="scale(.72) translate(2 6)" strokeLinejoin="round" strokeWidth="4" stroke={color} /><path d={starPath} fill={accent || color} transform="scale(.42) translate(78 30)" strokeLinejoin="round" strokeWidth="5" stroke={accent || color} /></svg>
+    case 'dots':
+      return <svg viewBox="0 0 72 24" width="60" height="22"><circle cx="12" cy="12" r="10" fill={color} /><circle cx="38" cy="12" r="7" fill={accent || color} /><circle cx="60" cy="12" r="5" fill={color} opacity=".7" /></svg>
+    case 'dotline':
+      return <svg viewBox="0 0 100 12" width="70" height="12">{Array.from({ length: 9 }).map((_, i) => <circle key={i} cx={6 + i * 11} cy="6" r="2.4" fill={color} />)}</svg>
+    case 'cloud':
+      return <svg viewBox="0 0 64 40" width="56" height="36"><path d="M18 34a10 10 0 0 1-1-19.9A13 13 0 0 1 42 12a9 9 0 0 1 4 17.4V34z" fill={color} stroke="rgba(0,0,0,.05)" /></svg>
+    case 'blob':
+      return <svg viewBox="0 0 64 64" width="52" height="52"><path d="M52 30c4 12-6 26-20 27S6 46 8 33 20 6 34 6s14 12 18 24z" fill={color} /></svg>
+    default:
+      return null
+  }
+}
+
 // BrandBook — a full design-system document for the workspace: hero, palette
 // (with tint/shade scales), typography specimens, buttons/controls, and a live
 // preview of the header (floating pill) + footer + captured mega-menu. Driven
@@ -139,11 +162,25 @@ function BrandBook({ t }: { t: Tokens }) {
             </div>
           ))}
         </div>
-        <div className="bb-scale-label">Neutre &amp; suprafețe</div>
-        <div className="bb-neutrals">
-          {[{ l: 'Surface', v: t.color.surface }, { l: 'Text', v: t.color.text }, { l: 'Footer', v: t.color.footerBg || t.color.text }].map((n) => (
-            <div key={n.l} className="bb-neutral" style={{ background: n.v, color: fgOn(n.v) }}><b>{n.l}</b><span>{n.v.toUpperCase()}</span></div>
-          ))}
+        <div className="bb-cols-2">
+          <div>
+            <div className="bb-scale-label">Neutre &amp; suprafețe</div>
+            <div className="bb-neutrals">
+              {[{ l: 'Surface', v: t.color.surface }, { l: 'Text', v: t.color.text }, { l: 'Footer', v: t.color.footerBg || t.color.text }].map((n) => (
+                <div key={n.l} className="bb-neutral" style={{ background: n.v, color: fgOn(n.v) }}><b>{n.l}</b><span>{n.v.toUpperCase()}</span></div>
+              ))}
+            </div>
+          </div>
+          <div className="bb-rules">
+            <h4 style={{ fontFamily: t.font.heading }}>Reguli de folosire</h4>
+            <ul>
+              <li>Culoarea primară conduce brandul — navigație și CTA principal.</li>
+              <li>Un singur accent pe secțiune / context.</li>
+              <li>Paleta se generează automat (50 → 800) din primar &amp; accent.</li>
+              <li>Contrast text minim AA pe orice fundal colorat.</li>
+              <li>Pasteluri pentru bloburi &amp; fundaluri, saturate pentru acțiuni.</li>
+            </ul>
+          </div>
         </div>
       </section>
 
@@ -174,14 +211,49 @@ function BrandBook({ t }: { t: Tokens }) {
         </div>
       </section>
 
+      {/* Icons & decor (Kids.ro 03) */}
+      <section className="bb-sec">
+        <div className="bb-sec-head"><span className="bb-num">03</span><h2 style={{ fontFamily: t.font.heading }}>Iconițe &amp; decor</h2></div>
+        <p className="bb-sec-lead">Stele cu colțuri rotunjite, bule, bloburi și nori — accente jucăușe folosite ca fundaluri pentru poze și highlight-uri.</p>
+        <div className="bb-decor-stage" style={{ background: `linear-gradient(120deg, ${mix(t.color.primary, [255,255,255], 0.88)}, ${mix(t.color.accent, [255,255,255], 0.9)})` }}>
+          <Decor kind="star-fill" color={t.color.accent} />
+          <Decor kind="star-fill" color={t.color.primary} />
+          <Decor kind="star-outline" color={t.color.primary} />
+          <Decor kind="dots" color={t.color.primary} accent={t.color.accent} />
+          <Decor kind="cloud" color="#fff" />
+          <Decor kind="blob" color={mix(t.color.accent, [255,255,255], 0.35)} />
+          <Decor kind="dotline" color={t.color.primary} />
+        </div>
+        <div className="bb-decor-grid">
+          {[
+            { kind: 'star-fill', label: 'Stea plină', color: t.color.primary },
+            { kind: 'star-outline', label: 'Stea contur', color: t.color.primary },
+            { kind: 'star-group', label: 'Grup de steluțe', color: t.color.accent, accent: t.color.primary },
+            { kind: 'blob', label: 'Blob rotund', color: mix(t.color.accent, [255,255,255], 0.4) },
+            { kind: 'cloud', label: 'Nor', color: mix(t.color.primary, [255,255,255], 0.7) },
+            { kind: 'dots', label: 'Cercuri', color: t.color.primary, accent: t.color.accent },
+          ].map((d) => (
+            <div key={d.label} className="bb-decor-card">
+              <div className="bb-decor-ico"><Decor kind={d.kind as any} color={d.color} accent={(d as any).accent} /></div>
+              <span>{d.label}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* Buttons & controls */}
       <section className="bb-sec">
-        <div className="bb-sec-head"><span className="bb-num">03</span><h2 style={{ fontFamily: t.font.heading }}>Butoane &amp; controale</h2></div>
+        <div className="bb-sec-head"><span className="bb-num">04</span><h2 style={{ fontFamily: t.font.heading }}>Butoane &amp; controale</h2></div>
         <div className="bb-buttons">
           <button style={{ background: t.color.primary, color: fgOn(t.color.primary), borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Primar</button>
           <button style={{ background: t.color.accent, color: fgOn(t.color.accent), borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Accent</button>
           <button className="ghost" style={{ color: t.color.primary, border: `2px solid ${t.color.primary}`, borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Secundar</button>
           <button style={{ background: mix(t.color.primary, [255, 255, 255], 0.82), color: t.color.primary, borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Soft</button>
+        </div>
+        {/* form controls */}
+        <div className="bb-form-demo">
+          <label className="bb-fld"><span>Numele copilului</span><input placeholder="ex: Maria" style={{ borderRadius: t.shape.buttonRadius }} /></label>
+          <label className="bb-fld"><span>Limba dorită</span><select style={{ borderRadius: t.shape.buttonRadius }}><option>Germană</option><option>Franceză</option><option>Engleză</option></select></label>
         </div>
         <div className="bb-card-demo" style={{ background: t.color.surface, borderRadius: t.shape.cardRadius, border: `${t.shape.borderWidth} solid ${t.color.text}18` }}>
           <div style={{ fontFamily: t.font.heading, fontWeight: 700, color: t.color.text, fontSize: 16, marginBottom: 4 }}>Exemplu de card</div>
@@ -192,7 +264,7 @@ function BrandBook({ t }: { t: Tokens }) {
       {/* Navigation preview */}
       {(a.logo || a.logo_rich || (a.nav_tree && a.nav_tree.length)) && (
         <section className="bb-sec">
-          <div className="bb-sec-head"><span className="bb-num">04</span><h2 style={{ fontFamily: t.font.heading }}>Navigație</h2></div>
+          <div className="bb-sec-head"><span className="bb-num">05</span><h2 style={{ fontFamily: t.font.heading }}>Navigație</h2></div>
           {/* Floating pill header */}
           <div className="bb-nav-stage" style={{ background: mix(t.color.primary, [255, 255, 255], 0.9) }}>
             <div className="bb-header-pill">
@@ -319,12 +391,15 @@ export default function Branding() {
   return (
     <AppShell title="Branding" currentSlug={slug} active="Branding">
       <BrandBook t={t} />
-      <div className="brand-wrap">
-        {/* controls */}
-        <div>
-          <BrandImport onImported={(tk) => setT(tk)} />
 
-          <div className="ctl-group">
+      <BrandImport onImported={(tk) => setT(tk)} />
+
+      {/* Token editor — constrained cards so controls never stretch/clip. The
+          brand book above is the live preview, so no separate preview column. */}
+      <div className="brand-editor">
+        <div className="dash-h" style={{ marginTop: 4 }}>Edit tokens</div>
+        <div className="brand-editor-grid">
+          <div className="ctl-group card">
             <h3>Colors</h3>
             <div className="ctl-row"><label>Primary</label><Swatch k="primary" /></div>
             <div className="ctl-row"><label>Accent</label><Swatch k="accent" /></div>
@@ -332,7 +407,7 @@ export default function Branding() {
             <div className="ctl-row"><label>Text</label><Swatch k="text" /></div>
           </div>
 
-          <div className="ctl-group">
+          <div className="ctl-group card">
             <h3>Typography</h3>
             <div className="ctl-row"><label>Heading font</label>
               <select value={t.font.heading} onChange={(e) => patch('font', 'heading', e.target.value)}>{renderFontOptions(t.font.heading)}</select>
@@ -348,48 +423,25 @@ export default function Branding() {
             </div>
           </div>
 
-          <div className="ctl-group">
+          <div className="ctl-group card">
             <h3>Shape</h3>
             <PxRow label="Button radius" group="shape" k="buttonRadius" max={40} />
             <PxRow label="Card radius" group="shape" k="cardRadius" max={40} />
             <PxRow label="Border width" group="shape" k="borderWidth" max={6} />
           </div>
 
-          <div className="ctl-group">
+          <div className="ctl-group card">
             <h3>Spacing</h3>
             <PxRow label="Gap between sections" group="space" k="sectionGap" max={200} />
             <PxRow label="Section padding (Y)" group="space" k="sectionPaddingY" max={200} />
             <PxRow label="Container width" group="space" k="container" max={1600} />
           </div>
-
-          <div className="err">{err}</div>
-          <div className="save-row">
-            <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save branding'}</button>
-            {savedAt && <span className="saved-tag">Saved {savedAt}</span>}
-          </div>
         </div>
 
-        {/* live preview */}
-        <div className="brand-preview">
-          <div className="pv-label">Live preview</div>
-          <div style={{ background: t.color.surface, padding: `${t.space.sectionPaddingY} 28px`, fontFamily: t.font.body, lineHeight: t.font.lineHeight }}>
-            <div style={{ maxWidth: t.space.container, margin: '0 auto' }}>
-              <div style={{ fontFamily: t.font.heading, color: t.color.text, fontSize: `${Math.round(30 * t.font.scale)}px`, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 10 }}>
-                Build something on-brand
-              </div>
-              <p style={{ color: t.color.text, opacity: 0.75, fontSize: 14, marginBottom: 18 }}>
-                This preview updates as you change the tokens — colors, fonts, roundedness and spacing.
-              </p>
-              <div style={{ display: 'flex', gap: 10, marginBottom: t.space.sectionGap }}>
-                <button style={{ background: t.color.primary, color: '#fff', border: 'none', borderRadius: t.shape.buttonRadius, padding: '11px 18px', fontWeight: 600, fontSize: 14, fontFamily: t.font.heading }}>Primary</button>
-                <button style={{ background: t.color.accent, color: t.color.text, border: 'none', borderRadius: t.shape.buttonRadius, padding: '11px 18px', fontWeight: 600, fontSize: 14, fontFamily: t.font.heading }}>Accent</button>
-              </div>
-              <div style={{ background: t.color.surface, border: `${t.shape.borderWidth} solid ${t.color.text}22`, borderRadius: t.shape.cardRadius, padding: 20 }}>
-                <div style={{ fontFamily: t.font.heading, color: t.color.text, fontWeight: 600, fontSize: 16, marginBottom: 6 }}>A card</div>
-                <p style={{ color: t.color.text, opacity: 0.7, fontSize: 13, margin: 0 }}>Cards use the card radius and border width tokens.</p>
-              </div>
-            </div>
-          </div>
+        <div className="err">{err}</div>
+        <div className="save-row">
+          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save branding'}</button>
+          {savedAt && <span className="saved-tag">Saved {savedAt}</span>}
         </div>
       </div>
     </AppShell>
