@@ -539,9 +539,12 @@ export async function richBranding(url: string) {
   try { dom = await extractBrandFromDom(site) } catch (e: any) { console.error('[branding] dom extract failed:', e?.message) }
 
   const tokens: any = cssResult.tokens
-  // Prefer computed fonts from the live DOM when present
-  if (dom?.fonts?.heading) tokens.font.heading = dom.fonts.heading
-  if (dom?.fonts?.body) tokens.font.body = dom.fonts.body
+  // Prefer computed fonts from the live DOM, but ONLY when they name a real
+  // typeface — computed <body> often resolves to the OS default (-apple-system,
+  // system-ui, etc) which would clobber the CSS-derived Google Font.
+  const isRealFont = (f?: string) => !!f && !/^(-apple-system|system-ui|blinkmacsystemfont|sans-serif|serif|inherit|initial|"")/i.test(f)
+  if (isRealFont(dom?.fonts?.heading)) tokens.font.heading = dom!.fonts.heading
+  if (isRealFont(dom?.fonts?.body)) tokens.font.body = dom!.fonts.body
 
   // Logo — DOM extraction is far more reliable than regex; overwrite when found.
   const logo = dom?.logo || (cssResult.brand_assets?.logo
