@@ -446,8 +446,28 @@ export async function analyzeBranding(siteUrl: string) {
     const filteredRanked = ranked.filter((c) => !WP_DEFAULTS.has(c))
     const useRanked = filteredRanked.length >= 2 ? filteredRanked : ranked
 
-    const finalPrimary = varHits.primary || useRanked[0] || '#16324A'
-    const finalAccent = varHits.accent || varHits.secondary || useRanked.find((c) => c !== finalPrimary) || '#8FD7F1'
+    // A "weak" brand color is near-white, near-black, or a low-saturation grey —
+    // useless as a primary (white buttons on white bg, etc). Some Elementor kits
+    // set --e-global-color-primary to #ffffff, which we must not trust.
+    const isWeakBrand = (hex?: string): boolean => {
+      const m = (hex || '').match(/#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i)
+      if (!m) return true
+      const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16)
+      const max = Math.max(r, g, b), min = Math.min(r, g, b)
+      const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+      const sat = max === 0 ? 0 : (max - min) / max
+      return lum > 0.9 || lum < 0.06 || sat < 0.15
+    }
+    let finalPrimary = varHits.primary || useRanked[0] || '#16324A'
+    let finalAccent = varHits.accent || varHits.secondary || useRanked.find((c) => c !== finalPrimary) || '#8FD7F1'
+    // If the extracted primary is weak, promote a real brand color to primary.
+    if (isWeakBrand(finalPrimary)) {
+      const strong = [finalAccent, varHits.secondary, ...useRanked].find((c) => c && !isWeakBrand(c))
+      if (strong) {
+        if (strong === finalAccent) finalAccent = useRanked.find((c) => c && !isWeakBrand(c) && c !== strong) || finalAccent
+        finalPrimary = strong
+      }
+    }
 
     // Font extraction — pick the actual heading + body fonts from CSS rules
     // (not just the first font-family declaration, which is usually a reset).
@@ -628,15 +648,22 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
   // whole import if branding analysis hiccups (e.g. CSS not parseable).
   let brandingApplied = false
   let brandCta: { label: string; href: string } | null = null
+  let brandTokens: any = null            // captured so we can theme the sectionized home
   if (mode === 'home' || mode === 'all') {
     try {
-      const b = await analyzeBranding(url)
+      // richBranding = headless DOM extraction: real logo (SVG/PNG), computed
+      // palette (weak-primary guarded), fonts, and the full nav tree with
+      // dropdowns. Much better than the old CSS-only analyzeBranding.
+      const b = await richBranding(url)
+      brandTokens = b.tokens
       brandCta = (b.brand_assets?.cta) || null
       const [existingTokens] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
       if (existingTokens) await db.update(brandingTokens).set({ tokens: b.tokens }).where(eq(brandingTokens.id, existingTokens.id))
       else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: b.tokens })
-      // Seed the header menu from the source nav + CTA
-      const navItems = (b.brand_assets?.nav || []).map((n: any) => ({ label: n.text, href: n.href }))
+      // Seed the header menu from the source nav (prefer the hierarchical tree
+      // so dropdown children survive) + main CTA.
+      const flatFromTree = (b.nav_tree || []).map((n: any) => ({ label: n.text, href: n.href }))
+      const navItems = flatFromTree.length ? flatFromTree : (b.brand_assets?.nav || []).map((n: any) => ({ label: n.text, href: n.href }))
       if (navItems.length || brandCta) {
         await upsertMenu(ws.id, 'header', { items: navItems, cta: brandCta })
       }
@@ -684,8 +711,26 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
     const contentHtml = src?.content?.rendered ?? ''
     const featured = src ? featuredFromEmbed(src) : null
     const isHome = item.type === 'home'
-    const blocks = importedBlocks(item.title, contentHtml, featured || undefined, { isHome, cta: isHome ? brandCta : null })
     const sourceUrl = src?.link || (site + item.path)
+
+    // The HOME page is the one people judge the import on — render it in a real
+    // browser and split into styled raw-html sections (Elementor layout + CSS +
+    // real images preserved), themed with the workspace's brand colors/fonts.
+    // Everything else uses the light REST body (they can 'Re-import from source'
+    // per page later). Fall back to REST blocks if the headless render fails.
+    let blocks: any[]
+    if (isHome) {
+      try {
+        blocks = await sectionizeUrl(sourceUrl, ws.slug,
+          { primary: brandTokens?.color?.primary, accent: brandTokens?.color?.accent },
+          { heading: brandTokens?.font?.heading, body: brandTokens?.font?.body })
+        if (!blocks.length) throw new Error('no sections')
+      } catch {
+        blocks = importedBlocks(item.title, contentHtml, featured || undefined, { isHome, cta: brandCta })
+      }
+    } else {
+      blocks = importedBlocks(item.title, contentHtml, featured || undefined, { isHome, cta: isHome ? brandCta : null })
+    }
 
     await db.insert(pages).values({
       workspaceId: ws.id, type: type as any, slug: pslug,
@@ -706,6 +751,29 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
 
   res.json({ ok: true, data: { created, skipped, discarded, redirects: redirectCount, total: scan.total, slug: ws.slug, mode, brandingApplied } })
 })
+
+// Reusable core: render `sourceUrl` in Chromium, split into styled raw-html
+// sections (colors/fonts rewritten to brand tokens, images mirrored to the
+// workspace's /img dir). Returns raw-html blocks. Used by the import commit
+// (home page) AND the /import/sectionize-page endpoint. Throws on failure.
+export async function sectionizeUrl(
+  sourceUrl: string,
+  slug: string,
+  sourceColors: { primary?: string | null; accent?: string | null } = {},
+  sourceFonts: { heading?: string | null; body?: string | null } = {},
+): Promise<Array<{ type: 'raw-html'; props: { html: string; sourceLabel: string } }>> {
+  const r = await headlessRender(sourceUrl)
+  const mirror = createImageMirror(slug)
+  const sections = await sectionizeHtml(r.html, {
+    baseUrl: r.finalUrl || sourceUrl,
+    brandColors: sourceColors,
+    brandFonts: sourceFonts,
+    imageMirror: mirror,
+    preloadedStylesheets: r.stylesheets,
+    preloadedInlineStyles: r.inlineStyles,
+  })
+  return sections.map((s) => ({ type: 'raw-html' as const, props: { html: s.html, sourceLabel: s.sourceLabel || '' } }))
+}
 
 // POST /import/sectionize-page — pixel-faithful rebuild of one page from its
 // source URL. Fetches the rendered HTML, splits it into top-level sections
