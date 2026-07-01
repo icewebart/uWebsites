@@ -124,3 +124,192 @@ export async function headlessRender(url: string): Promise<HeadlessResult> {
     release()
   }
 }
+
+// ---------------------------------------------------------------------------
+// Brand extraction — render the page and query the LIVE DOM for logo, palette,
+// fonts, and the full nav hierarchy (top-level + dropdowns). Far more reliable
+// than regex over raw HTML because computed styles + JS-built menus are all
+// resolved. Used by the branding-first import flow.
+// ---------------------------------------------------------------------------
+
+export type NavNode = { text: string; href: string; children?: NavNode[] }
+export type BrandExtract = {
+  finalUrl: string
+  logo:
+    | { kind: 'svg'; svg: string; alt?: string }
+    | { kind: 'img'; url: string; alt?: string; naturalWidth?: number; naturalHeight?: number }
+    | null
+  palette: {
+    cssVars: Record<string, string>
+    sampled: { headerBg?: string; buttonBg?: string; linkColor?: string; headingColor?: string; bodyBg?: string }
+  }
+  fonts: { heading?: string; body?: string }
+  nav: NavNode[]
+  navFlat: { text: string; href: string }[]
+  hasMegaMenu: boolean
+}
+
+export async function extractBrandFromDom(url: string): Promise<BrandExtract> {
+  let release: () => void = () => {}
+  const wait = new Promise<void>((r) => { release = r })
+  const prev = mutex
+  mutex = wait
+  await prev
+
+  let context: BrowserContext | null = null
+  try {
+    const b = await getBrowser()
+    context = await b.newContext({
+      viewport: { width: 1366, height: 900 },
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+    })
+    const page = await context.newPage()
+    try { await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 }) }
+    catch { try { await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 }) } catch { /* keep going */ } }
+
+    // Hover the top-level menu items so CSS-only dropdowns render into the DOM
+    // before we read them. Best-effort; JS-driven menus already have the markup.
+    await page.evaluate(() => {
+      const nav = document.querySelector('header nav, nav, #site-navigation, .main-navigation')
+      if (!nav) return
+      nav.querySelectorAll('li').forEach((li) => {
+        try { li.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true })) } catch { /* ignore */ }
+      })
+    }).catch(() => {})
+    await page.waitForTimeout(400)
+
+    const data = await page.evaluate(() => {
+      const abs = (u: string | null | undefined): string => {
+        if (!u) return ''
+        try { return new URL(u, location.href).toString() } catch { return u || '' }
+      }
+      const norm = (s: string) => (s || '').replace(/\s+/g, ' ').trim()
+
+      // ---- LOGO ----
+      const headerEl = document.querySelector('header, [role="banner"], .site-header, #masthead, .site-header__inner, .header') || document.body
+      let logo: any = null
+      // Prefer an inline <svg> logo
+      const svgCandidates = Array.from(headerEl.querySelectorAll('a[class*="logo" i] svg, .logo svg, svg[class*="logo" i], [class*="brand" i] svg')) as SVGElement[]
+      for (const svg of svgCandidates) {
+        const r = svg.getBoundingClientRect()
+        if (r.width > 16 && r.width < 460 && r.height > 8 && r.top < 220) {
+          const outer = svg.outerHTML
+          if (outer && outer.length < 120_000) { logo = { kind: 'svg', svg: outer, alt: svg.getAttribute('aria-label') || '' }; break }
+        }
+      }
+      // Else an <img> logo — prefer ones with logo/brand hints, else first header img
+      if (!logo) {
+        const imgs = Array.from(headerEl.querySelectorAll('img')) as HTMLImageElement[]
+        const scored = imgs.map((img) => {
+          const r = img.getBoundingClientRect()
+          const cls = (img.className + ' ' + (img.alt || '') + ' ' + (img.closest('a')?.className || '')).toLowerCase()
+          let score = 0
+          if (/logo|brand/.test(cls)) score += 100
+          if (r.top < 160) score += 20
+          if (r.width > 40 && r.width < 420) score += 10
+          const src = (img.currentSrc || img.src || '').toLowerCase()
+          if (src.endsWith('.svg')) score += 30
+          if (/logo/.test(src)) score += 25
+          return { img, r, score, src: img.currentSrc || img.src }
+        }).filter((x) => x.r.width > 16 && x.r.top < 240 && x.src)
+          .sort((a, b) => b.score - a.score)
+        if (scored.length) {
+          const top = scored[0]
+          logo = { kind: 'img', url: abs(top.src), alt: top.img.alt || '', naturalWidth: top.img.naturalWidth, naturalHeight: top.img.naturalHeight }
+        }
+      }
+
+      // ---- PALETTE ----
+      const cssVars: Record<string, string> = {}
+      try {
+        const rootStyle = getComputedStyle(document.documentElement)
+        // Read declared custom props by scanning stylesheets for --names, then resolve
+        const names = new Set<string>()
+        for (const sheet of Array.from(document.styleSheets)) {
+          let rules: CSSRuleList | null = null
+          try { rules = sheet.cssRules } catch { continue }
+          if (!rules) continue
+          for (const rule of Array.from(rules) as any[]) {
+            const style = rule.style
+            if (!style) continue
+            for (let i = 0; i < style.length; i++) {
+              const p = style[i]
+              if (p && p.startsWith('--') && /color|primary|accent|brand|secondary|e-global/i.test(p)) names.add(p)
+            }
+          }
+        }
+        for (const n of Array.from(names).slice(0, 60)) {
+          const v = rootStyle.getPropertyValue(n).trim()
+          if (v && /^#|rgb|hsl/.test(v)) cssVars[n] = v
+        }
+      } catch { /* ignore */ }
+
+      const sample = (sel: string, prop: string): string | undefined => {
+        const el = document.querySelector(sel) as HTMLElement | null
+        if (!el) return undefined
+        const v = getComputedStyle(el).getPropertyValue(prop)
+        return v && v !== 'rgba(0, 0, 0, 0)' && v !== 'transparent' ? v.trim() : undefined
+      }
+      const sampled = {
+        headerBg: sample('header, .site-header, #masthead', 'background-color'),
+        buttonBg: sample('a.btn, .button, button.btn, .elementor-button, .wp-block-button__link, [class*="cta" i]', 'background-color'),
+        linkColor: sample('a', 'color'),
+        headingColor: sample('h1, h2', 'color'),
+        bodyBg: sample('body', 'background-color'),
+      }
+
+      // ---- FONTS ----
+      const famOf = (sel: string): string | undefined => {
+        const el = document.querySelector(sel) as HTMLElement | null
+        if (!el) return undefined
+        const f = getComputedStyle(el).fontFamily
+        return f ? f.split(',')[0].replace(/['"]/g, '').trim() : undefined
+      }
+      const fonts = { heading: famOf('h1') || famOf('h2') || famOf('.elementor-heading-title'), body: famOf('body') || famOf('p') }
+
+      // ---- NAV TREE (with dropdowns) ----
+      const isBad = (href: string, text: string) =>
+        !text || text.length > 44 || href.startsWith('javascript:') || href.startsWith('mailto:') || href.startsWith('tel:')
+      const walk = (ul: Element, depth: number): any[] => {
+        const out: any[] = []
+        const lis = Array.from(ul.children).filter((c) => c.tagName === 'LI')
+        for (const li of lis) {
+          const a = (li.querySelector(':scope > a') || li.querySelector('a')) as HTMLAnchorElement | null
+          if (!a) continue
+          const text = norm(a.textContent || '')
+          const href = abs(a.getAttribute('href'))
+          if (isBad(href, text)) continue
+          const node: any = { text, href }
+          if (depth < 2) {
+            const sub = li.querySelector(':scope > ul, :scope > .sub-menu, :scope > .dropdown, :scope > div ul, :scope > .elementor-nav-menu--dropdown') as Element | null
+            if (sub) {
+              const subUl = sub.tagName === 'UL' ? sub : (sub.querySelector('ul') || sub)
+              const children = walk(subUl, depth + 1)
+              if (children.length) node.children = children
+            }
+          }
+          out.push(node)
+          if (out.length >= 12) break
+        }
+        return out
+      }
+      // Pick the nav container with the most top-level links
+      const navRoots = Array.from(document.querySelectorAll('header nav ul, #primary-menu, .main-navigation ul, nav ul[class*="menu" i], ul[class*="menu" i], ul[id*="menu" i]'))
+      let best: Element | null = null, bestCount = 0
+      for (const root of navRoots) {
+        const count = Array.from(root.children).filter((c) => c.tagName === 'LI').length
+        if (count > bestCount) { bestCount = count; best = root }
+      }
+      const nav = best ? walk(best, 0) : []
+      const navFlat = nav.map((n) => ({ text: n.text, href: n.href }))
+      const hasMegaMenu = nav.some((n) => n.children && n.children.length >= 4)
+
+      return { logo, palette: { cssVars, sampled }, fonts, nav, navFlat, hasMegaMenu }
+    })
+
+    return { finalUrl: page.url(), ...(data as any) }
+  } finally {
+    try { await context?.close() } catch { /* ignore */ }
+    release()
+  }
+}

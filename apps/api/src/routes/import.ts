@@ -6,7 +6,38 @@ import { upsertMenu } from './menus.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { sectionizeHtml } from '../lib/html-sectionizer.js'
 import { createImageMirror } from '../lib/image-host.js'
-import { headlessRender } from '../lib/headless.js'
+import { headlessRender, extractBrandFromDom, type NavNode } from '../lib/headless.js'
+
+// ---- Color scale generation (for the design-system palette display) ----
+function _toRgb(h: string): [number, number, number] | null {
+  let s = h.trim().toLowerCase()
+  const rgb = s.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+  if (rgb) return [+rgb[1], +rgb[2], +rgb[3]]
+  if (s[0] === '#') s = s.slice(1)
+  if (s.length === 3) s = s.split('').map((c) => c + c).join('')
+  if (!/^[0-9a-f]{6}$/.test(s)) return null
+  return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)]
+}
+function _toHex(r: number, g: number, b: number): string {
+  const h = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0')
+  return '#' + h(r) + h(g) + h(b)
+}
+function _mix(hex: string, target: [number, number, number], amt: number): string {
+  const c = _toRgb(hex); if (!c) return hex
+  return _toHex(c[0] + (target[0] - c[0]) * amt, c[1] + (target[1] - c[1]) * amt, c[2] + (target[2] - c[2]) * amt)
+}
+// Produce a 5-step scale (50/200/400/600/800) from a base color, base ≈ 600.
+export function colorScale(primary: string): Record<string, string> {
+  const W: [number, number, number] = [255, 255, 255]
+  const K: [number, number, number] = [20, 8, 30]
+  return {
+    '50': _mix(primary, W, 0.90),
+    '200': _mix(primary, W, 0.60),
+    '400': _mix(primary, W, 0.26),
+    '600': primary,
+    '800': _mix(primary, K, 0.42),
+  }
+}
 
 // Ask Claude Vision for real brand colors based on the logo + homepage
 // snapshot. Much more reliable than CSS frequency for sites where the brand
@@ -496,13 +527,66 @@ export async function analyzeBranding(siteUrl: string) {
   return { site, tokens, suggestions: { colors: ranked.slice(0, 8), fonts: [...new Set([headingFont, bodyFont].filter(Boolean) as string[])] }, brand_assets, vision: visionRan }
 }
 
-// POST /import/branding — public endpoint that uses analyzeBranding
+// Combine the CSS-based analyzer with a live-DOM headless extraction. DOM wins
+// for logo + nav tree (it sees JS-built menus and computed styles); CSS wins
+// for the exact brand hex where site-config vars exist. Returns a rich payload
+// the branding "brand book" page renders.
+export async function richBranding(url: string) {
+  const site = String(url).trim().replace(/\/+$/, '').replace(/^(?!https?:\/\/)/, 'https://')
+  // Run both; DOM extraction is best-effort (never fail the whole call on it).
+  const cssResult = await analyzeBranding(site)
+  let dom: Awaited<ReturnType<typeof extractBrandFromDom>> | null = null
+  try { dom = await extractBrandFromDom(site) } catch (e: any) { console.error('[branding] dom extract failed:', e?.message) }
+
+  const tokens: any = cssResult.tokens
+  // Prefer computed fonts from the live DOM when present
+  if (dom?.fonts?.heading) tokens.font.heading = dom.fonts.heading
+  if (dom?.fonts?.body) tokens.font.body = dom.fonts.body
+
+  // Logo — DOM extraction is far more reliable than regex; overwrite when found.
+  const logo = dom?.logo || (cssResult.brand_assets?.logo
+    ? { kind: 'img' as const, url: cssResult.brand_assets.logo.url, alt: cssResult.brand_assets.logo.alt }
+    : null)
+
+  // Nav — prefer the hierarchical DOM tree; fall back to the flat CSS nav.
+  const navTree: NavNode[] = (dom?.nav && dom.nav.length) ? dom.nav
+    : (cssResult.brand_assets?.nav || []).map((n: any) => ({ text: n.text, href: n.href }))
+  const navFlat = navTree.map((n) => ({ text: n.text, href: n.href }))
+
+  const brand_assets = {
+    ...cssResult.brand_assets,
+    logo: logo && (logo as any).kind === 'img' ? { url: (logo as any).url, alt: (logo as any).alt || '' } : cssResult.brand_assets?.logo || null,
+    logo_rich: logo,                 // full {kind:'svg'|'img', ...} for the brand book
+    nav: navFlat,                    // keep flat for menu seeding (back-compat)
+    nav_tree: navTree,               // hierarchical for the mega-menu
+    has_mega_menu: dom?.hasMegaMenu || false,
+  }
+  ;(tokens as any).brand_assets = brand_assets
+
+  return {
+    ...cssResult,
+    tokens,
+    brand_assets,
+    logo,
+    nav_tree: navTree,
+    has_mega_menu: dom?.hasMegaMenu || false,
+    palette_scale: {
+      primary: colorScale(tokens.color.primary),
+      accent: colorScale(tokens.color.accent),
+    },
+    dom_used: !!dom,
+  }
+}
+
+// POST /import/branding — branding-first extraction: logo, palette (+ scale),
+// fonts, and the full nav tree (with dropdowns). Rendered via headless Chromium.
 importRouter.post('/branding', requireAuth, async (req, res) => {
   const raw = req.body?.url
   if (!raw) return res.status(400).json({ ok: false, error: 'url required' })
   try {
-    res.json({ ok: true, data: await analyzeBranding(String(raw)) })
-  } catch {
+    res.json({ ok: true, data: await richBranding(String(raw)) })
+  } catch (e: any) {
+    console.error('[branding] failed:', e?.message)
     res.status(502).json({ ok: false, error: 'Could not read branding from that URL.' })
   }
 })
