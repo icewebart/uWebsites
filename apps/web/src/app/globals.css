@@ -224,8 +224,14 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 
 /* ============ Brand book (design-system document) ============ */
 .brandbook{margin-bottom:32px;border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden}
-.bb-hero{padding:56px 40px;text-align:center}
-.bb-hero-logo{margin-bottom:22px;display:flex;justify-content:center}
+.bb-hero{position:relative;padding:64px 40px 60px;text-align:center;overflow:hidden}
+.bb-hero-inner{position:relative;z-index:2}
+.bb-orb{position:absolute;border-radius:50%;z-index:0;pointer-events:none}
+.bb-hero-star{position:absolute;z-index:1;pointer-events:none}
+.bb-hero-star.s1{top:14%;right:22%;transform:rotate(8deg) scale(.7)}
+.bb-hero-star.s2{bottom:24%;left:26%;transform:rotate(-12deg) scale(.55)}
+.bb-hero-kicker{display:inline-block;background:#fff;border-radius:999px;padding:7px 16px;font-size:12px;font-weight:800;letter-spacing:.1em;box-shadow:0 2px 10px rgba(60,20,90,.08);margin-bottom:18px}
+.bb-hero-logo{margin-bottom:18px;display:flex;justify-content:center}
 .bb-logo-img,.bb-logo-svg svg{max-height:52px;max-width:260px;width:auto;height:auto;display:block}
 .bb-logo-svg{display:inline-flex}
 .bb-hero h1{font-size:34px;font-weight:700;letter-spacing:-.02em;margin-bottom:10px}

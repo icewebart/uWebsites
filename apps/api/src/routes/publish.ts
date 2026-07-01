@@ -42,10 +42,18 @@ function siteCss(t: any) {
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'${t.font.body}',system-ui,-apple-system,sans-serif;color:var(--text);background:var(--surface);line-height:${t.font.lineHeight};-webkit-font-smoothing:antialiased}
 a{color:var(--primary)}
-.container{max-width:var(--container);margin:0 auto;padding:0 24px}
+.container{max-width:var(--container);margin:0 auto;padding:0 24px;position:relative;z-index:1}
 h1,h2,h3{font-family:'${t.font.heading}',system-ui,sans-serif;line-height:1.12;letter-spacing:-.02em}
-section{padding:var(--pad) 0}
+section{padding:var(--pad) 0;position:relative}
 section + section{padding-top:0}
+
+/* Section tones — alternating landing-page rhythm. Tinted bands get their own
+   top+bottom padding (override the collapse) plus soft decorative circles in
+   the corners so the page never reads as flat white. */
+.tone-tint{background:color-mix(in srgb, var(--primary) 5%, var(--surface));padding-top:var(--pad)!important;overflow:hidden}
+.tone-hero-wash{background:linear-gradient(160deg, color-mix(in srgb, var(--primary) 8%, var(--surface)), color-mix(in srgb, var(--accent) 7%, var(--surface)));overflow:hidden}
+.tone-tint::before,.tone-hero-wash::before{content:"";position:absolute;width:220px;height:220px;border-radius:50%;background:color-mix(in srgb, var(--accent) 16%, transparent);top:-70px;right:-60px;z-index:0;pointer-events:none}
+.tone-tint::after,.tone-hero-wash::after{content:"";position:absolute;width:150px;height:150px;border-radius:50%;background:color-mix(in srgb, var(--primary) 12%, transparent);bottom:-50px;left:-40px;z-index:0;pointer-events:none}
 .hero{padding-bottom:calc(var(--pad))}
 .hero h1{font-size:calc(2.1rem * ${t.font.scale});margin-bottom:14px;max-width:18ch}
 .hero .sub{font-size:1.1rem;opacity:.78;max-width:60ch;margin-bottom:24px}
@@ -95,6 +103,31 @@ ${SECTION_CSS}`
 // Per-section render lives in lib/sections.ts so the catalog drives both the
 // renderer and the editor's gallery. publish.ts just composes the page.
 const renderBlock = renderSection
+
+// Section "tone" — gives a page landing-page rhythm: content sections
+// alternate between the plain surface and a soft brand-tinted band, while
+// heroes and already-colored sections (stats-band, cta-banner) stay neutral.
+// Tinted bands also get scattered decorative circles (see .tone-tint CSS).
+const HERO_KINDS = new Set(['hero', 'hero-image', 'hero-blob'])
+const NEUTRAL_KINDS = new Set(['stats-band', 'cta-banner', 'raw-html'])
+function composeBody(blocks: any[], renderOne: (b: any, i: number) => string): string {
+  let toggle = false
+  return blocks.map((b, i) => {
+    let html = renderOne(b, i)
+    const type = b?.type
+    let tone = 'surface'
+    if (!HERO_KINDS.has(type) && !NEUTRAL_KINDS.has(type)) {
+      toggle = !toggle
+      if (toggle) tone = 'tint'
+    }
+    // hero-blob gets a very soft wash so the opening doesn't read as flat white
+    if (type === 'hero-blob') tone = 'hero-wash'
+    if (tone !== 'surface') {
+      html = html.replace(/<section class="/, `<section data-tone="${tone}" class="tone-${tone} `)
+    }
+    return html
+  }).join('\n')
+}
 
 type MenuItem = { label: string; href: string }
 type MenuTree = { items: MenuItem[]; cta?: { label: string; href: string } | null }
@@ -218,7 +251,7 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
         const emptyAttr = empty ? ' data-empty="true"' : ''
         return `<div data-section-index="${i}" data-section-kind="${esc(b.type)}"${emptyAttr} style="${sel}">${empty ? '' : renderSection(b, { edit: true })}</div>`
       }).join('\n') + EDIT_SCRIPT
-    : blocks.map((b) => renderBlock(b)).join('\n')
+    : composeBody(blocks, (b) => renderBlock(b))
   const menus = await getMenusFor(row.wsId)
   return renderPage({ title: row.title }, body, t, { name: row.wsName }, '#', menus)
 }
@@ -244,7 +277,7 @@ publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) 
     let count = 0
     for (const p of publishable) {
       const blocks = Array.isArray(p.blocks) ? (p.blocks as any[]) : []
-      const html = renderPage(p, blocks.map((b) => renderBlock(b)).join('\n'), t, ws, base, siteMenus)
+      const html = renderPage(p, composeBody(blocks, (b) => renderBlock(b)), t, ws, base, siteMenus)
       const rel = p.slug === 'home' ? 'index.html' : path.join(p.slug, 'index.html')
       const file = path.join(outDir, rel)
       await mkdir(path.dirname(file), { recursive: true })

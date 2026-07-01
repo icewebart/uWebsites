@@ -129,15 +129,25 @@ function BrandBook({ t }: { t: Tokens }) {
 
   return (
     <div className="brandbook">
-      {/* Hero */}
-      <section className="bb-hero" style={{ background: t.color.surface }}>
-        {a.logo_rich || a.logo?.url ? <div className="bb-hero-logo"><LogoMark a={a} /></div> : null}
-        <h1 style={{ fontFamily: t.font.heading, color: t.color.text }}>Sistem de brand</h1>
-        <p style={{ fontFamily: t.font.body, color: t.color.text }}>Fundația vizuală pentru site — culori, tipografie, butoane și navigație, generate din brandul importat.</p>
-        <div className="bb-chips">
-          <span className="bb-chip"><i style={{ background: t.color.primary }} />{t.color.primary}</span>
-          <span className="bb-chip">Aa · {t.font.heading}{t.font.body !== t.font.heading ? ` + ${t.font.body}` : ''}</span>
-          {a.has_mega_menu && <span className="bb-chip">Mega-menu detectat</span>}
+      {/* Hero — playful overview with floating decor, like a real landing page */}
+      <section className="bb-hero" style={{ background: `linear-gradient(160deg, ${mix(t.color.primary, [255, 255, 255], 0.92)}, ${mix(t.color.accent, [255, 255, 255], 0.93)})` }}>
+        {/* floating decorative circles + stars */}
+        <span className="bb-orb" style={{ background: mix(t.color.accent, [255, 255, 255], 0.55), top: '12%', left: '8%', width: 90, height: 90 }} />
+        <span className="bb-orb" style={{ background: mix(t.color.primary, [255, 255, 255], 0.6), top: '58%', left: '15%', width: 54, height: 54 }} />
+        <span className="bb-orb" style={{ background: mix(t.color.accent, [255, 255, 255], 0.4), top: '22%', right: '10%', width: 76, height: 76 }} />
+        <span className="bb-orb" style={{ background: mix(t.color.primary, [255, 255, 255], 0.72), top: '68%', right: '16%', width: 40, height: 40 }} />
+        <span className="bb-hero-star s1"><Decor kind="star-fill" color={t.color.accent} /></span>
+        <span className="bb-hero-star s2"><Decor kind="star-fill" color={t.color.primary} /></span>
+        <div className="bb-hero-inner">
+          {a.logo_rich || a.logo?.url ? <div className="bb-hero-logo"><LogoMark a={a} /></div> : null}
+          <span className="bb-hero-kicker" style={{ color: t.color.primary }}>SISTEM DE DESIGN</span>
+          <h1 style={{ fontFamily: t.font.heading, color: t.color.text }}>Așa arată site-ul tău.</h1>
+          <p style={{ fontFamily: t.font.body, color: t.color.text }}>Fundația vizuală a site-ului — culori, tipografie, butoane, decor și navigație, generate din brandul importat. Fiecare pagină folosește exact aceste elemente.</p>
+          <div className="bb-chips">
+            <span className="bb-chip"><i style={{ background: t.color.primary }} />{t.color.primary}</span>
+            <span className="bb-chip">Aa · {t.font.heading}{t.font.body !== t.font.heading ? ` + ${t.font.body}` : ''}</span>
+            {a.has_mega_menu && <span className="bb-chip">Mega-menu detectat</span>}
+          </div>
         </div>
       </section>
 

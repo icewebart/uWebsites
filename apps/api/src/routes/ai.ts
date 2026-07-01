@@ -442,18 +442,20 @@ aiRouter.post('/rebuild-page', requireAuth, async (req: AuthRequest, res) => {
       max_tokens: 5000,
       system: `Modify a uWebsites page per a SPECIFIC user instruction. You are NOT asked to reinvent the page; you are asked to apply the instruction precisely.
 
+#1 RULE — TEXT IS SACRED. NEVER rewrite, reword, translate, shorten, expand, "improve", or "punch up" any existing heading, paragraph, label, or item text. Copy the words VERBATIM into the output. The ONLY time you may change text is when the user instruction EXPLICITLY asks for a copy/wording change (e.g. "rewrite the hero headline", "make the intro shorter"). A styling/restructuring/restyling request is NOT permission to touch words.
+
 GUARD RAILS:
 - The user instruction below is the single source of authority. Do ONLY what it says.
 - If the instruction does NOT mention restructuring, KEEP the same section order and the same content. Touch only what the instruction names.
-- If the instruction does NOT mention rewriting copy, preserve every sentence verbatim. Don't 'punch it up' uninvited.
 - If the instruction does not mention adding sections, do NOT add sections.
-- Always preserve image URLs and concrete facts (prices, dates, names, places).
-- Output the resulting page via the tool with the FULL block tree (modified parts + unchanged parts).
+- Always preserve image URLs and concrete facts (prices, dates, names, places) exactly.
+- Output the resulting page via the tool with the FULL block tree (modified parts + unchanged parts, both with text verbatim from the current state unless a copy change was requested).
 
 Section catalog (use these kinds when adding or replacing sections): ${SECTION_KINDS_LIST.join(', ')}
 
 ${aestheticPrompt(aesthetic)}
 
+NOTE: the copy rules below apply ONLY to NEW text you are explicitly asked to write. They are NOT a license to rewrite existing text.
 ${COPY_RULES}
 
 USER INSTRUCTION (this is the ONLY thing that drives changes):
