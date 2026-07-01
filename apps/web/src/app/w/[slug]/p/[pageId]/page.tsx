@@ -282,6 +282,51 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
         <div className="field"><label>CTA label</label><input className="inp" value={p.cta_label || ''} onChange={(e) => onChange({ cta_label: e.target.value })} /></div>
         <div className="field" style={{ marginBottom: 0 }}><label>CTA link</label><input className="inp" value={p.cta_href || ''} onChange={(e) => onChange({ cta_href: e.target.value })} /></div>
       </>)
+    case 'hero-blob':
+      return (<>
+        <div className="field"><label>Eyebrow (small kicker)</label><input className="inp" value={p.eyebrow || ''} onChange={(e) => onChange({ eyebrow: e.target.value })} placeholder="Welcome" /></div>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        <div className="field"><label>Subheading</label><input className="inp" value={p.sub || ''} onChange={(e) => onChange({ sub: e.target.value })} /></div>
+        <div className="field"><label>Image URL</label><input className="inp" value={p.image_url || ''} onChange={(e) => onChange({ image_url: e.target.value })} placeholder="https://…" /></div>
+        <div className="field"><label>Primary button</label><input className="inp" value={p.cta_label || ''} onChange={(e) => onChange({ cta_label: e.target.value })} placeholder="Label" /><input className="inp" style={{ marginTop: 6 }} value={p.cta_href || ''} onChange={(e) => onChange({ cta_href: e.target.value })} placeholder="Link" /></div>
+        <div className="field" style={{ marginBottom: 0 }}><label>Secondary button</label><input className="inp" value={p.cta2_label || ''} onChange={(e) => onChange({ cta2_label: e.target.value })} placeholder="Label" /><input className="inp" style={{ marginTop: 6 }} value={p.cta2_href || ''} onChange={(e) => onChange({ cta2_href: e.target.value })} placeholder="Link" /></div>
+      </>)
+    case 'program-cards':
+      return (<>
+        <div className="field"><label>Eyebrow</label><input className="inp" value={p.eyebrow || ''} onChange={(e) => onChange({ eyebrow: e.target.value })} /></div>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        {(p.items || []).map((it: any, j: number) => (
+          <div className="field" key={j} style={{ paddingBottom: 8, borderBottom: '1px dashed var(--border)' }}>
+            <label>Card {j + 1}</label>
+            <input className="inp" placeholder="Badge (e.g. Courses)" value={it.badge || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, badge: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Title" value={it.title || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, title: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Description" value={it.desc || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, desc: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Image URL (optional)" value={it.image_url || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, image_url: e.target.value } : x))} />
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <input className="inp" placeholder="Button label" value={it.cta_label || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, cta_label: e.target.value } : x))} />
+              <input className="inp" placeholder="Button link" value={it.cta_href || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, cta_href: e.target.value } : x))} />
+            </div>
+          </div>
+        ))}
+        <div className="ev-actions" style={{ marginTop: 4 }}>
+          <button onClick={() => setItems([...(p.items || []), { badge: '', title: '', desc: '', cta_label: 'Discover', cta_href: '#' }])} disabled={(p.items || []).length >= 3}>＋ Add card</button>
+          {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
+        </div>
+      </>)
+    case 'stats-band':
+      return (<>
+        {(p.items || []).map((it: any, j: number) => (
+          <div className="field" key={j}>
+            <label>Stat {j + 1}</label>
+            <input className="inp" placeholder="Value (e.g. 1.200+)" value={it.value || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, value: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Label" value={it.label || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, label: e.target.value } : x))} />
+          </div>
+        ))}
+        <div className="ev-actions" style={{ marginTop: 4 }}>
+          <button onClick={() => setItems([...(p.items || []), { value: '', label: '' }])} disabled={(p.items || []).length >= 4}>＋ Add stat</button>
+          {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
+        </div>
+      </>)
     case 'richtext':
       return <div className="field" style={{ marginBottom: 0 }}><label>Content</label><textarea className="inp" value={p.html || ''} onChange={(e) => onChange({ html: e.target.value })} placeholder="Write content…" /></div>
     case 'image':

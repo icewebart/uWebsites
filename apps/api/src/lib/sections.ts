@@ -8,9 +8,9 @@
 // --pad, --container). No hardcoded colors or fonts.
 
 export type SectionKind =
-  | 'hero' | 'hero-image' | 'richtext' | 'image'
-  | 'features-3' | 'cta-banner'
-  | 'testimonials-3' | 'pricing-3' | 'faq' | 'logo-cloud' | 'image-text' | 'stats-row'
+  | 'hero' | 'hero-image' | 'hero-blob' | 'richtext' | 'image'
+  | 'features-3' | 'program-cards' | 'cta-banner'
+  | 'testimonials-3' | 'pricing-3' | 'faq' | 'logo-cloud' | 'image-text' | 'stats-row' | 'stats-band'
   | 'raw-html'
 
 export type SectionMeta = {
@@ -35,6 +35,20 @@ export const SECTIONS: SectionMeta[] = [
     description: 'Headline + subhead on the left, supporting image on the right. Side-by-side on desktop.',
     category: 'hero',
     defaults: { heading: 'Tell the story, see the proof', sub: 'Pair words with a single strong image.', image_url: '', image_alt: '', cta_label: '', cta_href: '' },
+  },
+  {
+    kind: 'hero-blob',
+    name: 'Hero — playful blob',
+    description: 'Text on the left (eyebrow, big headline, two buttons), image inside a soft rounded blob on the right, with a decorative star. Warm & friendly — great for kids / lifestyle / community brands.',
+    category: 'hero',
+    defaults: {
+      eyebrow: 'Welcome',
+      heading: 'A warm, playful headline for people, not robots.',
+      sub: 'One friendly sentence that says who it is for and why it matters.',
+      cta_label: 'Get started', cta_href: '#',
+      cta2_label: 'Contact', cta2_href: '#contact',
+      image_url: '', image_alt: '',
+    },
   },
   {
     kind: 'richtext',
@@ -62,6 +76,21 @@ export const SECTIONS: SectionMeta[] = [
         { title: 'Fast', desc: 'Compiled to static — fast on mobile by default.' },
         { title: 'Safe', desc: 'No runtime to attack, mandatory 2FA for owners.' },
         { title: 'On-brand', desc: 'One token set restyles every page.' },
+      ],
+    },
+  },
+  {
+    kind: 'program-cards',
+    name: 'Program cards — 3',
+    description: 'A centered eyebrow + heading, then three rich cards. Each card has a colored category badge, a photo (or colored striped top), a title, a short description and its own colored "Discover" button. Ideal for choosing between programs / plans / services.',
+    category: 'features',
+    defaults: {
+      eyebrow: 'Our programs',
+      heading: 'Choose how you want to start',
+      items: [
+        { badge: 'Courses', title: 'Weekly, in a group', desc: 'Steady progress, structured by level.', cta_label: 'Discover', cta_href: '#', image_url: '' },
+        { badge: 'Workshops', title: 'Weekend conversation', desc: 'Free speaking, games and fun themes.', cta_label: 'Discover', cta_href: '#', image_url: '' },
+        { badge: 'Camps', title: 'Holiday immersion', desc: 'A week full of language and play.', cta_label: 'Discover', cta_href: '#', image_url: '' },
       ],
     },
   },
@@ -164,6 +193,20 @@ export const SECTIONS: SectionMeta[] = [
       ],
     },
   },
+  {
+    kind: 'stats-band',
+    name: 'Stats band — colored',
+    description: 'A bold full-width band in the brand color with 3–4 big numbers and labels. High-impact social proof — put it right under a hero.',
+    category: 'social-proof',
+    defaults: {
+      items: [
+        { value: '1.200+', label: 'Happy customers' },
+        { value: '3', label: 'Languages taught' },
+        { value: '8', label: 'Kids per group' },
+        { value: '4.9★', label: 'Parent score' },
+      ],
+    },
+  },
 ]
 
 export const SECTION_META: Record<string, SectionMeta> = Object.fromEntries(SECTIONS.map((s) => [s.kind, s]))
@@ -179,9 +222,12 @@ export function sectionHasContent(b: any): boolean {
   switch (b.type as SectionKind) {
     case 'hero': return has(p.heading) || has(p.sub) || has(p.cta_label)
     case 'hero-image': return has(p.heading) || has(p.image_url)
+    case 'hero-blob': return has(p.heading) || has(p.image_url)
     case 'richtext': return has(p.html)
     case 'image': return has(p.url)
     case 'features-3': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.desc))
+    case 'program-cards': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.badge))
+    case 'stats-band': return arrOk(p.items) && p.items.some((i: any) => has(i?.value) || has(i?.label))
     case 'cta-banner': return has(p.heading) || has(p.cta_label)
     case 'testimonials-3': return arrOk(p.items) && p.items.some((i: any) => has(i?.quote))
     case 'pricing-3': return arrOk(p.tiers) && p.tiers.some((t: any) => has(t?.name) || has(t?.price))
@@ -198,6 +244,10 @@ export function sectionHasContent(b: any): boolean {
 export function esc(s: any): string {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
+
+// Rounded-corner star decoration (Kids.ro-style playful accent), tinted with
+// the brand accent via currentColor. Positioned by the section CSS.
+const STAR_SVG = `<svg class="deco-star" viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><path d="M11.1 2.3a1 1 0 0 1 1.8 0l2.2 4.6a1 1 0 0 0 .8.6l5 .6a1 1 0 0 1 .6 1.7l-3.7 3.4a1 1 0 0 0-.3.9l1 5a1 1 0 0 1-1.5 1.1l-4.4-2.5a1 1 0 0 0-1 0l-4.4 2.5A1 1 0 0 1 6.5 19l1-5a1 1 0 0 0-.3-.9L3.5 9.8a1 1 0 0 1 .6-1.7l5-.6a1 1 0 0 0 .8-.6z" fill="currentColor"/></svg>`
 
 // CSS additions for the new section kinds. The base CSS in publish.ts already
 // covers .container, .hero, .rt, .img — we just add the new ones here so
@@ -297,6 +347,43 @@ export const SECTION_CSS = `
 /* Hide images that fail to load so we don't show a broken-icon box. The site
    renders them with onerror; the CSS rule below is the SSR-time fallback. */
 .uw-raw img[data-broken="1"]{display:none}
+
+/* hero-blob — playful text-left / image-in-blob-right hero (Kids.ro pattern) */
+.hero-blob{padding:var(--pad) 0}
+.hero-blob .grid{display:grid;grid-template-columns:1.05fr .95fr;gap:48px;align-items:center}
+.hero-blob .eyebrow{font-weight:700;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.hero-blob h1{font-size:calc(2.4rem * var(--scale, 1.2));line-height:1.06;letter-spacing:-.02em;margin-bottom:16px}
+.hero-blob .sub{font-size:1.1rem;opacity:.75;max-width:44ch;margin-bottom:26px}
+.hero-blob .actions{display:flex;gap:12px;flex-wrap:wrap}
+.hero-blob .btn-ghost{background:transparent;color:var(--primary);border:2px solid var(--primary)}
+.hero-blob .blob{position:relative;aspect-ratio:1;border-radius:46% 54% 52% 48% / 50% 46% 54% 50%;overflow:hidden;background:color-mix(in srgb, var(--accent) 26%, #fff);max-width:460px;margin-left:auto}
+.hero-blob .blob img{width:100%;height:100%;object-fit:cover;display:block}
+.hero-blob .blob-empty{display:flex;align-items:center;justify-content:center}
+.hero-blob .deco-star{position:absolute;top:8%;right:8%;color:var(--accent);filter:drop-shadow(0 2px 4px rgba(0,0,0,.12));z-index:2}
+@media(max-width:760px){.hero-blob .grid{grid-template-columns:1fr;gap:28px}.hero-blob .blob{max-width:320px;margin:0 auto}}
+
+/* program-cards — 3 rich cards with colored badges + per-card accent CTA */
+.program-cards{padding:var(--pad) 0}
+.program-cards .head{text-align:center;margin-bottom:34px}
+.program-cards .head .eyebrow{font-weight:700;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+.program-cards .head h2{font-size:calc(1.9rem * var(--scale, 1.2));letter-spacing:-.01em}
+.program-cards .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.program-cards .pc-card{background:var(--surface);border:var(--bw) solid rgba(0,0,0,.07);border-radius:var(--card-r);overflow:hidden;display:flex;flex-direction:column;box-shadow:0 4px 20px rgba(30,10,50,.05)}
+.program-cards .pc-top{aspect-ratio:16/10;background-size:cover;background-position:center}
+.program-cards .pc-striped{background-image:repeating-linear-gradient(45deg, color-mix(in srgb, var(--pc-accent) 16%, #fff) 0 14px, color-mix(in srgb, var(--pc-accent) 26%, #fff) 14px 28px)}
+.program-cards .pc-body{padding:22px 22px 24px}
+.program-cards .pc-badge{font-weight:800;font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}
+.program-cards .pc-body h3{font-size:1.2rem;font-weight:700;margin-bottom:6px;color:var(--text)}
+.program-cards .pc-body p{font-size:.96rem;opacity:.72;margin-bottom:16px}
+.program-cards .pc-cta{display:inline-block;color:#fff;border-radius:999px;padding:9px 20px;font-weight:700;font-size:14px;text-decoration:none}
+.program-cards .pc-cta:hover{filter:brightness(1.08)}
+@media(max-width:760px){.program-cards .grid{grid-template-columns:1fr}}
+
+/* stats-band — bold full-width colored band with big numbers */
+.stats-band{padding:calc(var(--pad) / 1.5) 0}
+.stats-band .sb-box{background:var(--primary);color:#fff;border-radius:calc(var(--card-r) * 1.4);padding:36px 28px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:22px;text-align:center}
+.stats-band .sb-val{font-size:2.6rem;font-weight:800;line-height:1;letter-spacing:-.02em;color:#fff}
+.stats-band .sb-lbl{font-size:.85rem;opacity:.82;margin-top:8px}
 `
 
 // ---- per-kind static HTML renderer (used by publish.ts) ----
@@ -320,6 +407,16 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
       const img = p.image_url ? `<div><img src="${esc(p.image_url)}" alt="${esc(p.image_alt || '')}" loading="lazy"></div>` : '<div></div>'
       return `<section class="hero-image"><div class="container"><div class="grid"><div><h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${cta}</div>${img}</div></div></section>`
     }
+    case 'hero-blob': {
+      const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
+      const cta1 = p.cta_label ? `<a class="btn" href="${esc(p.cta_href || '#')}">${esc(p.cta_label)}</a>` : ''
+      const cta2 = p.cta2_label ? `<a class="btn btn-ghost" href="${esc(p.cta2_href || '#')}">${esc(p.cta2_label)}</a>` : ''
+      const ctas = (cta1 || cta2) ? `<div class="actions">${cta1}${cta2}</div>` : ''
+      const blob = p.image_url
+        ? `<div class="blob"><img src="${esc(p.image_url)}" alt="${esc(p.image_alt || '')}" loading="lazy">${STAR_SVG}</div>`
+        : `<div class="blob blob-empty">${STAR_SVG}</div>`
+      return `<section class="hero-blob"><div class="container"><div class="grid"><div class="txt">${eyebrow}<h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${ctas}</div>${blob}</div></div></section>`
+    }
     case 'richtext':
       return `<section class="rt"><div class="container">${p.html || ''}</div></section>`
     case 'image':
@@ -328,6 +425,31 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
       const items = (Array.isArray(p.items) ? p.items : []).slice(0, 6)
       const grid = items.map((it: any) => `<div class="item"><h3>${esc(it.title)}</h3><p>${esc(it.desc)}</p></div>`).join('')
       return `<section class="features-3"><div class="container"><div class="head"><h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div><div class="grid">${grid}</div></div></section>`
+    }
+    case 'program-cards': {
+      // Three rich cards; each cycles through an accent (primary → accent →
+      // primary) unless the item names its own. Colored badge, striped/photo
+      // top, title, desc, colored pill CTA. Mirrors the Kids.ro program grid.
+      const items = (Array.isArray(p.items) ? p.items : []).slice(0, 3)
+      const accents = ['var(--primary)', 'var(--accent)', 'var(--primary)']
+      const cards = items.map((it: any, i: number) => {
+        const ac = it.accent || accents[i % 3]
+        const top = it.image_url
+          ? `<div class="pc-top" style="background-image:url('${esc(it.image_url)}')"></div>`
+          : `<div class="pc-top pc-striped" style="--pc-accent:${ac}"></div>`
+        const badge = it.badge ? `<div class="pc-badge" style="color:${ac}">${esc(it.badge)}</div>` : ''
+        const cta = it.cta_label ? `<a class="pc-cta" href="${esc(it.cta_href || '#')}" style="background:${ac}">${esc(it.cta_label)} →</a>` : ''
+        return `<div class="pc-card">${top}<div class="pc-body">${badge}<h3>${esc(it.title)}</h3>${it.desc ? `<p>${esc(it.desc)}</p>` : ''}${cta}</div></div>`
+      }).join('')
+      const head = (p.eyebrow || p.heading)
+        ? `<div class="head">${p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}</div>`
+        : ''
+      return `<section class="program-cards"><div class="container">${head}<div class="grid">${cards}</div></div></section>`
+    }
+    case 'stats-band': {
+      const items = (Array.isArray(p.items) ? p.items : []).slice(0, 4)
+      const cells = items.map((it: any) => `<div class="sb-stat"><div class="sb-val">${esc(it.value)}</div><div class="sb-lbl">${esc(it.label)}</div></div>`).join('')
+      return `<section class="stats-band"><div class="container"><div class="sb-box">${cells}</div></div></section>`
     }
     case 'cta-banner':
       return `<section class="cta-banner"><div class="container"><div class="box"><h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${p.cta_label ? `<p><a class="btn" href="${esc(p.cta_href || '#')}">${esc(p.cta_label)}</a></p>` : ''}</div></div></section>`
