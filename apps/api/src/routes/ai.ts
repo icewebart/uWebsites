@@ -5,6 +5,7 @@ import { db, workspaces, pages, brandingTokens, aiJobs } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { SECTIONS, SECTION_META } from '../lib/sections.js'
 import { pickAesthetic, aestheticPrompt, COPY_RULES, AESTHETICS } from '../lib/aesthetics.js'
+import { generateImage, photoPrompt, imageGenEnabled } from '../lib/imagegen.js'
 
 // AI: page generation + section rewrite. Lazy-init the client so the API
 // starts even without a key — the routes return 503 in that case.
@@ -122,6 +123,84 @@ async function ownedWs(slug: string, accountId: string) {
     .where(and(eq(workspaces.slug, slug), eq(workspaces.accountId, accountId))).limit(1)
   return ws
 }
+
+// POST /ai/generate-image — generate a single image from a caption/prompt and
+// store it in the workspace's image dir. Returns { url }.
+aiRouter.post('/generate-image', requireAuth, async (req: AuthRequest, res) => {
+  if (!imageGenEnabled()) return res.status(503).json({ ok: false, error: 'Image generation not configured — set GEMINI_API_KEY on the server.' })
+  const { slug, prompt, caption, mood } = req.body ?? {}
+  if (!slug || (!prompt && !caption)) return res.status(400).json({ ok: false, error: 'slug and prompt/caption required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const finalPrompt = prompt || photoPrompt(String(caption), mood)
+  const url = await generateImage(ws.slug, finalPrompt, `${ws.id}:${caption || prompt}:${Date.now()}`)
+  if (!url) return res.status(502).json({ ok: false, error: 'Image generation failed' })
+  await logAiJob(ws.id, 'image', 'done', { source: 'generate-image', caption: String(caption || '').slice(0, 200) }, 2, url)
+  res.json({ ok: true, data: { url } })
+})
+
+// POST /ai/fill-images — find every empty image slot in a page (section
+// image_url/url props + free-form <div class="uw-img-slot"> placeholders) and
+// fill them with generated photos, capped to control cost. Saves the page.
+aiRouter.post('/fill-images', requireAuth, async (req: AuthRequest, res) => {
+  if (!imageGenEnabled()) return res.status(503).json({ ok: false, error: 'Image generation not configured — set GEMINI_API_KEY on the server.' })
+  const { slug, pageId } = req.body ?? {}
+  if (!slug || !pageId) return res.status(400).json({ ok: false, error: 'slug and pageId required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const [page] = await db.select().from(pages).where(and(eq(pages.id, String(pageId)), eq(pages.workspaceId, ws.id))).limit(1)
+  if (!page) return res.status(404).json({ ok: false, error: 'page not found' })
+
+  const blocks = Array.isArray(page.blocks) ? JSON.parse(JSON.stringify(page.blocks)) : []
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const vibe = (tok?.tokens as any)?.vibe
+  const mood = vibe ? `${vibe} brand aesthetic` : undefined
+
+  const MAX = 8
+  type Gap = { caption: string; apply: (url: string) => void }
+  const gaps: Gap[] = []
+  let marker = 0
+
+  for (const b of blocks) {
+    if (gaps.length >= MAX) break
+    const p = (b.props = b.props || {})
+    if ((b.type === 'hero-image' || b.type === 'hero-blob' || b.type === 'image-text') && !p.image_url) {
+      gaps.push({ caption: p.image_alt || p.heading || '', apply: (u) => { p.image_url = u; if (!p.image_alt) p.image_alt = p.heading || '' } })
+    } else if (b.type === 'image' && !p.url) {
+      gaps.push({ caption: p.alt || '', apply: (u) => { p.url = u } })
+    } else if (b.type === 'program-cards' && Array.isArray(p.items)) {
+      for (const it of p.items) { if (gaps.length >= MAX) break; if (!it.image_url) gaps.push({ caption: `${it.badge || ''} ${it.title || ''}`.trim(), apply: (u) => { it.image_url = u } }) }
+    } else if (b.type === 'raw-html' && typeof p.html === 'string' && p.html.includes('uw-img-slot')) {
+      // Replace each slot div with a unique token now; swap in <img> after gen.
+      p.html = p.html.replace(/<div[^>]*class="[^"]*uw-img-slot[^"]*"([^>]*)>([\s\S]*?)<\/div>/gi, (_m: string, attrs: string, inner: string) => {
+        if (gaps.length >= MAX) return _m
+        const cap = (attrs.match(/data-caption="([^"]*)"/)?.[1] || inner.replace(/<[^>]*>/g, '').trim() || '').slice(0, 200)
+        const style = attrs.match(/style="([^"]*)"/)?.[1] || 'width:100%;height:100%;object-fit:cover'
+        const token = `__UWIMG_${marker++}__`
+        const styleWithCover = /object-fit/.test(style) ? style : style + ';object-fit:cover'
+        gaps.push({ caption: cap, apply: (u) => { p.html = p.html.replace(token, `<img src="${u}" alt="${cap.replace(/"/g, '&quot;')}" loading="lazy" style="${styleWithCover}">`) } })
+        return token
+      })
+    }
+  }
+
+  if (!gaps.length) return res.json({ ok: true, data: { filled: 0, message: 'No empty image slots found.' } })
+
+  // Generate in parallel (capped) so total latency ≈ the slowest single image.
+  const results = await Promise.all(gaps.map((g, i) =>
+    generateImage(ws.slug, photoPrompt(g.caption, mood), `${page.id}:${i}:${g.caption}`).then((url) => ({ g, url })),
+  ))
+  let filled = 0
+  for (const { g, url } of results) { if (url) { g.apply(url); filled++ } }
+  // Any raw-html tokens that failed to generate → strip back to an empty box.
+  for (const b of blocks) if (b.type === 'raw-html' && typeof b.props?.html === 'string') {
+    b.props.html = b.props.html.replace(/__UWIMG_\d+__/g, '<div style="width:100%;height:100%;min-height:180px;background:color-mix(in srgb,var(--primary) 8%,#fff);border-radius:16px"></div>')
+  }
+
+  await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
+  await logAiJob(ws.id, 'image', 'done', { source: 'fill-images', pageId: page.id, filled }, filled * 2, page.id)
+  res.json({ ok: true, data: { filled, requested: gaps.length } })
+})
 
 // POST /ai/generate-freeform — "no restrictions" mode: Claude authors a
 // complete landing page as one self-contained HTML fragment (not the section

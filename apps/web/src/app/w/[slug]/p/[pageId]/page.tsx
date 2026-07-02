@@ -32,6 +32,20 @@ export default function PageEditor() {
   const [pickerMode, setPickerMode] = useState<'add' | 'replace'>('add')
   const [rebuildOpen, setRebuildOpen] = useState(false)
   const [sectionizing, setSectionizing] = useState(false)
+  const [fillingImg, setFillingImg] = useState(false)
+
+  // Generate photos for every empty image slot on the page (Gemini). The
+  // endpoint mutates + saves the page server-side, so we reload blocks after.
+  async function fillImages() {
+    setErr(''); setFillingImg(true)
+    try {
+      const r = await api<{ filled: number; message?: string }>('/ai/fill-images', { method: 'POST', body: JSON.stringify({ slug, pageId }) })
+      const p = await api<PageData>(`/pages/${pageId}`)
+      setBlocks(Array.isArray(p.blocks) ? p.blocks : [])
+      setPreviewKey((k) => k + 1)
+      setSavedAt(r.filled ? `${r.filled} image${r.filled > 1 ? 's' : ''} generated` : (r.message || 'No empty image slots'))
+    } catch (e: any) { setErr(e.message || 'Image generation failed') } finally { setFillingImg(false) }
+  }
 
   async function rewriteRawHtml(idx: number) {
     const instruction = window.prompt('How should I rewrite the copy in this section? Leave blank for a general polish on-aesthetic.', '')
@@ -164,6 +178,9 @@ export default function PageEditor() {
         <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="draft">Draft</option><option value="published">Published</option></select>
         {savedAt && <span className="muted" style={{ fontSize: 12 }}>Saved {savedAt}</span>}
         <a className="btn btn-ghost" href={`${API_URL}/pages/${pageId}/preview`} target="_blank" rel="noreferrer" title="Open in a new tab (without editor UI)">↗ Preview</a>
+        <button className="btn btn-secondary" onClick={fillImages} disabled={fillingImg} title="Generate photos with AI for every empty image slot on this page">
+          {fillingImg ? 'Generating images… (~30s)' : '✨ Generate images'}
+        </button>
         {page?.seo?.import_source && (
           <>
             <button className="btn btn-secondary" onClick={sectionizeFromSource} disabled={sectionizing} title="Pixel-faithful import — recopy the source page's layout, swap colors/fonts to your brand, mirror images locally.">

@@ -35,6 +35,18 @@ async function fileExists(p: string): Promise<boolean> {
   try { await access(p); return true } catch { return false }
 }
 
+// Save raw image bytes (e.g. an AI-generated image) into the workspace's img
+// dir and return the public URL. `keyHint` makes the filename deterministic so
+// re-running with the same hint overwrites rather than piling up files.
+export async function saveImageBytes(slug: string, buf: Buffer, ext: string, keyHint: string): Promise<string> {
+  const baseDir = path.join(SITES_DIR, slug, 'img')
+  const name = 'gen-' + crypto.createHash('sha1').update(keyHint).digest('hex').slice(0, 16) + ext
+  const dest = path.join(baseDir, name)
+  await mkdir(baseDir, { recursive: true })
+  await writeFile(dest, buf)
+  return `${SITES_URL}/${slug}/img/${name}`
+}
+
 export type ImageMirror = {
   // Try to download `url` into the workspace's local img dir. Returns the
   // public path (/img/<hash>.<ext>) on success, or null on any failure (so
