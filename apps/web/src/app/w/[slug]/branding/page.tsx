@@ -386,7 +386,8 @@ function BrandBook({ t, onColor, onAssets }: { t: Tokens; onColor?: (key: keyof 
 // Shows "how the website could look" without needing a real page.
 function WebsiteMockup({ t, a }: { t: Tokens; a: BrandAssets }) {
   const soft = (amt: number, c = t.color.primary) => mix(c, [255, 255, 255], amt)
-  const langs = [{ n: 'Germană', c: t.color.accent }, { n: 'Franceză', c: t.color.primary }, { n: 'Engleză', c: mix(t.color.accent, [255, 255, 255], 0.2) }]
+  // Auto hero image — a real photo, deterministic per brand so it stays stable.
+  const heroImg = `https://picsum.photos/seed/${(t.color.primary || 'brand').replace('#', '')}/760/620`
   return (
     <div className="bb-mock" style={{ background: t.color.surface, fontFamily: t.font.body, color: t.color.text }}>
       {/* header */}
@@ -410,11 +411,13 @@ function WebsiteMockup({ t, a }: { t: Tokens; a: BrandAssets }) {
             <button style={{ background: 'transparent', color: t.color.primary, border: `2px solid ${t.color.primary}`, borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Contact</button>
           </div>
         </div>
-        <div className="bb-mock-blob" style={{ background: soft(0.55, t.color.accent) }} />
-      </div>
-      {/* language chips */}
-      <div className="bb-mock-chips">
-        {langs.map((l, i) => <span key={i} style={{ borderColor: soft(0.6, l.c), color: t.color.text }}><i style={{ background: l.c }} />{l.n}</span>)}
+        <div className="bb-mock-hero-media" style={{ borderRadius: t.shape.cardRadius }}>
+          <span className="bb-mock-hero-blob" style={{ background: soft(0.55, t.color.accent) }} />
+          <img src={heroImg} alt="" loading="lazy" style={{ borderRadius: t.shape.cardRadius }} />
+          <span className="bb-mock-hero-badge" style={{ background: t.color.surface, color: t.color.text, borderRadius: t.shape.cardRadius, fontFamily: t.font.heading }}>
+            <b style={{ color: t.color.primary }}>4.9★</b> 200+ familii
+          </span>
+        </div>
       </div>
       {/* programs — titled section */}
       <div className="bb-mock-sechead">
