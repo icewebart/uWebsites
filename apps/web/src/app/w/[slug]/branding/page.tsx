@@ -172,14 +172,18 @@ function BrandBook({ t }: { t: Tokens }) {
             </div>
           ))}
         </div>
+        <div className="bb-scale-label">Neutre &amp; suprafețe</div>
         <div className="bb-cols-2">
-          <div>
-            <div className="bb-scale-label">Neutre &amp; suprafețe</div>
-            <div className="bb-neutrals">
-              {[{ l: 'Surface', v: t.color.surface }, { l: 'Text', v: t.color.text }, { l: 'Footer', v: t.color.footerBg || t.color.text }].map((n) => (
-                <div key={n.l} className="bb-neutral" style={{ background: n.v, color: fgOn(n.v) }}><b>{n.l}</b><span>{n.v.toUpperCase()}</span></div>
-              ))}
-            </div>
+          <div className="bb-neutrals">
+            {[
+              { l: 'Surface', v: t.color.surface },
+              { l: 'Surface soft', v: mix(t.color.primary, [255, 255, 255], 0.94) },
+              { l: 'Surface muted', v: mix(t.color.primary, [255, 255, 255], 0.88) },
+              { l: 'Text', v: t.color.text },
+              { l: 'Footer', v: t.color.footerBg || t.color.text },
+            ].map((n) => (
+              <div key={n.l} className="bb-neutral" style={{ background: n.v, color: fgOn(n.v) }}><b>{n.l}</b><span>{n.v.toUpperCase()}</span></div>
+            ))}
           </div>
           <div className="bb-rules">
             <h4 style={{ fontFamily: t.font.heading }}>Reguli de folosire</h4>
@@ -251,23 +255,29 @@ function BrandBook({ t }: { t: Tokens }) {
         </div>
       </section>
 
-      {/* Buttons & controls */}
+      {/* Buttons & controls — 2 columns: buttons+card | forms */}
       <section className="bb-sec">
         <div className="bb-sec-head"><span className="bb-num">04</span><h2 style={{ fontFamily: t.font.heading }}>Butoane &amp; controale</h2></div>
-        <div className="bb-buttons">
-          <button style={{ background: t.color.primary, color: fgOn(t.color.primary), borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Primar</button>
-          <button style={{ background: t.color.accent, color: fgOn(t.color.accent), borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Accent</button>
-          <button className="ghost" style={{ color: t.color.primary, border: `2px solid ${t.color.primary}`, borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Secundar</button>
-          <button style={{ background: mix(t.color.primary, [255, 255, 255], 0.82), color: t.color.primary, borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Soft</button>
-        </div>
-        {/* form controls */}
-        <div className="bb-form-demo">
-          <label className="bb-fld"><span>Numele copilului</span><input placeholder="ex: Maria" style={{ borderRadius: t.shape.buttonRadius }} /></label>
-          <label className="bb-fld"><span>Limba dorită</span><select style={{ borderRadius: t.shape.buttonRadius }}><option>Germană</option><option>Franceză</option><option>Engleză</option></select></label>
-        </div>
-        <div className="bb-card-demo" style={{ background: t.color.surface, borderRadius: t.shape.cardRadius, border: `${t.shape.borderWidth} solid ${t.color.text}18` }}>
-          <div style={{ fontFamily: t.font.heading, fontWeight: 700, color: t.color.text, fontSize: 16, marginBottom: 4 }}>Exemplu de card</div>
-          <div style={{ fontSize: 13, color: t.color.text, opacity: .65 }}>Rază card {t.shape.cardRadius}, buton {t.shape.buttonRadius}.</div>
+        <div className="bb-ctl-cols">
+          <div className="bb-ctl-panel">
+            <div className="bb-panel-label">Butoane</div>
+            <div className="bb-buttons">
+              <button style={{ background: t.color.primary, color: fgOn(t.color.primary), borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Primar</button>
+              <button style={{ background: t.color.accent, color: fgOn(t.color.accent), borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Accent</button>
+              <button className="ghost" style={{ color: t.color.primary, border: `2px solid ${t.color.primary}`, borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Secundar</button>
+              <button style={{ background: mix(t.color.primary, [255, 255, 255], 0.82), color: t.color.primary, borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Soft</button>
+            </div>
+            <div className="bb-card-demo" style={{ background: t.color.surface, borderRadius: t.shape.cardRadius, border: `${t.shape.borderWidth} solid ${t.color.text}18` }}>
+              <div style={{ fontFamily: t.font.heading, fontWeight: 700, color: t.color.text, fontSize: 16, marginBottom: 4 }}>Exemplu de card</div>
+              <div style={{ fontSize: 13, color: t.color.text, opacity: .65 }}>Rază card {t.shape.cardRadius}, buton {t.shape.buttonRadius}.</div>
+            </div>
+          </div>
+          <div className="bb-ctl-panel">
+            <div className="bb-panel-label">Formulare</div>
+            <label className="bb-fld"><span>Numele copilului</span><input placeholder="ex: Maria" style={{ borderRadius: t.shape.buttonRadius }} /></label>
+            <label className="bb-fld"><span>Limba dorită</span><select style={{ borderRadius: t.shape.buttonRadius }}><option>Germană</option><option>Franceză</option><option>Engleză</option></select></label>
+            <label className="bb-fld bb-check"><input type="checkbox" defaultChecked /><span>Vreau și newsletter-ul</span></label>
+          </div>
         </div>
       </section>
 
@@ -302,6 +312,76 @@ function BrandBook({ t }: { t: Tokens }) {
           )}
         </section>
       )}
+
+      {/* Website mockup — a full page composed from the tokens */}
+      <section className="bb-sec">
+        <div className="bb-sec-head"><span className="bb-num">06</span><h2 style={{ fontFamily: t.font.heading }}>Website mockup</h2></div>
+        <p className="bb-sec-lead">Așa arată un site complet construit din aceste elemente — header, hero, carduri și footer, toate din tokenii brandului.</p>
+        <WebsiteMockup t={t} a={a} />
+      </section>
+    </div>
+  )
+}
+
+// A miniature full-page website preview composed entirely from the brand
+// tokens — header + hero (with blob + decor) + program cards + stats + footer.
+// Shows "how the website could look" without needing a real page.
+function WebsiteMockup({ t, a }: { t: Tokens; a: BrandAssets }) {
+  const soft = (amt: number, c = t.color.primary) => mix(c, [255, 255, 255], amt)
+  const langs = [{ n: 'Germană', c: t.color.accent }, { n: 'Franceză', c: t.color.primary }, { n: 'Engleză', c: mix(t.color.accent, [255, 255, 255], 0.2) }]
+  return (
+    <div className="bb-mock" style={{ background: t.color.surface, fontFamily: t.font.body, color: t.color.text }}>
+      {/* header */}
+      <div className="bb-mock-header">
+        <div className="bb-mock-brand"><LogoMark a={a} /></div>
+        <div className="bb-mock-nav" style={{ fontFamily: t.font.heading }}>
+          {(a.nav_tree?.length ? a.nav_tree.slice(0, 4).map((n) => n.text) : ['Cursuri', 'Ateliere', 'Tabere', 'Contact']).map((x, i) => <span key={i}>{x}</span>)}
+        </div>
+        <button className="bb-mock-cta" style={{ background: t.color.primary, color: fgOn(t.color.primary), borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Înscrie-te</button>
+      </div>
+      {/* hero */}
+      <div className="bb-mock-hero" style={{ background: `radial-gradient(120% 120% at 85% 5%, ${soft(0.9)}, ${t.color.surface} 60%)` }}>
+        <span className="bb-mock-orb" style={{ background: soft(0.5, t.color.accent), top: 20, left: '6%', width: 60, height: 60 }} />
+        <span className="bb-mock-star" style={{ top: 30, right: '30%' }}><Decor kind="star-fill" color={t.color.accent} /></span>
+        <div className="bb-mock-hero-txt">
+          <div className="bb-mock-eyebrow" style={{ color: t.color.accent }}>ÎNSCRIERI DESCHISE</div>
+          <div className="bb-mock-h1" style={{ fontFamily: t.font.heading, color: t.color.text }}>Cursuri și tabere <span style={{ color: t.color.primary }}>pentru copii</span></div>
+          <div className="bb-mock-sub">Învățare prin joc, grupe mici și profesori dedicați.</div>
+          <div className="bb-mock-btns">
+            <button style={{ background: t.color.primary, color: fgOn(t.color.primary), borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Vezi cursurile →</button>
+            <button style={{ background: 'transparent', color: t.color.primary, border: `2px solid ${t.color.primary}`, borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Contact</button>
+          </div>
+        </div>
+        <div className="bb-mock-blob" style={{ background: soft(0.55, t.color.accent) }} />
+      </div>
+      {/* language chips */}
+      <div className="bb-mock-chips">
+        {langs.map((l, i) => <span key={i} style={{ borderColor: soft(0.6, l.c), color: t.color.text }}><i style={{ background: l.c }} />{l.n}</span>)}
+      </div>
+      {/* program cards */}
+      <div className="bb-mock-cards">
+        {[{ badge: 'Cursuri', c: t.color.primary }, { badge: 'Ateliere', c: t.color.accent }, { badge: 'Tabere', c: mix(t.color.primary, [255, 255, 255], 0.15) }].map((card, i) => (
+          <div key={i} className="bb-mock-card" style={{ borderRadius: t.shape.cardRadius }}>
+            <div className="bb-mock-card-top" style={{ background: `repeating-linear-gradient(45deg, ${soft(0.85, card.c)} 0 10px, ${soft(0.72, card.c)} 10px 20px)` }} />
+            <div className="bb-mock-card-body">
+              <div className="bb-mock-badge" style={{ color: card.c }}>{card.badge.toUpperCase()}</div>
+              <div className="bb-mock-card-h" style={{ fontFamily: t.font.heading }}>Titlul programului</div>
+              <div className="bb-mock-card-p">O scurtă descriere a programului.</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {/* stats band */}
+      <div className="bb-mock-stats" style={{ background: t.color.primary, color: fgOn(t.color.primary), borderRadius: t.shape.cardRadius }}>
+        {[['166+', 'Copii'], ['11', 'Tabere'], ['4.9★', 'Scor']].map(([v, l], i) => (
+          <div key={i}><b style={{ fontFamily: t.font.heading }}>{v}</b><span>{l}</span></div>
+        ))}
+      </div>
+      {/* footer */}
+      <div className="bb-mock-footer" style={{ background: t.color.footerBg || t.color.text, color: t.color.footerFg || '#fff', fontFamily: t.font.body }}>
+        <b style={{ fontFamily: t.font.heading }}>Brand</b>
+        <div className="bb-mock-foot-cols"><span>Programe</span><span>Companie</span><span>Contact</span></div>
+      </div>
     </div>
   )
 }
