@@ -71,15 +71,23 @@ export function parseDesignSystem(html: string, assetsBaseUrl: string): ParsedDe
   const surface = bodyRule.match(/background\s*:\s*(#[0-9a-f]{3,6})/i)?.[1] || '#FFFFFF'
   const text = bodyRule.match(/color\s*:\s*(#[0-9a-f]{3,6})/i)?.[1] || '#16242E'
 
-  const tally: Record<string, number> = {}
+  // Score = frequency × saturation^1.5. Pure frequency picks the soft-text grey
+  // (used in every paragraph); weighting by saturation surfaces the real brand
+  // colors. Buttons/CTA backgrounds get an extra boost since the primary is
+  // almost always a button fill.
+  const btnColors = new Set<string>()
+  for (const m of html.matchAll(/(?:background(?:-color)?)\s*:\s*(#[0-9a-fA-F]{6})/gi)) btnColors.add(m[1].toUpperCase())
+  const score: Record<string, number> = {}
   for (const m of html.matchAll(/#[0-9a-fA-F]{6}\b/g)) {
     const hex = m[0].toUpperCase()
     if (isNeutral(hex)) continue
-    tally[hex] = (tally[hex] || 0) + 1
+    const c = toRgb(hex)!
+    const w = Math.pow(sat(c), 1.5) * (btnColors.has(hex) ? 2.2 : 1)
+    score[hex] = (score[hex] || 0) + w
   }
-  const ranked = Object.entries(tally).sort((a, b) => b[1] - a[1]).map(([h]) => h)
+  const ranked = Object.entries(score).sort((a, b) => b[1] - a[1]).map(([h]) => h)
   const primary = ranked[0] || '#16324A'
-  // accent = most frequent color with a hue distinct enough from primary
+  // accent = highest-scored color with a hue distinct enough from primary
   const pHue = toRgb(primary) ? hue(toRgb(primary)!) : 0
   const accent = ranked.find((h) => { const c = toRgb(h); return c && Math.abs(((hue(c) - pHue + 540) % 360) - 180) > 40 }) || ranked[1] || '#8FD7F1'
 
