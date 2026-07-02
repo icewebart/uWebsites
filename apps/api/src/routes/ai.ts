@@ -122,6 +122,82 @@ async function ownedWs(slug: string, accountId: string) {
   return ws
 }
 
+// POST /ai/generate-freeform — "no restrictions" mode: Claude authors a
+// complete landing page as one self-contained HTML fragment (not the section
+// catalog), themed with the workspace's brand tokens + fonts, with image-slot
+// placeholders to fill later. Saved as a single raw-html home block. Optionally
+// seeded with a pasted design-kit's visible text for content context.
+aiRouter.post('/generate-freeform', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
+  const { slug, prompt, kitHtml, type } = req.body ?? {}
+  if (!slug || !prompt) return res.status(400).json({ ok: false, error: 'slug and prompt required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+
+  const [tokRow] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const t: any = tokRow?.tokens || {}
+  const c = t.color || {}, f = t.font || {}
+  const brief = await siteBrief(ws.id, ws.name)
+  // Extract just the visible text from a pasted kit for content grounding.
+  const kitText = typeof kitHtml === 'string'
+    ? kitHtml.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 6000)
+    : ''
+
+  try {
+    const r = await a.messages.create({
+      model: MODEL,
+      max_tokens: 12000,
+      system: `You are an elite product/brand web designer. Author ONE complete, opinionated marketing landing page as a SINGLE self-contained HTML fragment.
+
+OUTPUT RULES (critical):
+- Return ONLY the page body markup — a series of <section>…</section> blocks. Do NOT emit <html>, <head>, <body>, a site <header>/<nav>, or a <footer>; the platform wraps the page with those.
+- Colors: use ONLY these CSS variables so the page re-themes with the brand — var(--primary) ${c.primary || ''}, var(--accent) ${c.accent || ''}, var(--surface) ${c.surface || ''}, var(--text) ${c.text || ''}. Derive tints with color-mix(in srgb, var(--primary) 8%, #fff) etc. Never hardcode brand hexes.
+- Fonts: headings use '${f.heading || 'inherit'}', body uses '${f.body || 'inherit'}' (set font-family inline where needed; the fonts are already loaded).
+- Rounded, modern, generous spacing. Every section full-bleed background with an inner max-width:1180px;margin:0 auto;padding:72px 24px container. Alternate surface / soft-tinted section backgrounds for rhythm.
+- PHOTOS: never use external image URLs. For every image use a placeholder exactly like <div class="uw-img-slot" data-caption="SPECIFIC description of the wanted photo" style="width:100%;aspect-ratio:4/3;border-radius:16px"></div>. We fill these with real images afterward.
+- Decorative flourishes (soft blobs, stars) via inline SVG or CSS circles are welcome when on-brand.
+- Buttons: rounded pills in var(--primary)/var(--accent).
+
+CONTENT RULES:
+- Real, SPECIFIC copy in the brand's voice — never lorem ipsum, never "Your text here". Concrete headlines, benefits, and CTAs.
+- A rich page: hero, a value/benefits grid, a "how it works" or programs section, social proof/testimonials, a stats or trust strip, and a strong closing CTA. 6–9 sections.
+${brief ? '\n\nSITE CONTEXT (anchor industry, audience, voice; reflect it in the copy):\n' + brief : ''}${kitText ? '\n\nSOURCE KIT TEXT (reuse the real names, offers and wording from here where relevant):\n' + kitText : ''}`,
+      tools: [{ name: 'page', description: 'The generated landing page.', input_schema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Concise, SEO-friendly page title' },
+          html: { type: 'string', description: 'The full page body markup — a sequence of <section> blocks, self-contained, themed with the brand CSS variables.' },
+        },
+        required: ['title', 'html'],
+      } as any }],
+      tool_choice: { type: 'tool', name: 'page' },
+      messages: [{ role: 'user', content: String(prompt) }],
+    })
+    const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!toolUse) return res.status(502).json({ ok: false, error: 'Model returned no page' })
+    const { title, html } = toolUse.input as { title: string; html: string }
+    const blocks = [{ type: 'raw-html', props: { html, sourceLabel: 'AI · free-form' } }]
+    const pageType = type === 'home' || !type ? 'home' : String(type)
+    let created: any
+    if (pageType === 'home') {
+      const [existingHome] = await db.select().from(pages).where(and(eq(pages.workspaceId, ws.id), eq(pages.type, 'home'))).limit(1)
+      const rows = existingHome
+        ? await db.update(pages).set({ title, blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, existingHome.id)).returning()
+        : await db.insert(pages).values({ workspaceId: ws.id, type: 'home' as any, slug: 'home', title, status: 'draft', blocks: blocks as any }).returning()
+      created = rows[0]
+    } else {
+      const pageSlug = (title || 'page').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) + '-' + Math.random().toString(36).slice(2, 6)
+      const rows = await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug: pageSlug, title, status: 'draft', blocks: blocks as any }).returning()
+      created = rows[0]
+    }
+    await logAiJob(ws.id, 'article', 'done', { source: 'freeform', prompt: String(prompt).slice(0, 500), title: created.title }, 2, created.id)
+    res.json({ ok: true, data: { id: created.id, slug: created.slug, title: created.title } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'AI generation failed: ' + (e?.message || 'unknown') })
+  }
+})
+
 // POST /ai/generate-page — Claude drafts a full page from a prompt, saves it.
 aiRouter.post('/generate-page', requireAuth, async (req: AuthRequest, res) => {
   const a = ai()

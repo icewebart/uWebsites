@@ -20,14 +20,25 @@ export default function WorkspaceHome() {
   const [aiPrompt, setAiPrompt] = useState('')
   const [building, setBuilding] = useState(false)
   const [buildErr, setBuildErr] = useState('')
+  const [mode, setMode] = useState<'structured' | 'freeform'>('structured')
+  const [kitName, setKitName] = useState('')
+  const [kitText, setKitText] = useState('')
+
+  function onKitFile(file?: File) {
+    if (!file) { setKitName(''); setKitText(''); return }
+    const reader = new FileReader()
+    reader.onload = () => { setKitText(String(reader.result || '')); setKitName(file.name); setMode('freeform') }
+    reader.readAsText(file)
+  }
 
   async function buildWithAi() {
     if (!aiPrompt.trim()) return
     setBuildErr(''); setBuilding(true)
     try {
-      const r = await api<{ id: string }>('/ai/generate-page', {
-        method: 'POST', body: JSON.stringify({ slug, prompt: aiPrompt.trim(), type: 'home' }),
-      })
+      const endpoint = mode === 'freeform' ? '/ai/generate-freeform' : '/ai/generate-page'
+      const body: any = { slug, prompt: aiPrompt.trim(), type: 'home' }
+      if (mode === 'freeform' && kitText) body.kitHtml = kitText
+      const r = await api<{ id: string }>(endpoint, { method: 'POST', body: JSON.stringify(body) })
       router.push(`/w/${slug}/p/${r.id}`)
     } catch (e: any) { setBuildErr(e.message || 'AI build failed'); setBuilding(false) }
   }
@@ -79,9 +90,29 @@ export default function WorkspaceHome() {
         <div className="build-empty">
           <div className="build-card">
             <h2>Build your homepage with AI</h2>
-            <p className="muted">Describe your site — the industry, who it's for, and the vibe. The AI drafts a full homepage using your branding, then you can edit any section.</p>
+            <p className="muted">Describe your site — the industry, who it's for, and the vibe. The AI drafts a full homepage using your branding, then you can edit it.</p>
+
+            <div className="build-modes">
+              <button className={`build-mode ${mode === 'structured' ? 'on' : ''}`} onClick={() => setMode('structured')}>
+                <b>Structured sections</b><span>Editable section-by-section. Best for iterating.</span>
+              </button>
+              <button className={`build-mode ${mode === 'freeform' ? 'on' : ''}`} onClick={() => setMode('freeform')}>
+                <b>Full custom page</b><span>Free-form AI design, no section limits. Best for a bold one-off.</span>
+              </button>
+            </div>
+
             <textarea className="inp build-ta" rows={4} value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
               placeholder="e.g. A German-language summer camp for kids aged 8–14 in Cluj. Friendly and playful, with courses, camps, testimonials and a signup CTA." />
+
+            {mode === 'freeform' && (
+              <label className="build-kit">
+                <input type="file" accept=".html,.htm,text/html" style={{ display: 'none' }} onChange={(e) => onKitFile(e.target.files?.[0])} />
+                <span className="build-kit-btn">📎 {kitName ? `Kit: ${kitName}` : 'Attach a design kit (.html) — optional'}</span>
+                {kitName && <button type="button" className="build-kit-x" onClick={(e) => { e.preventDefault(); onKitFile(undefined) }}>✕</button>}
+                <span className="muted" style={{ fontSize: 12 }}>The AI reuses the real names, offers and wording from the kit.</span>
+              </label>
+            )}
+
             <div className="build-suggestions">
               {['Homepage for a kids language school — courses, camps, testimonials, signup',
                 'Landing page for a local coffee roastery — story, products, wholesale',
@@ -92,7 +123,7 @@ export default function WorkspaceHome() {
             {buildErr && <div className="err" style={{ marginTop: 10 }}>{buildErr}</div>}
             <div className="build-actions">
               <button className="btn btn-primary" onClick={buildWithAi} disabled={building || !aiPrompt.trim()}>
-                {building ? 'Building your homepage… (~20s)' : '✦ Build with AI'}
+                {building ? (mode === 'freeform' ? 'Designing your page… (~40s)' : 'Building your homepage… (~20s)') : '✦ Build with AI'}
               </button>
               <span className="muted" style={{ fontSize: 13 }}>or <a href={`/w/${slug}/import`}>import an existing site</a></span>
             </div>
