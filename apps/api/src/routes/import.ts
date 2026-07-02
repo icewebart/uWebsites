@@ -7,6 +7,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { sectionizeHtml } from '../lib/html-sectionizer.js'
 import { createImageMirror } from '../lib/image-host.js'
 import { headlessRender, extractBrandFromDom, type NavNode } from '../lib/headless.js'
+import { parseDesignSystem } from '../lib/design-system.js'
 
 // ---- Color scale generation (for the design-system palette display) ----
 function _toRgb(h: string): [number, number, number] | null {
@@ -866,4 +867,67 @@ importRouter.post('/sectionize-page', requireAuth, async (req: AuthRequest, res)
   }).where(eq(pages.id, row.id))
 
   res.json({ ok: true, data: { pageId: row.id, sections: sections.length, blocks } })
+})
+
+// POST /import/design-system — the RELIABLE import path. Body:
+//   { slug, html, assetsBaseUrl?, apply? }
+// Parses a clean design-system HTML doc → brand tokens (colors, fonts) + logo
+// (mirrored) + a home page built from the doc's SAMPLE LANDING. When apply is
+// true (default), writes the workspace branding + home page. assetsBaseUrl is
+// where the doc's relative assets (logo SVG, images, fonts) are hosted so we
+// can mirror them into our own store — no hotlinking, nothing breaks.
+importRouter.post('/design-system', requireAuth, async (req: AuthRequest, res) => {
+  const { slug, html, assetsBaseUrl, apply = true } = req.body ?? {}
+  if (!slug || !html) return res.status(400).json({ ok: false, error: 'slug and html required' })
+  const ws = await db.select().from(workspaces).where(and(eq(workspaces.slug, String(slug)), eq(workspaces.accountId, req.user!.accountId))).limit(1).then((r) => r[0])
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+
+  const base = String(assetsBaseUrl || '').trim() || 'https://example.com/'
+  let parsed
+  try { parsed = parseDesignSystem(String(html), base) }
+  catch (e: any) { return res.status(400).json({ ok: false, error: 'Could not parse design system: ' + (e?.message || 'unknown') }) }
+
+  const mirror = createImageMirror(ws.slug)
+
+  // Mirror the logo into our store so it never hotlinks.
+  let logoLocal: string | null = null
+  if (parsed.logoUrl) {
+    try { logoLocal = await mirror.mirror(parsed.logoUrl) } catch { /* keep null */ }
+    if (!logoLocal) logoLocal = parsed.logoUrl
+  }
+
+  // Sectionize the SAMPLE LANDING (clean inline-styled HTML — no headless
+  // needed). Images mirrored against the assets base; brand hexes rewritten to
+  // var(--primary)/--accent so token edits cascade.
+  let blocks: any[] = []
+  if (parsed.sampleLandingHtml) {
+    const sections = await sectionizeHtml(parsed.sampleLandingHtml, {
+      baseUrl: base,
+      brandColors: { primary: parsed.tokens.color.primary, accent: parsed.tokens.color.accent },
+      brandFonts: { heading: parsed.tokens.font.heading, body: parsed.tokens.font.body },
+      imageMirror: mirror,
+    })
+    blocks = sections.map((s) => ({ type: 'raw-html', props: { html: s.html, sourceLabel: s.sourceLabel || '' } }))
+  }
+
+  const tokens = { ...parsed.tokens, brand_assets: { logo: logoLocal ? { url: logoLocal, alt: parsed.logoAlt } : null, font_faces: parsed.fontFaces } }
+
+  if (apply) {
+    // Branding
+    const [existing] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+    if (existing) await db.update(brandingTokens).set({ tokens }).where(eq(brandingTokens.id, existing.id))
+    else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens })
+    // Home page — replace blocks if a home exists, else create one
+    if (blocks.length) {
+      const [home] = await db.select({ id: pages.id }).from(pages).where(and(eq(pages.workspaceId, ws.id), eq(pages.type, 'home'))).limit(1)
+      if (home) await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, home.id))
+      else await db.insert(pages).values({ workspaceId: ws.id, type: 'home' as any, slug: 'home', title: ws.name, status: 'draft', blocks: blocks as any })
+    }
+  }
+
+  res.json({ ok: true, data: {
+    primary: tokens.color.primary, accent: tokens.color.accent,
+    heading: tokens.font.heading, body: tokens.font.body,
+    logo: logoLocal, fontFaces: parsed.fontFaces.length, sections: blocks.length, applied: apply,
+  } })
 })
