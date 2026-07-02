@@ -2,16 +2,36 @@ import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
 import { db, workspaces, menus, pages, brandingTokens } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
-import { analyzeBranding } from './import.js'
-import { renderHeader, renderFooter, fontsHead, siteCss, DEFAULT_TOKENS } from './publish.js'
+import { analyzeBranding, richBranding } from './import.js'
+import { renderHeader, renderFooter, fontsHead, siteCss, DEFAULT_TOKENS, HEADER_SCRIPT } from './publish.js'
 
 // Workspace-level menus — header + footer — applied to every published page.
 // The data shape kept flat for v1: tree = { items: [{label, href}], cta? }.
 // Auto-populated on import from the source site's <nav> + main CTA.
 
 export const menusRouter = Router()
-type MenuItem = { label: string; href: string }
+type MenuItem = { label: string; href: string; children?: MenuItem[] }
 export type MenuTree = { items: MenuItem[]; cta?: { label: string; href: string } | null }
+
+// Map an imported nav tree ({ text, href, children }) to menu items
+// ({ label, href, children }). One level of children is kept — enough for
+// dropdowns and mega-menus, which is all the published header renders.
+export function navTreeToItems(tree: any[]): MenuItem[] {
+  return (Array.isArray(tree) ? tree : [])
+    .map((n) => {
+      const label = String(n?.text ?? n?.label ?? '').trim()
+      const href = String(n?.href ?? '').trim()
+      if (!label) return null
+      const kids = (Array.isArray(n?.children) ? n.children : [])
+        .map((c: any) => ({ label: String(c?.text ?? c?.label ?? '').trim(), href: String(c?.href ?? '').trim() }))
+        .filter((c: MenuItem) => c.label)
+        .slice(0, 16)
+      const item: MenuItem = { label, href: href || '#' }
+      if (kids.length) item.children = kids
+      return item
+    })
+    .filter(Boolean) as MenuItem[]
+}
 
 async function ownedWs(slug: string, accountId: string) {
   const [ws] = await db.select().from(workspaces).where(and(eq(workspaces.slug, slug), eq(workspaces.accountId, accountId))).limit(1)
@@ -52,6 +72,7 @@ menusRouter.get('/:slug/menus/preview', requireAuth, async (req: AuthRequest, re
 ${renderHeader(ws, base, header, logo)}
 <main>${placeholder}</main>
 ${footerHtml}
+${HEADER_SCRIPT}
 ${scrollScript}
 </body></html>`
   res.type('text/html').send(html)
@@ -66,12 +87,28 @@ menusRouter.get('/:slug/menus', requireAuth, async (req: AuthRequest, res) => {
   res.json({ ok: true, data: await getMenusFor(ws.id) })
 })
 
-// Sanitiser — keep items minimal {label, href}, drop empties, cap counts
+// Sanitiser — keep items minimal {label, href, children?}, drop empties, cap
+// counts. One level of children is preserved (dropdown / mega-menu groups).
 function clean(tree: any, maxItems: number): MenuTree {
   if (!tree || typeof tree !== 'object') return { items: [] }
+  const cleanChildren = (kids: any): MenuItem[] | undefined => {
+    if (!Array.isArray(kids)) return undefined
+    const out = kids
+      .map((c: any) => ({ label: String(c?.label || '').trim().slice(0, 60), href: String(c?.href || '').trim().slice(0, 500) }))
+      .filter((c: MenuItem) => c.label && c.href)
+      .slice(0, 16)
+    return out.length ? out : undefined
+  }
   const items = Array.isArray(tree.items) ? tree.items
-    .map((i: any) => ({ label: String(i?.label || '').trim().slice(0, 60), href: String(i?.href || '').trim().slice(0, 500) }))
-    .filter((i: any) => i.label && i.href)
+    .map((i: any) => {
+      const item: MenuItem = { label: String(i?.label || '').trim().slice(0, 60), href: String(i?.href || '').trim().slice(0, 500) }
+      const kids = cleanChildren(i?.children)
+      if (kids) item.children = kids
+      return item
+    })
+    // a parent with children may have an empty href (label-only dropdown trigger)
+    .filter((i: MenuItem) => i.label && (i.href || i.children))
+    .map((i: MenuItem) => ({ ...i, href: i.href || '#' }))
     .slice(0, maxItems) : []
   const cta = tree.cta?.label
     ? { label: String(tree.cta.label).trim().slice(0, 40), href: String(tree.cta.href || '').trim().slice(0, 500) }
@@ -89,11 +126,33 @@ menusRouter.post('/:slug/menus/refresh', requireAuth, async (req: AuthRequest, r
   // Find a source URL: home page's import_source, or body { url }
   const [home] = await db.select({ seo: pages.seo }).from(pages).where(and(eq(pages.workspaceId, ws.id), eq(pages.type, 'home'))).limit(1)
   const url = req.body?.url || (home?.seo as any)?.import_source?.url
-  if (!url) return res.status(400).json({ ok: false, error: 'No source URL on file. Pass { url } in the body to refresh from a specific site.' })
+
+  // No source URL to re-fetch (e.g. design-system imports) — rebuild the header
+  // from the nav tree already captured in the workspace's branding tokens.
+  if (!url) {
+    const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+    const assets = (tok?.tokens as any)?.brand_assets || {}
+    const items = navTreeToItems(assets.nav_tree || [])
+    const cta = assets.cta || null
+    if (!items.length && !cta) return res.status(400).json({ ok: false, error: 'No source URL on file and no captured navigation to rebuild from. Pass { url } in the body to refresh from a specific site.' })
+    await upsertMenu(ws.id, 'header', { items, cta })
+    return res.json({ ok: true, data: { ...await getMenusFor(ws.id), refreshed: true, source: 'brand navigation' } })
+  }
+
   try {
-    const b = await analyzeBranding(url)
-    const items = (b.brand_assets?.nav || []).map((n: any) => ({ label: n.text, href: n.href }))
-    const cta = b.brand_assets?.cta || null
+    // Headless render captures the full nav tree (with dropdown children); fall
+    // back to the CSS-only analyzer if the browser render fails.
+    let items: MenuItem[] = []
+    let cta: MenuTree['cta'] = null
+    try {
+      const b = await richBranding(url)
+      items = navTreeToItems(b.nav_tree || [])
+      cta = (b.brand_assets?.cta) || null
+    } catch {
+      const b = await analyzeBranding(url)
+      items = (b.brand_assets?.nav || []).map((n: any) => ({ label: n.text, href: n.href }))
+      cta = b.brand_assets?.cta || null
+    }
     if (!items.length && !cta) return res.status(200).json({ ok: true, data: { ...await getMenusFor(ws.id), refreshed: false, reason: 'No nav or CTA found at source.' } })
     await upsertMenu(ws.id, 'header', { items, cta })
     res.json({ ok: true, data: { ...await getMenusFor(ws.id), refreshed: true, source: url } })

@@ -76,6 +76,19 @@ section + section{padding-top:0}
 .site-header .header-cta{background:var(--primary);color:#fff;border-radius:999px;padding:10px 22px;font-weight:700;font-size:14px;text-decoration:none;flex:0 0 auto;font-family:'${t.font.heading}',sans-serif}
 .site-header .header-cta:hover{filter:brightness(1.08)}
 
+/* Dropdown / mega-menu — desktop opens on hover + keyboard focus; a small hover
+   bridge keeps it open while the cursor travels down to the panel. */
+.site-header .nav-item{position:relative;display:flex;align-items:center}
+.site-header .nav-trigger{display:inline-flex!important;align-items:center;gap:5px;cursor:pointer}
+.site-header .caret{font-size:9px;opacity:.55;transition:transform .16s}
+.site-header .nav-item:hover .caret,.site-header .nav-item:focus-within .caret,.site-header .nav-item.open .caret{transform:rotate(180deg);opacity:.9}
+.site-header .nav-item.has-children::after{content:"";position:absolute;top:100%;left:0;right:0;height:12px}
+.site-header .dropdown{position:absolute;top:100%;left:50%;transform:translateX(-50%) translateY(8px);background:#fff;border-radius:16px;box-shadow:0 14px 44px rgba(60,20,90,.16);padding:10px;min-width:210px;display:flex;flex-direction:column;gap:2px;opacity:0;visibility:hidden;transition:opacity .16s ease,transform .16s ease;z-index:200}
+.site-header .nav-item:hover .dropdown,.site-header .nav-item:focus-within .dropdown,.site-header .nav-item.open .dropdown{opacity:1;visibility:visible;transform:translateX(-50%) translateY(6px)}
+.site-header .dropdown a{color:var(--text);opacity:.82;font-size:14px;font-weight:600;text-decoration:none;padding:9px 14px;border-radius:10px;white-space:nowrap;transition:background .12s,color .12s}
+.site-header .dropdown a:hover{opacity:1;color:var(--primary);background:color-mix(in srgb, var(--primary) 8%, #fff)}
+.site-header .dropdown.mega{display:grid;grid-template-columns:repeat(2,minmax(190px,1fr));gap:2px 8px;min-width:440px}
+
 /* Kids.ro-style dark footer — rounded top, three-column info + brand block,
    cream text on the workspace's footer-bg (defaults to --text). */
 .site-footer{background:var(--footer-bg);color:var(--footer-fg);margin-top:calc(var(--pad) + 20px);padding:64px 0 32px;position:relative;border-radius:32px 32px 0 0}
@@ -95,7 +108,13 @@ section + section{padding-top:0}
 .site-footer .bottom a{color:var(--footer-fg);opacity:.85;text-decoration:none}
 .site-footer .bottom a:hover{opacity:1;text-decoration:underline}
 
-@media(max-width:900px){.site-header{position:relative;top:0}.site-header .container{flex-wrap:wrap;border-radius:24px;padding:12px 16px}.site-header .nav{gap:14px;justify-content:flex-start}.site-header .nav a{font-size:13px}.site-footer .container{grid-template-columns:1fr 1fr}}
+@media(max-width:900px){.site-header{position:relative;top:0}.site-header .container{flex-wrap:wrap;border-radius:24px;padding:12px 16px}.site-header .nav{gap:14px;justify-content:flex-start}.site-header .nav .nav-link{font-size:13px}
+/* On narrow screens dropdowns expand inline (tap-to-open via HEADER_SCRIPT) */
+.site-header .dropdown{position:static;transform:none!important;box-shadow:none;opacity:1;visibility:visible;display:none;padding:2px 0 6px 14px;min-width:0;background:transparent}
+.site-header .dropdown.mega{grid-template-columns:1fr;min-width:0}
+.site-header .nav-item.open .dropdown{display:flex}
+.site-header .nav-item{display:inline-flex}
+.site-footer .container{grid-template-columns:1fr 1fr}}
 @media(max-width:560px){.site-footer .container{grid-template-columns:1fr}}
 ${SECTION_CSS}`
 }
@@ -129,21 +148,57 @@ function composeBody(blocks: any[], renderOne: (b: any, i: number) => string): s
   }).join('\n')
 }
 
-type MenuItem = { label: string; href: string }
+type MenuItem = { label: string; href: string; children?: MenuItem[] }
 type MenuTree = { items: MenuItem[]; cta?: { label: string; href: string } | null }
 
 // Exposed so menus.ts can use the same render for the visual preview tab.
 export { fontsHead, siteCss, DEFAULT_TOKENS }
 
+// Render one top-level nav entry. Items with children become a hover/focus
+// dropdown; a wide child list (>6) renders as a 2-column mega-menu panel.
+function renderNavItem(i: MenuItem): string {
+  const kids = (i.children || []).filter((c) => c.label)
+  if (!kids.length) return `<a class="nav-link" href="${esc(i.href)}">${esc(i.label)}</a>`
+  const mega = kids.length > 6
+  const links = kids.map((c) => `<a href="${esc(c.href || '#')}" role="menuitem">${esc(c.label)}</a>`).join('')
+  return `<div class="nav-item has-children">`
+    + `<a class="nav-link nav-trigger" href="${esc(i.href)}" aria-haspopup="true" aria-expanded="false">${esc(i.label)}<span class="caret" aria-hidden="true">▾</span></a>`
+    + `<div class="dropdown${mega ? ' mega' : ''}" role="menu">${links}</div>`
+    + `</div>`
+}
+
 export function renderHeader(ws: any, base: string, header: MenuTree | undefined, logoUrl?: string | null): string {
   const brand = logoUrl
     ? `<a class="brand" href="${base}/"><img src="${esc(logoUrl)}" alt="${esc(ws.name)}"></a>`
     : `<a class="brand" href="${base}/">${esc(ws.name)}</a>`
-  const navItems = (header?.items || []).map((i) => `<a href="${esc(i.href)}">${esc(i.label)}</a>`).join('')
+  const navItems = (header?.items || []).map(renderNavItem).join('')
   const nav = navItems ? `<nav class="nav">${navItems}</nav>` : ''
   const cta = header?.cta?.label ? `<a class="header-cta" href="${esc(header.cta.href || '#')}">${esc(header.cta.label)}</a>` : ''
   return `<header class="site-header"><div class="container">${brand}${nav}${cta}</div></header>`
 }
+
+// Injected once per page (published output + nav preview). On touch/narrow
+// screens the first tap on a dropdown trigger opens the panel instead of
+// navigating; desktop uses pure CSS :hover / :focus-within (no JS needed).
+export const HEADER_SCRIPT = `<script>(function(){
+  var mq=window.matchMedia('(max-width:900px)');
+  var triggers=document.querySelectorAll('.site-header .nav-item.has-children > .nav-trigger');
+  triggers.forEach(function(t){
+    t.addEventListener('click',function(e){
+      if(!mq.matches)return;
+      var li=t.parentNode;
+      if(!li.classList.contains('open')){
+        e.preventDefault();
+        document.querySelectorAll('.site-header .nav-item.open').forEach(function(o){if(o!==li)o.classList.remove('open');});
+        li.classList.add('open');
+      }
+    });
+  });
+  document.addEventListener('click',function(e){
+    if(e.target.closest('.site-header .nav-item.has-children'))return;
+    document.querySelectorAll('.site-header .nav-item.open').forEach(function(o){o.classList.remove('open');});
+  });
+})();</script>`
 
 // Split the flat footer.items list into 2 balanced column groups. First half
 // becomes the 'Programe' column (or 'Site' if items are non-vertical), second
@@ -174,6 +229,7 @@ function renderPage(page: any, body: string, t: any, ws: any, base: string, opts
 ${renderHeader(ws, base, opts?.header, logo)}
 <main>${body || ''}</main>
 ${renderFooter(ws, opts?.footer)}
+${HEADER_SCRIPT}
 </body></html>`
 }
 

@@ -538,6 +538,17 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .menu-row{display:grid;grid-template-columns:18px 1fr 1.4fr auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--border)}
 .menu-row:last-of-type{border-bottom:0}
 .menu-row-grip{color:var(--text-faint);font-size:14px;cursor:grab;user-select:none;text-align:center}
+/* dropdown children — indented sub-item rows under a parent nav item */
+.menu-item-group{border-bottom:1px solid var(--border);padding:6px 0}
+.menu-item-group:last-of-type{border-bottom:0}
+.menu-item-group .menu-row{border-bottom:0}
+.menu-children{margin:2px 0 2px 26px;padding-left:12px;border-left:2px solid color-mix(in srgb, var(--primary) 18%, transparent)}
+.menu-row-child{padding:4px 0}
+.menu-row-child .menu-row-grip{color:color-mix(in srgb, var(--primary) 55%, var(--text-faint));cursor:default}
+.menu-item-add{margin:2px 0 0 26px}
+.btn-mini{background:transparent;border:1px dashed var(--border);color:var(--text-muted);font-size:12px;font-weight:600;padding:5px 10px;border-radius:8px;cursor:pointer}
+.btn-mini:hover:not(:disabled){border-color:var(--primary);color:var(--primary)}
+.btn-mini:disabled{opacity:.45;cursor:not-allowed}
 @media(max-width:760px){.menu-row{grid-template-columns:1fr}}
 .ev-actions-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 

@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
 import Anthropic from '@anthropic-ai/sdk'
 import { db, workspaces, pages, redirects, brandingTokens } from '@uwebsites/db'
-import { upsertMenu } from './menus.js'
+import { upsertMenu, navTreeToItems } from './menus.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { sectionizeHtml } from '../lib/html-sectionizer.js'
 import { createImageMirror } from '../lib/image-host.js'
@@ -661,10 +661,10 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
       const [existingTokens] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
       if (existingTokens) await db.update(brandingTokens).set({ tokens: b.tokens }).where(eq(brandingTokens.id, existingTokens.id))
       else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: b.tokens })
-      // Seed the header menu from the source nav (prefer the hierarchical tree
-      // so dropdown children survive) + main CTA.
-      const flatFromTree = (b.nav_tree || []).map((n: any) => ({ label: n.text, href: n.href }))
-      const navItems = flatFromTree.length ? flatFromTree : (b.brand_assets?.nav || []).map((n: any) => ({ label: n.text, href: n.href }))
+      // Seed the header menu from the source nav — the hierarchical tree keeps
+      // dropdown children (rendered as menus on the published header) + main CTA.
+      const fromTree = navTreeToItems(b.nav_tree || [])
+      const navItems = fromTree.length ? fromTree : (b.brand_assets?.nav || []).map((n: any) => ({ label: n.text, href: n.href }))
       if (navItems.length || brandCta) {
         await upsertMenu(ws.id, 'header', { items: navItems, cta: brandCta })
       }
@@ -913,13 +913,24 @@ importRouter.post('/design-system', requireAuth, async (req: AuthRequest, res) =
     blocks = sections.map((s) => ({ type: 'raw-html', props: { html: s.html, sourceLabel: s.sourceLabel || '' } }))
   }
 
-  const tokens = { ...parsed.tokens, brand_assets: { logo: logoLocal ? { url: logoLocal, alt: parsed.logoAlt } : null, font_faces: parsed.fontFaces } }
+  const tokens = { ...parsed.tokens, brand_assets: {
+    logo: logoLocal ? { url: logoLocal, alt: parsed.logoAlt } : null,
+    font_faces: parsed.fontFaces,
+    nav_tree: parsed.navTree,       // header nav with dropdowns (from the doc's <header>)
+    has_mega_menu: parsed.navTree.some((n) => (n.children?.length || 0) > 6),
+    cta: parsed.cta,
+  } }
+  const headerItems = navTreeToItems(parsed.navTree)
 
   if (apply) {
     // Branding
     const [existing] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
     if (existing) await db.update(brandingTokens).set({ tokens }).where(eq(brandingTokens.id, existing.id))
     else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens })
+    // Header menu — seed from the doc's nav (dropdowns preserved) + primary CTA
+    if (headerItems.length || parsed.cta) {
+      await upsertMenu(ws.id, 'header', { items: headerItems, cta: parsed.cta })
+    }
     // Home page — replace blocks if a home exists, else create one
     if (blocks.length) {
       const [home] = await db.select({ id: pages.id }).from(pages).where(and(eq(pages.workspaceId, ws.id), eq(pages.type, 'home'))).limit(1)
@@ -931,6 +942,7 @@ importRouter.post('/design-system', requireAuth, async (req: AuthRequest, res) =
   res.json({ ok: true, data: {
     primary: tokens.color.primary, accent: tokens.color.accent,
     heading: tokens.font.heading, body: tokens.font.body,
-    logo: logoLocal, fontFaces: parsed.fontFaces.length, sections: blocks.length, applied: apply,
+    logo: logoLocal, fontFaces: parsed.fontFaces.length, sections: blocks.length,
+    navItems: headerItems.length, dropdowns: headerItems.filter((i) => i.children?.length).length, applied: apply,
   } })
 })
