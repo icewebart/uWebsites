@@ -422,7 +422,11 @@ function WebsiteMockup({ t, a }: { t: Tokens; a: BrandAssets }) {
       <div className="bb-mock-chips">
         {langs.map((l, i) => <span key={i} style={{ borderColor: soft(0.6, l.c), color: t.color.text }}><i style={{ background: l.c }} />{l.n}</span>)}
       </div>
-      {/* program cards */}
+      {/* programs — titled section */}
+      <div className="bb-mock-sechead">
+        <div className="bb-mock-eyebrow" style={{ color: t.color.accent }}>PROGRAMELE NOASTRE</div>
+        <div className="bb-mock-h2" style={{ fontFamily: t.font.heading, color: t.color.text }}>Cursuri, ateliere și tabere</div>
+      </div>
       <div className="bb-mock-cards">
         {[{ badge: 'Cursuri', c: t.color.primary }, { badge: 'Ateliere', c: t.color.accent }, { badge: 'Tabere', c: mix(t.color.primary, [255, 255, 255], 0.15) }].map((card, i) => (
           <div key={i} className="bb-mock-card" style={{ borderRadius: t.shape.cardRadius }}>
@@ -435,11 +439,53 @@ function WebsiteMockup({ t, a }: { t: Tokens; a: BrandAssets }) {
           </div>
         ))}
       </div>
-      {/* stats band */}
-      <div className="bb-mock-stats" style={{ background: t.color.primary, color: fgOn(t.color.primary), borderRadius: t.shape.cardRadius }}>
-        {[['166+', 'Copii'], ['11', 'Tabere'], ['4.9★', 'Scor']].map(([v, l], i) => (
-          <div key={i}><b style={{ fontFamily: t.font.heading }}>{v}</b><span>{l}</span></div>
-        ))}
+
+      {/* community — image-left feature card with inline stats + star */}
+      <div className="bb-mock-community" style={{ background: soft(0.95) }}>
+        <div className="bb-mock-sechead">
+          <div className="bb-mock-eyebrow" style={{ color: t.color.accent }}>COMUNITATE SPRIJINITĂ DE ASOCIAȚII</div>
+          <div className="bb-mock-h2" style={{ fontFamily: t.font.heading, color: t.color.text }}>O comunitate a vorbitorilor de limba germană</div>
+          <div className="bb-mock-sub" style={{ margin: '8px auto 0', textAlign: 'center' }}>Activități interactive care încurajează inițiativa proprie și socializarea, într-un cadru informal.</div>
+        </div>
+        <div className="bb-mock-feature" style={{ borderRadius: t.shape.cardRadius }}>
+          <div className="bb-mock-feat-img" style={{ background: `linear-gradient(135deg, ${soft(0.45, t.color.accent)}, ${soft(0.4, t.color.primary)})` }} />
+          <div className="bb-mock-feat-body">
+            <span className="bb-mock-feat-star"><Decor kind="star-fill" color={t.color.accent} /></span>
+            <div className="bb-mock-card-h" style={{ fontFamily: t.font.heading, fontSize: 18 }}>Învățare prin joc și metode nonformale</div>
+            <div className="bb-mock-card-p" style={{ fontSize: 13, marginBottom: 16, maxWidth: '38ch' }}>Tabere tematice de zi și tabere cu cazare, pentru copii curioși și entuziaști.</div>
+            <div className="bb-mock-feat-stats">
+              {[['166+', 'participanți unici', t.color.primary], ['11', 'tabere organizate', t.color.accent], ['0–8', 'clase primite', mix(t.color.primary, toRgb(t.color.accent) || [0, 0, 0], 0.5)]].map(([v, l, c], i) => (
+                <div key={i}><b style={{ fontFamily: t.font.heading, color: c as string }}>{v}</b><span>{l}</span></div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* testimonials */}
+      <div className="bb-mock-testi" style={{ background: soft(0.9, t.color.accent) }}>
+        <span className="bb-mock-testi-blob" style={{ background: soft(0.5, t.color.primary) }} />
+        <span className="bb-mock-testi-star"><Decor kind="star-fill" color={t.color.accent} /></span>
+        <div className="bb-mock-sechead">
+          <div className="bb-mock-eyebrow" style={{ color: t.color.accent }}>PESTE 2000 DE PARTICIPANȚI</div>
+          <div className="bb-mock-h2" style={{ fontFamily: t.font.heading, color: t.color.text }}>Ce spun participanții la proiecte</div>
+        </div>
+        <div className="bb-mock-testi-cards">
+          {[
+            { q: 'Atelierul a avut structură și atmosfera a fost relaxată. Am apreciat metoda interactivă prin jocuri.', n: 'Georgiana Guler', r: 'părinte', av: soft(0.4, t.color.primary) },
+            { q: 'Deși eram cea mai începătoare, nu m-am simțit jenată. Toți au fost deschiși și au avut răbdare cu mine.', n: 'Cristina Bujoreanu', r: 'participant', av: soft(0.45, t.color.accent) },
+            { q: 'Trainerul a antrenat copiii cu joculețe, roluri și cântece. Recomandăm cu drag!', n: 'Alina Beaupain', r: 'părinte', av: soft(0.35, mix(t.color.primary, toRgb(t.color.accent) || [0, 0, 0], 0.5)) },
+          ].map((tm, i) => (
+            <div key={i} className="bb-mock-testi-card" style={{ borderRadius: t.shape.cardRadius }}>
+              <div className="bb-mock-testi-stars">★★★★★</div>
+              <div className="bb-mock-testi-q">„{tm.q}”</div>
+              <div className="bb-mock-testi-author">
+                <span className="bb-mock-testi-av" style={{ background: tm.av }} />
+                <div><div className="bb-mock-testi-name" style={{ fontFamily: t.font.heading }}>{tm.n}</div><div className="bb-mock-testi-role">{tm.r} · Ateliere conversaționale</div></div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
       {/* footer */}
       <div className="bb-mock-footer" style={{ background: t.color.footerBg || t.color.text, color: t.color.footerFg || '#fff', fontFamily: t.font.body }}>
