@@ -22,7 +22,7 @@ type BrandAssets = {
   decor_svgs?: DecorSvg[]  // user-uploaded SVG decor for the AI to reuse
 }
 type Tokens = {
-  color: { primary: string; accent: string; surface: string; text: string; footerBg?: string; footerFg?: string }
+  color: { primary: string; accent: string; surface: string; text: string; surfaceSoft?: string; surfaceMuted?: string; footerBg?: string; footerFg?: string }
   font: { heading: string; body: string; scale: number; lineHeight: number }
   shape: { buttonRadius: string; cardRadius: string; borderWidth: string }
   space: { sectionGap: string; sectionPaddingY: string; container: string }
@@ -223,8 +223,8 @@ function BrandBook({ t, onColor, onAssets }: { t: Tokens; onColor?: (key: keyof 
           <div className="bb-neutrals">
             {[
               { l: 'Surface', v: t.color.surface, key: 'surface' as const },
-              { l: 'Surface soft', v: mix(t.color.primary, [255, 255, 255], 0.94) },
-              { l: 'Surface muted', v: mix(t.color.primary, [255, 255, 255], 0.88) },
+              { l: 'Surface soft', v: t.color.surfaceSoft || mix(t.color.primary, [255, 255, 255], 0.94), key: 'surfaceSoft' as const },
+              { l: 'Surface muted', v: t.color.surfaceMuted || mix(t.color.primary, [255, 255, 255], 0.88), key: 'surfaceMuted' as const },
               { l: 'Text', v: t.color.text, key: 'text' as const },
               { l: 'Footer', v: t.color.footerBg || t.color.text, key: 'footerBg' as const },
             ].map((n) => (
@@ -275,30 +275,8 @@ function BrandBook({ t, onColor, onAssets }: { t: Tokens; onColor?: (key: keyof 
       {/* Icons & decor (Kids.ro 03) */}
       <section className="bb-sec">
         <div className="bb-sec-head"><span className="bb-num">03</span><h2 style={{ fontFamily: t.font.heading }}>Iconițe &amp; decor</h2></div>
-        <p className="bb-sec-lead">Stele cu colțuri rotunjite, bule, bloburi și nori — accente jucăușe folosite ca fundaluri pentru poze și highlight-uri.</p>
-        <div className="bb-decor-stage" style={{ background: `linear-gradient(120deg, ${mix(t.color.primary, [255,255,255], 0.88)}, ${mix(t.color.accent, [255,255,255], 0.9)})` }}>
-          <Decor kind="star-fill" color={t.color.accent} />
-          <Decor kind="star-fill" color={t.color.primary} />
-          <Decor kind="star-outline" color={t.color.primary} />
-          <Decor kind="dots" color={t.color.primary} accent={t.color.accent} />
-          <Decor kind="cloud" color="#fff" />
-          <Decor kind="blob" color={mix(t.color.accent, [255,255,255], 0.35)} />
-          <Decor kind="dotline" color={t.color.primary} />
-        </div>
+        <p className="bb-sec-lead">Încarcă propriile SVG-uri — iconițe, forme, bloburi sau decor. Sunt salvate cu brandul și pot fi refolosite automat de AI ca decor pe paginile generate.</p>
         <div className="bb-decor-grid">
-          {[
-            { kind: 'star-fill', label: 'Stea plină', color: t.color.primary },
-            { kind: 'star-outline', label: 'Stea contur', color: t.color.primary },
-            { kind: 'star-group', label: 'Grup de steluțe', color: t.color.accent, accent: t.color.primary },
-            { kind: 'blob', label: 'Blob rotund', color: mix(t.color.accent, [255,255,255], 0.4) },
-            { kind: 'cloud', label: 'Nor', color: mix(t.color.primary, [255,255,255], 0.7) },
-            { kind: 'dots', label: 'Cercuri', color: t.color.primary, accent: t.color.accent },
-          ].map((d) => (
-            <div key={d.label} className="bb-decor-card">
-              <div className="bb-decor-ico"><Decor kind={d.kind as any} color={d.color} accent={(d as any).accent} /></div>
-              <span>{d.label}</span>
-            </div>
-          ))}
           {/* user-uploaded SVGs — the AI reuses these as decor on generated pages */}
           {decor.map((d) => (
             <div key={d.id} className="bb-decor-card bb-decor-custom">
@@ -316,7 +294,7 @@ function BrandBook({ t, onColor, onAssets }: { t: Tokens; onColor?: (key: keyof 
             </label>
           )}
         </div>
-        {onAssets && <p className="bb-decor-note">SVG-urile încărcate sunt salvate cu brandul și pot fi refolosite automat de AI ca decor pe paginile generate.</p>}
+        {onAssets && !decor.length && <p className="bb-decor-note">Niciun SVG încărcat încă — apasă „＋ Încarcă SVG” ca să adaugi decorul tău.</p>}
       </section>
 
       {/* Buttons & controls — 2 columns: buttons+card | forms */}
@@ -510,8 +488,8 @@ function BrandImport({ onImported }: { onImported: (t: Tokens) => void }) {
     } catch (e: any) { setErr(e.message || 'Could not read branding') } finally { setBusy(false) }
   }
   return (
-    <div className="ctl-group" style={{ padding: 16, border: '1px solid var(--border)', borderRadius: 'var(--r-md)', background: 'var(--bg-subtle)' }}>
-      <h3 style={{ marginTop: 0 }}>① Import branding from a website</h3>
+    <div className="ctl-group" style={{ padding: 16, border: '1px solid var(--border)', borderRadius: 'var(--r-md)', background: 'var(--bg-subtle)', marginBottom: 24 }}>
+      <h3 style={{ marginTop: 0 }}>Import branding from a website</h3>
       <p className="muted" style={{ fontSize: 13, marginTop: -6, marginBottom: 12 }}>Renders the site in a real browser and captures the <strong>logo, palette, fonts and full menu structure</strong> (including dropdowns). Review below, then <strong>Save</strong>. Content import comes after.</p>
       <form onSubmit={run} style={{ display: 'flex', gap: 8 }}>
         <input className="inp" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://your-brand.com" style={{ flex: 1 }} />
@@ -590,11 +568,11 @@ export default function Branding() {
 
   return (
     <AppShell title="Branding" currentSlug={slug} active="Branding">
+      <BrandImport onImported={(tk) => setT(tk)} />
+
       <BrandBook t={t}
         onColor={(key, v) => patch('color', key, v)}
         onAssets={(next) => setT((cur) => cur ? { ...cur, brand_assets: next } : cur)} />
-
-      <BrandImport onImported={(tk) => setT(tk)} />
 
       {/* Token editor — constrained cards so controls never stretch/clip. The
           brand book above is the live preview, so no separate preview column. */}
