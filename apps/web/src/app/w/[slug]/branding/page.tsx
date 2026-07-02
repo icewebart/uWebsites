@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
-import { GOOGLE_FONTS, GOOGLE_FONT_NAMES } from '@uwebsites/shared'
+import { GOOGLE_FONTS, GOOGLE_FONT_NAMES, VIBES } from '@uwebsites/shared'
 
 type NavNode = { text: string; href: string; children?: NavNode[] }
 type LogoRich =
@@ -24,7 +24,8 @@ type BrandAssets = {
 type Tokens = {
   color: { primary: string; accent: string; surface: string; text: string; surfaceSoft?: string; surfaceMuted?: string; footerBg?: string; footerFg?: string }
   font: { heading: string; body: string; scale: number; lineHeight: number }
-  shape: { buttonRadius: string; cardRadius: string; borderWidth: string }
+  shape: { buttonRadius: string; cardRadius: string; borderWidth: string; shadow?: string }
+  vibe?: string
   space: { sectionGap: string; sectionPaddingY: string; container: string }
   brand_assets?: BrandAssets
 }
@@ -559,6 +560,12 @@ function BrandImport({ onImported }: { onImported: (t: Tokens) => void }) {
   )
 }
 
+// Loads every vibe's fonts so the vibe cards render their name in-font.
+function VibeFontLoader() {
+  useGoogleFontPreview(...VIBES.flatMap((v) => [v.font.heading, v.font.body]))
+  return null
+}
+
 export default function Branding() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
@@ -577,6 +584,18 @@ export default function Branding() {
 
   function patch(group: keyof Tokens, key: string, value: any) {
     setT((cur) => cur ? { ...cur, [group]: { ...(cur as any)[group], [key]: value } } : cur)
+  }
+
+  // Apply a vibe preset — bundles font pairing + shape (radius/border/shadow) +
+  // type scale in one click. Colors are preserved (they're the brand identity).
+  function applyVibe(slug: string) {
+    const v = VIBES.find((x) => x.slug === slug)
+    if (!v) return
+    setT((cur) => cur ? {
+      ...cur, vibe: slug,
+      font: { ...cur.font, heading: v.font.heading, body: v.font.body, scale: v.font.scale },
+      shape: { ...cur.shape, ...v.shape },
+    } : cur)
   }
 
   async function save() {
@@ -633,7 +652,19 @@ export default function Branding() {
       {/* Token editor — constrained cards so controls never stretch/clip. The
           brand book above is the live preview, so no separate preview column. */}
       <div className="brand-editor">
-        <div className="dash-h" style={{ marginTop: 4 }}>Edit tokens</div>
+        <div className="dash-h" style={{ marginTop: 4 }}>Vibe — one-click design system</div>
+        <div className="vibe-grid">
+          {VIBES.map((v) => (
+            <button key={v.slug} className={`vibe-card ${t.vibe === v.slug ? 'on' : ''}`} onClick={() => applyVibe(v.slug)}>
+              <div className="vibe-name" style={{ fontFamily: GOOGLE_FONT_NAMES.has(v.font.heading) ? v.font.heading : undefined }}>{v.name}</div>
+              <div className="vibe-blurb">{v.blurb}</div>
+              <div className="vibe-meta">{v.font.heading} + {v.font.body}</div>
+            </button>
+          ))}
+        </div>
+        <VibeFontLoader />
+
+        <div className="dash-h" style={{ marginTop: 22 }}>Edit tokens</div>
         <div className="brand-editor-grid">
           <div className="ctl-group card">
             <h3>Colors</h3>

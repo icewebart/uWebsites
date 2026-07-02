@@ -6,7 +6,7 @@ import { db, workspaces, pages, brandingTokens, builds } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { renderSection, SECTION_CSS, SECTIONS, sectionHasContent, esc as escSh } from '../lib/sections.js'
 import { getMenusFor } from './menus.js'
-import { GOOGLE_FONT_NAMES } from '@uwebsites/shared'
+import { GOOGLE_FONT_NAMES, SHADOW_MAP } from '@uwebsites/shared'
 
 // Publisher — compiles a workspace's pages (+ branding tokens) to static
 // HTML/CSS on disk, served by nginx. One box (ADR-012), so we write locally;
@@ -47,7 +47,8 @@ function siteCss(t: any) {
   // Falls back so existing sites without these keys keep working.
   const footerBg = t.color?.footerBg || t.color.text
   const footerFg = t.color?.footerFg || t.color.surface
-  return `:root{--primary:${t.color.primary};--accent:${t.color.accent};--surface:${t.color.surface};--text:${t.color.text};--footer-bg:${footerBg};--footer-fg:${footerFg};--btn-r:${t.shape.buttonRadius};--card-r:${t.shape.cardRadius};--bw:${t.shape.borderWidth};--gap:${t.space.sectionGap};--pad:${t.space.sectionPaddingY};--container:${t.space.container}}
+  const shadow = SHADOW_MAP[t.shape?.shadow as string] || SHADOW_MAP.soft
+  return `:root{--primary:${t.color.primary};--accent:${t.color.accent};--surface:${t.color.surface};--text:${t.color.text};--footer-bg:${footerBg};--footer-fg:${footerFg};--btn-r:${t.shape.buttonRadius};--card-r:${t.shape.cardRadius};--bw:${t.shape.borderWidth};--shadow:${shadow};--gap:${t.space.sectionGap};--pad:${t.space.sectionPaddingY};--container:${t.space.container}}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'${t.font.body}',system-ui,-apple-system,sans-serif;color:var(--text);background:var(--surface);line-height:${t.font.lineHeight};-webkit-font-smoothing:antialiased}
 a{color:var(--primary)}

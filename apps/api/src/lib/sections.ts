@@ -291,7 +291,7 @@ export const SECTION_CSS = `
 .features-3 .head h2{font-size:calc(1.7rem * var(--scale, 1.2));letter-spacing:-.01em;margin-bottom:8px}
 .features-3 .head .sub{opacity:.7;font-size:1.02rem;max-width:56ch;margin:0 auto;line-height:1.55}
 .features-3 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
-.features-3 .item{background:var(--surface);border:var(--bw) solid color-mix(in srgb, var(--primary) 12%, transparent);border-radius:var(--card-r);padding:28px 26px;box-shadow:0 6px 24px -14px rgba(30,10,50,.18);transition:transform .18s ease, box-shadow .18s ease}
+.features-3 .item{background:var(--surface);border:var(--bw) solid color-mix(in srgb, var(--primary) 12%, transparent);border-radius:var(--card-r);padding:28px 26px;box-shadow:var(--shadow, 0 6px 24px -14px rgba(30,10,50,.18));transition:transform .18s ease, box-shadow .18s ease}
 .features-3 .item:hover{transform:translateY(-4px);box-shadow:0 18px 40px -20px color-mix(in srgb, var(--primary) 40%, transparent)}
 .features-3 .item .icon{width:46px;height:46px;border-radius:calc(var(--card-r) * .6);display:flex;align-items:center;justify-content:center;font-size:22px;margin-bottom:16px;background:color-mix(in srgb, var(--accent) 20%, var(--surface))}
 .features-3 .item h3{font-size:1.12rem;font-weight:700;margin-bottom:7px}
@@ -329,7 +329,7 @@ export const SECTION_CSS = `
 .testimonials-3 .head .eyebrow{font-weight:700;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
 .testimonials-3 .head h2{font-size:calc(1.7rem * var(--scale, 1.2));margin-bottom:8px}
 .testimonials-3 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
-.testimonials-3 .card{background:var(--surface);border:var(--bw) solid color-mix(in srgb, var(--primary) 12%, transparent);border-radius:var(--card-r);padding:26px;box-shadow:0 6px 24px -14px rgba(30,10,50,.18)}
+.testimonials-3 .card{background:var(--surface);border:var(--bw) solid color-mix(in srgb, var(--primary) 12%, transparent);border-radius:var(--card-r);padding:26px;box-shadow:var(--shadow, 0 6px 24px -14px rgba(30,10,50,.18))}
 .testimonials-3 .stars{color:#f5b301;font-size:.9rem;letter-spacing:2px;margin-bottom:12px}
 .testimonials-3 .quote{font-size:1.02rem;line-height:1.6;margin-bottom:18px;color:var(--text)}
 .testimonials-3 .who{display:flex;align-items:center;gap:11px;font-size:.85rem}
@@ -417,7 +417,7 @@ export const SECTION_CSS = `
 .program-cards .head .eyebrow{font-weight:700;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
 .program-cards .head h2{font-size:calc(1.9rem * var(--scale, 1.2));letter-spacing:-.01em}
 .program-cards .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
-.program-cards .pc-card{background:var(--surface);border:var(--bw) solid rgba(0,0,0,.07);border-radius:var(--card-r);overflow:hidden;display:flex;flex-direction:column;box-shadow:0 4px 20px rgba(30,10,50,.05)}
+.program-cards .pc-card{background:var(--surface);border:var(--bw) solid rgba(0,0,0,.07);border-radius:var(--card-r);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow, 0 4px 20px rgba(30,10,50,.05))}
 .program-cards .pc-top{aspect-ratio:16/10;background-size:cover;background-position:center}
 .program-cards .pc-striped{background-image:repeating-linear-gradient(45deg, color-mix(in srgb, var(--pc-accent) 16%, #fff) 0 14px, color-mix(in srgb, var(--pc-accent) 26%, #fff) 14px 28px)}
 .program-cards .pc-body{padding:22px 22px 24px}

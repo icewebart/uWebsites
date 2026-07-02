@@ -406,6 +406,15 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .bb-fld input:focus,.bb-fld select:focus{outline:none;border-color:var(--primary)}
 @media(max-width:760px){.bb-scale{grid-template-columns:repeat(3,1fr)}.bb-type-cards{grid-template-columns:1fr}.bb-neutrals{grid-template-columns:1fr}.bb-cols-2,.bb-form-demo{grid-template-columns:1fr}.bb-sec,.bb-hero{padding:26px 20px}}
 
+/* vibe presets — one-click design system */
+.vibe-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.vibe-card{text-align:left;background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r-md);padding:16px 16px 14px;cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s}
+.vibe-card:hover{border-color:color-mix(in srgb,var(--forest) 45%,var(--border));transform:translateY(-2px)}
+.vibe-card.on{border-color:var(--forest);box-shadow:0 0 0 3px var(--lime-light)}
+.vibe-name{font-size:19px;font-weight:700;color:var(--text);margin-bottom:4px;line-height:1.1}
+.vibe-blurb{font-size:12px;color:var(--text-muted);line-height:1.4;margin-bottom:8px}
+.vibe-meta{font-size:10.5px;color:var(--text-faint);font-family:'SF Mono','Fira Code',monospace}
+
 /* token editor — constrained cards so controls never stretch/clip */
 .brand-editor{margin-bottom:28px}
 .brand-editor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;align-items:start}
