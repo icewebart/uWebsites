@@ -189,10 +189,22 @@ export function parseDesignSystem(html: string, assetsBaseUrl: string): ParsedDe
     const fmt = block.match(/format\(\s*['"]?([^'")]+)['"]?\s*\)/i)?.[1]
     if (fam && src) faces.push({ family: fam, srcUrl: absolutize(src, assetsBaseUrl), format: fmt })
   }
-  // heading font = font-family on the first <h1>; body = body{} font-family
-  const h1Fam = html.match(/<h1[^>]*font-family\s*:\s*([^;"']+)/i)?.[1]?.split(',')[0].replace(/['"]/g, '').trim()
-  const bodyFam = bodyRule.match(/font-family\s*:\s*([^;}]+)/i)?.[1]?.split(',')[0].replace(/['"]/g, '').trim()
-  const heading = h1Fam || bodyFam || 'Inter'
+  // heading font = first family on the first <h1>; body = body{} font-family.
+  // Pull the full font-family declaration (up to `;`) then take the first name —
+  // the old regex broke on quoted names like 'GutenbergVerein', silently
+  // falling back to the body font.
+  const firstFamily = (decl?: string) => decl?.split(',')[0]?.replace(/['"]/g, '').trim() || undefined
+  // Run the font-family match on the whole <h1> tag — the style attribute holds
+  // quoted names like 'GutenbergVerein', so capturing the attribute value first
+  // with [^"'] would truncate at the first inner quote.
+  const h1Tag = html.match(/<h1\b[^>]*>/i)?.[0] || ''
+  const h1Fam = firstFamily(h1Tag.match(/font-family\s*:\s*([^;]+)/i)?.[1])
+  const bodyFam = firstFamily(bodyRule.match(/font-family\s*:\s*([^;}]+)/i)?.[1])
+  // A self-hosted @font-face is the brand's signature display font (you only
+  // bundle the font that matters) — prefer it for headings so the brand book
+  // matches the real site instead of a generic fallback.
+  const customFace = faces[0]?.family
+  const heading = h1Fam || customFace || bodyFam || 'Inter'
   const body = bodyFam || 'Inter'
 
   // ---- Logo ---- prefer the cover <img> (top of doc)

@@ -25,10 +25,19 @@ const DEFAULT_TOKENS: any = {
 const esc = escSh
 
 function fontsHead(t: any) {
+  // Google-hosted families → stylesheet link.
   const fams = [...new Set([t.font.heading, t.font.body])].filter((f) => GOOGLE_FONT_NAMES.has(f))
-  if (!fams.length) return ''
-  const q = fams.map((f) => `family=${f.replace(/ /g, '+')}:wght@400;600;700`).join('&')
-  return `<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?${q}&display=swap" rel="stylesheet">`
+  const gLink = fams.length
+    ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?${fams.map((f) => `family=${f.replace(/ /g, '+')}:wght@400;600;700`).join('&')}&display=swap" rel="stylesheet">`
+    : ''
+  // Self-hosted @font-face captured on import (e.g. a custom display font) —
+  // always emit these so a brand's signature font never falls back silently.
+  const faces = (t.brand_assets?.font_faces || []) as Array<{ family: string; srcUrl: string; format?: string }>
+  const faceCss = faces
+    .filter((f) => f?.family && f?.srcUrl)
+    .map((f) => `@font-face{font-family:'${f.family}';src:url('${f.srcUrl}')${f.format ? ` format('${f.format}')` : ''};font-display:swap;}`)
+    .join('')
+  return gLink + (faceCss ? `<style>${faceCss}</style>` : '')
 }
 
 function siteCss(t: any) {

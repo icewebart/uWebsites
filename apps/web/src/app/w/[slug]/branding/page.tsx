@@ -76,6 +76,19 @@ function useGoogleFontPreview(...names: string[]) {
     document.head.appendChild(link)
   }, [names.join('|')])
 }
+// Loads self-hosted @font-face fonts captured on import (e.g. a custom display
+// font) so the brand book + mockup render in the real brand font, never a
+// fallback. Mirrors the fontsHead() logic on the publish side.
+function useCustomFontFaces(faces?: Array<{ family: string; srcUrl: string; format?: string }>) {
+  useEffect(() => {
+    const list = (faces || []).filter((f) => f?.family && f?.srcUrl)
+    if (!list.length) return
+    const id = 'uw-facecss'
+    let el = document.getElementById(id) as HTMLStyleElement | null
+    if (!el) { el = document.createElement('style'); el.id = id; document.head.appendChild(el) }
+    el.textContent = list.map((f) => `@font-face{font-family:'${f.family}';src:url('${f.srcUrl}')${f.format ? ` format('${f.format}')` : ''};font-display:swap;}`).join('')
+  }, [JSON.stringify(faces || [])])
+}
 const px = (v: string) => parseInt(String(v)) || 0
 
 // Renders the imported logo — inline SVG markup or an <img>.
@@ -336,6 +349,9 @@ function BrandBook({ t, onColor, onAssets }: { t: Tokens; onColor?: (key: keyof 
                   <span key={i} className={n.children?.length ? 'has-sub' : ''}>{n.text}{n.children?.length ? ' ▾' : ''}</span>
                 ))}
               </div>
+              {a.cta?.label && (
+                <span className="bb-header-cta" style={{ background: t.color.primary, color: fgOn(t.color.primary), borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>{a.cta.label}</span>
+              )}
             </div>
           </div>
           {/* Mega-menu / dropdown structure */}
@@ -465,10 +481,45 @@ function WebsiteMockup({ t, a }: { t: Tokens; a: BrandAssets }) {
           ))}
         </div>
       </div>
-      {/* footer */}
-      <div className="bb-mock-footer" style={{ background: t.color.footerBg || t.color.text, color: t.color.footerFg || '#fff', fontFamily: t.font.body }}>
-        <b style={{ fontFamily: t.font.heading }}>Brand</b>
-        <div className="bb-mock-foot-cols"><span>Programe</span><span>Companie</span><span>Contact</span></div>
+      {/* newsletter CTA band */}
+      <div className="bb-mock-nl-wrap" style={{ background: t.color.surface }}>
+        <div className="bb-mock-newsletter" style={{ background: t.color.footerBg || t.color.text, color: t.color.footerFg || '#fff', borderRadius: t.shape.cardRadius }}>
+          <span className="bb-mock-nl-blob" style={{ background: soft(0.45, t.color.primary) }} />
+          <div className="bb-mock-nl-txt">
+            <div className="bb-mock-nl-h" style={{ fontFamily: t.font.heading }}>
+              <span className="bb-mock-nl-star"><Decor kind="star-fill" color={t.color.accent} /></span>
+              Abonează-te la newsletter
+            </div>
+            <div className="bb-mock-nl-sub">Fii la curent cu toate taberele, cursurile și atelierele pe care le organizăm.</div>
+          </div>
+          <div className="bb-mock-nl-form">
+            <input placeholder="Adresa ta de e-mail" readOnly />
+            <button style={{ background: t.color.accent, color: fgOn(t.color.accent), borderRadius: t.shape.buttonRadius, fontFamily: t.font.heading }}>Înscrie-mă</button>
+          </div>
+        </div>
+      </div>
+      {/* real footer — brand + columns + bottom bar */}
+      <div className="bb-mock-footer2" style={{ background: t.color.footerBg || t.color.text, color: t.color.footerFg || '#fff', fontFamily: t.font.body }}>
+        <div className="bb-mock-foot-grid">
+          <div className="bb-mock-foot-brand">
+            <div className="bb-mock-foot-logo">{a.logo_rich || a.logo?.url ? <LogoMark a={a} dark /> : <b style={{ fontFamily: t.font.heading, fontSize: 20 }}>Brand</b>}</div>
+            <p>Platformă care promovează tabere, școli de vară și cursuri pentru cei mici.</p>
+          </div>
+          {[
+            { h: 'Contact', items: ['+40 752 822 373', 'contact@brand.ro', 'str. Brătianu 39', 'Facebook · Instagram'] },
+            { h: 'Programe', items: (a.nav_tree?.length ? a.nav_tree.slice(0, 4).map((n) => n.text) : ['Cursuri & ateliere', 'Tabere de vară', 'Lecție gratuită', 'Despre noi']) },
+            { h: 'Pagini utile', items: ['Blog', 'Contact', 'Termeni și condiții', 'Parteneri'] },
+          ].map((col, i) => (
+            <div key={i} className="bb-mock-foot-col">
+              <h5 style={{ fontFamily: t.font.heading }}>{col.h}</h5>
+              {col.items.map((it, j) => <span key={j}>{it}</span>)}
+            </div>
+          ))}
+        </div>
+        <div className="bb-mock-foot-bottom">
+          <span>© {new Date().getFullYear()} Brand · Toate drepturile rezervate</span>
+          <span>Realizat cu ♥ pentru copii curioși</span>
+        </div>
       </div>
     </div>
   )
@@ -536,6 +587,8 @@ export default function Branding() {
 
   // Load the currently-selected Google Fonts so BrandShowcase + previews render correctly.
   useGoogleFontPreview(t?.font?.heading || '', t?.font?.body || '')
+  // Load any self-hosted brand fonts (custom @font-face) so they never fall back.
+  useCustomFontFaces((t as any)?.brand_assets?.font_faces)
 
   if (loading || !t) return <div className="empty">Loading…</div>
 
