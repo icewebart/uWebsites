@@ -10,6 +10,7 @@ type LogoRich =
   | { kind: 'svg'; svg: string; alt?: string }
   | { kind: 'img'; url: string; alt?: string; naturalWidth?: number; naturalHeight?: number }
   | null
+type DecorSvg = { id: string; name: string; svg: string }
 type BrandAssets = {
   logo?: { url: string; alt?: string } | null
   logo_rich?: LogoRich
@@ -18,6 +19,7 @@ type BrandAssets = {
   has_mega_menu?: boolean
   cta?: { label: string; href: string } | null
   snapshot_url?: string | null
+  decor_svgs?: DecorSvg[]  // user-uploaded SVG decor for the AI to reuse
 }
 type Tokens = {
   color: { primary: string; accent: string; surface: string; text: string; footerBg?: string; footerFg?: string }
@@ -110,12 +112,54 @@ function Decor({ kind, color, accent }: { kind: 'star-fill' | 'star-outline' | '
   }
 }
 
+// Wraps a swatch/tile so clicking it opens a native color picker. When no
+// onChange is given it renders inert (read-only brand book, e.g. print/share).
+function ColorEdit({ value, onChange, className, style, children }: { value: string; onChange?: (v: string) => void; className?: string; style?: React.CSSProperties; children: React.ReactNode }) {
+  if (!onChange) return <div className={className} style={style}>{children}</div>
+  return (
+    <label className={`${className || ''} bb-editable`} style={{ ...style, position: 'relative', cursor: 'pointer' }} title="Editează culoarea">
+      {children}
+      <span className="bb-edit-dot" aria-hidden>✎</span>
+      <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000'} onChange={(e) => onChange(e.target.value)}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', border: 0, padding: 0 }} />
+    </label>
+  )
+}
+
+// Minimal sanitiser for user-uploaded SVGs: strip <script>, on* handlers and
+// external references so decor can be inlined safely.
+function sanitizeSvg(raw: string): string | null {
+  const m = raw.match(/<svg[\s\S]*<\/svg>/i)
+  if (!m) return null
+  let s = m[0]
+  s = s.replace(/<script[\s\S]*?<\/script>/gi, '')
+  s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+  s = s.replace(/(href|xlink:href)\s*=\s*("javascript:[^"]*"|'javascript:[^']*')/gi, '')
+  if (s.length > 40000) return null
+  return s
+}
+
 // BrandBook — a full design-system document for the workspace: hero, palette
 // (with tint/shade scales), typography specimens, buttons/controls, and a live
 // preview of the header (floating pill) + footer + captured mega-menu. Driven
 // entirely by the workspace tokens + imported brand_assets.
-function BrandBook({ t }: { t: Tokens }) {
+function BrandBook({ t, onColor, onAssets }: { t: Tokens; onColor?: (key: keyof Tokens['color'], v: string) => void; onAssets?: (next: BrandAssets) => void }) {
   const a = t.brand_assets || {}
+  const decor = a.decor_svgs || []
+  function addSvgFiles(files: FileList | null) {
+    if (!files || !onAssets) return
+    const readers = Array.from(files).slice(0, 12).map((f) => new Promise<DecorSvg | null>((res) => {
+      const r = new FileReader()
+      r.onload = () => { const svg = sanitizeSvg(String(r.result || '')); res(svg ? { id: `d${Date.now()}${Math.round(Math.random() * 1e4)}`, name: f.name.replace(/\.svg$/i, ''), svg } : null) }
+      r.onerror = () => res(null)
+      r.readAsText(f)
+    }))
+    Promise.all(readers).then((got) => {
+      const add = got.filter(Boolean) as DecorSvg[]
+      if (add.length) onAssets({ ...a, decor_svgs: [...decor, ...add] })
+    })
+  }
+  function removeSvg(id: string) { if (onAssets) onAssets({ ...a, decor_svgs: decor.filter((d) => d.id !== id) }) }
   const primScale = scale(t.color.primary)
   const accScale = scale(t.color.accent)
   const specimen = [
@@ -154,35 +198,38 @@ function BrandBook({ t }: { t: Tokens }) {
       {/* Colors */}
       <section className="bb-sec">
         <div className="bb-sec-head"><span className="bb-num">01</span><h2 style={{ fontFamily: t.font.heading }}>Culori</h2></div>
-        <div className="bb-scale-label">Primar</div>
+        <div className="bb-scale-label">Primar {onColor && <span className="bb-edit-hint">— click pe 600 ca să editezi</span>}</div>
         <div className="bb-scale">
           {primScale.map((s) => (
-            <div key={s.step} className="bb-swatch" style={{ background: s.hex, color: fgOn(s.hex) }}>
+            <ColorEdit key={s.step} className="bb-swatch" style={{ background: s.hex, color: fgOn(s.hex) }}
+              value={t.color.primary} onChange={s.step === '600' ? (onColor ? (v) => onColor('primary', v) : undefined) : undefined}>
               {s.step === '600' && <span className="bb-swatch-tag">PRIMARY</span>}
               <div className="bb-swatch-meta"><b>{s.step}</b><span>{s.hex.toUpperCase()}</span></div>
-            </div>
+            </ColorEdit>
           ))}
         </div>
         <div className="bb-scale-label">Accent</div>
         <div className="bb-scale">
           {accScale.map((s) => (
-            <div key={s.step} className="bb-swatch" style={{ background: s.hex, color: fgOn(s.hex) }}>
+            <ColorEdit key={s.step} className="bb-swatch" style={{ background: s.hex, color: fgOn(s.hex) }}
+              value={t.color.accent} onChange={s.step === '600' ? (onColor ? (v) => onColor('accent', v) : undefined) : undefined}>
               {s.step === '600' && <span className="bb-swatch-tag">ACCENT</span>}
               <div className="bb-swatch-meta"><b>{s.step}</b><span>{s.hex.toUpperCase()}</span></div>
-            </div>
+            </ColorEdit>
           ))}
         </div>
         <div className="bb-scale-label">Neutre &amp; suprafețe</div>
         <div className="bb-cols-2">
           <div className="bb-neutrals">
             {[
-              { l: 'Surface', v: t.color.surface },
+              { l: 'Surface', v: t.color.surface, key: 'surface' as const },
               { l: 'Surface soft', v: mix(t.color.primary, [255, 255, 255], 0.94) },
               { l: 'Surface muted', v: mix(t.color.primary, [255, 255, 255], 0.88) },
-              { l: 'Text', v: t.color.text },
-              { l: 'Footer', v: t.color.footerBg || t.color.text },
+              { l: 'Text', v: t.color.text, key: 'text' as const },
+              { l: 'Footer', v: t.color.footerBg || t.color.text, key: 'footerBg' as const },
             ].map((n) => (
-              <div key={n.l} className="bb-neutral" style={{ background: n.v, color: fgOn(n.v) }}><b>{n.l}</b><span>{n.v.toUpperCase()}</span></div>
+              <ColorEdit key={n.l} className="bb-neutral" style={{ background: n.v, color: fgOn(n.v) }}
+                value={n.v} onChange={n.key && onColor ? (v) => onColor(n.key, v) : undefined}><b>{n.l}</b><span>{n.v.toUpperCase()}</span></ColorEdit>
             ))}
           </div>
           <div className="bb-rules">
@@ -252,7 +299,24 @@ function BrandBook({ t }: { t: Tokens }) {
               <span>{d.label}</span>
             </div>
           ))}
+          {/* user-uploaded SVGs — the AI reuses these as decor on generated pages */}
+          {decor.map((d) => (
+            <div key={d.id} className="bb-decor-card bb-decor-custom">
+              {onAssets && <button className="bb-decor-del" onClick={() => removeSvg(d.id)} title="Șterge" aria-label="Șterge">×</button>}
+              <div className="bb-decor-ico" dangerouslySetInnerHTML={{ __html: d.svg }} />
+              <span>{d.name}</span>
+            </div>
+          ))}
+          {onAssets && (
+            <label className="bb-decor-card bb-decor-upload" title="Încarcă SVG-uri">
+              <input type="file" accept=".svg,image/svg+xml" multiple style={{ display: 'none' }}
+                onChange={(e) => { addSvgFiles(e.target.files); e.currentTarget.value = '' }} />
+              <div className="bb-decor-upload-plus">＋</div>
+              <span>Încarcă SVG</span>
+            </label>
+          )}
         </div>
+        {onAssets && <p className="bb-decor-note">SVG-urile încărcate sunt salvate cu brandul și pot fi refolosite automat de AI ca decor pe paginile generate.</p>}
       </section>
 
       {/* Buttons & controls — 2 columns: buttons+card | forms */}
@@ -480,7 +544,9 @@ export default function Branding() {
 
   return (
     <AppShell title="Branding" currentSlug={slug} active="Branding">
-      <BrandBook t={t} />
+      <BrandBook t={t}
+        onColor={(key, v) => patch('color', key, v)}
+        onAssets={(next) => setT((cur) => cur ? { ...cur, brand_assets: next } : cur)} />
 
       <BrandImport onImported={(tk) => setT(tk)} />
 

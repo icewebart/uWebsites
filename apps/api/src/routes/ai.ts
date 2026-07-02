@@ -82,7 +82,8 @@ async function siteBrief(workspaceId: string, workspaceName: string): Promise<st
     const cta = a.cta?.label
     const colors = tokens.color || {}
     const fonts = tokens.font || {}
-    const hasContext = navLabels.length || cta || a.logo?.url
+    const decorNames = (Array.isArray(a.decor_svgs) ? a.decor_svgs : []).map((d: any) => d?.name).filter(Boolean)
+    const hasContext = navLabels.length || cta || a.logo?.url || decorNames.length
     if (!hasContext) return null
     const parts: string[] = [
       `This site is "${workspaceName}".`,
@@ -90,6 +91,7 @@ async function siteBrief(workspaceId: string, workspaceName: string): Promise<st
       cta ? `The main call-to-action on the source site is "${cta}" — match that intent in any CTAs you create.` : '',
       (colors.primary || colors.accent) ? `Brand colors: primary ${colors.primary || '?'} / accent ${colors.accent || '?'}; treat them as the dominant visual signature.` : '',
       (fonts.heading || fonts.body) ? `Typography: headings in "${fonts.heading || '?'}", body in "${fonts.body || '?'}".` : '',
+      decorNames.length ? `The brand has custom decorative SVG shapes (${decorNames.join(', ')}); lean into a playful, decorated visual style consistent with them.` : '',
     ].filter(Boolean)
     return parts.join(' ')
   } catch { return null }
