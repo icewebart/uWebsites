@@ -283,6 +283,64 @@ ${brief ? '\n\nSITE CONTEXT (anchor industry, audience, voice; reflect it in the
   }
 })
 
+// POST /ai/critique-page — a design-critic pass over a free-form (raw-html)
+// page: Claude critiques the layout against a rubric then returns an IMPROVED
+// version. Copy is preserved verbatim (text-lock); only the design changes.
+aiRouter.post('/critique-page', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
+  const { slug, pageId } = req.body ?? {}
+  if (!slug || !pageId) return res.status(400).json({ ok: false, error: 'slug and pageId required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const [page] = await db.select().from(pages).where(and(eq(pages.id, String(pageId)), eq(pages.workspaceId, ws.id))).limit(1)
+  if (!page) return res.status(404).json({ ok: false, error: 'page not found' })
+  const blocks = Array.isArray(page.blocks) ? JSON.parse(JSON.stringify(page.blocks)) : []
+  const rawIdx = blocks.findIndex((b: any) => b?.type === 'raw-html' && typeof b?.props?.html === 'string' && b.props.html.length > 200)
+  if (rawIdx < 0) return res.status(400).json({ ok: false, error: 'Design polish works on full-custom (free-form) pages. This page is built from editable sections instead.' })
+
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const t: any = tok?.tokens || {}
+  const c = t.color || {}, f = t.font || {}
+  try {
+    const r = await a.messages.create({
+      model: MODEL,
+      max_tokens: 16000,
+      system: `You are a senior brand & web designer doing a focused DESIGN PASS on an existing landing page.
+
+Silently critique the page against this rubric, then rewrite it to fix the weakest points:
+- Visual hierarchy: is the eye led from headline → value → CTA?
+- Spacing rhythm: consistent, generous vertical rhythm between sections.
+- Type scale: strong contrast between display, headings and body.
+- Color & tokens: purposeful use of var(--primary) ${c.primary || ''} / var(--accent) ${c.accent || ''}; tints via color-mix. Never hardcode brand hexes.
+- Section variety: alternate surface / tinted backgrounds; no two adjacent sections that look identical.
+- Polish: rounded cards, soft shadows, tasteful decorative accents (blobs/shapes), confident CTAs.
+- Imagery: keep every <div class="uw-img-slot" data-caption="..."> placeholder (do not delete image areas; improve their framing/aspect if needed).
+
+HARD RULES:
+- Keep ALL copy VERBATIM — every heading, paragraph, label, button text stays exactly as written. You are redesigning, NOT rewriting.
+- Output ONLY the page body: a series of <section> blocks. No <html>/<head>/<body>, no site <header>/<nav>/<footer> (the platform adds those).
+- Colors only via the CSS variables above. Headings font '${f.heading || 'inherit'}', body '${f.body || 'inherit'}'.
+- Return the full improved HTML via the tool.`,
+      tools: [{ name: 'page', description: 'The redesigned page.', input_schema: {
+        type: 'object',
+        properties: { html: { type: 'string', description: 'The full improved page body markup (sections only).' } },
+        required: ['html'],
+      } as any }],
+      tool_choice: { type: 'tool', name: 'page' },
+      messages: [{ role: 'user', content: blocks[rawIdx].props.html }],
+    })
+    const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!toolUse?.input?.html) return res.status(502).json({ ok: false, error: 'Model returned no page' })
+    blocks[rawIdx].props.html = toolUse.input.html
+    await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
+    await logAiJob(ws.id, 'edit', 'done', { source: 'critique', pageId: page.id }, 2, page.id)
+    res.json({ ok: true, data: { ok: true } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Design polish failed: ' + (e?.message || 'unknown') })
+  }
+})
+
 // POST /ai/generate-page — Claude drafts a full page from a prompt, saves it.
 aiRouter.post('/generate-page', requireAuth, async (req: AuthRequest, res) => {
   const a = ai()

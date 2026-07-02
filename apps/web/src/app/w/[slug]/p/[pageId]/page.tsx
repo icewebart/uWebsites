@@ -33,6 +33,22 @@ export default function PageEditor() {
   const [rebuildOpen, setRebuildOpen] = useState(false)
   const [sectionizing, setSectionizing] = useState(false)
   const [fillingImg, setFillingImg] = useState(false)
+  const [polishing, setPolishing] = useState(false)
+
+  // AI design-critic pass over a free-form page — improves the layout, keeps
+  // the copy. Long runs can exceed the proxy timeout but still save, so we
+  // reload the page afterward either way.
+  async function polishDesign() {
+    setErr(''); setPolishing(true)
+    try {
+      await api('/ai/critique-page', { method: 'POST', body: JSON.stringify({ slug, pageId }) })
+      const p = await api<PageData>(`/pages/${pageId}`)
+      setBlocks(Array.isArray(p.blocks) ? p.blocks : []); setPreviewKey((k) => k + 1); setSavedAt('Design polished')
+    } catch (e: any) {
+      try { const p = await api<PageData>(`/pages/${pageId}`); setBlocks(Array.isArray(p.blocks) ? p.blocks : []); setPreviewKey((k) => k + 1) } catch {}
+      setErr(e?.message && !/gateway|timeout|network|fetch|504/i.test(e.message) ? e.message : 'Polish took a while — reloaded the latest. Check the preview.')
+    } finally { setPolishing(false) }
+  }
 
   // Generate photos for every empty image slot on the page (Gemini). The
   // endpoint mutates + saves the page server-side, so we reload blocks after.
@@ -181,6 +197,11 @@ export default function PageEditor() {
         <button className="btn btn-secondary" onClick={fillImages} disabled={fillingImg} title="Generate photos with AI for every empty image slot on this page">
           {fillingImg ? 'Generating images… (~30s)' : '✨ Generate images'}
         </button>
+        {blocks.some((b) => b.type === 'raw-html' && b.props?.html) && (
+          <button className="btn btn-secondary" onClick={polishDesign} disabled={polishing} title="AI design pass — critique + improve the layout, keeping your copy verbatim">
+            {polishing ? 'Polishing… (~60s)' : '✦ Polish design'}
+          </button>
+        )}
         {page?.seo?.import_source && (
           <>
             <button className="btn btn-secondary" onClick={sectionizeFromSource} disabled={sectionizing} title="Pixel-faithful import — recopy the source page's layout, swap colors/fonts to your brand, mirror images locally.">
