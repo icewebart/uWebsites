@@ -17,6 +17,20 @@ export default function WorkspaceHome() {
   const [publishedUrl, setPublishedUrl] = useState('')
   const [pubErr, setPubErr] = useState('')
   const [showAll, setShowAll] = useState(false)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [building, setBuilding] = useState(false)
+  const [buildErr, setBuildErr] = useState('')
+
+  async function buildWithAi() {
+    if (!aiPrompt.trim()) return
+    setBuildErr(''); setBuilding(true)
+    try {
+      const r = await api<{ id: string }>('/ai/generate-page', {
+        method: 'POST', body: JSON.stringify({ slug, prompt: aiPrompt.trim(), type: 'home' }),
+      })
+      router.push(`/w/${slug}/p/${r.id}`)
+    } catch (e: any) { setBuildErr(e.message || 'AI build failed'); setBuilding(false) }
+  }
 
   useEffect(() => {
     setImported(new URLSearchParams(window.location.search).get('imported'))
@@ -62,11 +76,26 @@ export default function WorkspaceHome() {
       )}
 
       {pages.length === 0 ? (
-        <div className="empty">
-          <p>Your website is empty.</p>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 16 }}>
-            <a className="btn btn-primary" href={`/w/${slug}/import`}>Import a site</a>
-            <button className="btn btn-secondary" onClick={() => alert('Open the AI chat (bubble bottom-right) and say "Build me a homepage about …".')}>Build with AI</button>
+        <div className="build-empty">
+          <div className="build-card">
+            <h2>Build your homepage with AI</h2>
+            <p className="muted">Describe your site — the industry, who it's for, and the vibe. The AI drafts a full homepage using your branding, then you can edit any section.</p>
+            <textarea className="inp build-ta" rows={4} value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="e.g. A German-language summer camp for kids aged 8–14 in Cluj. Friendly and playful, with courses, camps, testimonials and a signup CTA." />
+            <div className="build-suggestions">
+              {['Homepage for a kids language school — courses, camps, testimonials, signup',
+                'Landing page for a local coffee roastery — story, products, wholesale',
+                'Homepage for a boutique dental clinic — services, team, book appointment'].map((s) => (
+                <button key={s} className="build-chip" onClick={() => setAiPrompt(s)}>{s}</button>
+              ))}
+            </div>
+            {buildErr && <div className="err" style={{ marginTop: 10 }}>{buildErr}</div>}
+            <div className="build-actions">
+              <button className="btn btn-primary" onClick={buildWithAi} disabled={building || !aiPrompt.trim()}>
+                {building ? 'Building your homepage… (~20s)' : '✦ Build with AI'}
+              </button>
+              <span className="muted" style={{ fontSize: 13 }}>or <a href={`/w/${slug}/import`}>import an existing site</a></span>
+            </div>
           </div>
         </div>
       ) : (

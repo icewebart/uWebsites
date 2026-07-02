@@ -151,14 +151,24 @@ richtext sections use semantic HTML only (p, h2, h3, ul, li, strong, em, a — n
     const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
     if (!toolUse) return res.status(502).json({ ok: false, error: 'Model returned no page' })
     const { title, blocks } = toolUse.input as { title: string; blocks: any[] }
-    const pageSlug = (title || 'untitled').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) + '-' + Math.random().toString(36).slice(2, 6)
     const allowedTypes = ['home', 'service', 'location', 'hub', 'blog_index', 'article', 'category', 'collection_item', 'about', 'contact', 'faq', 'lead_magnet', 'legal', 'thank_you']
     const pageType = allowedTypes.includes(String(type)) ? String(type) : 'article'
-    const [created] = await db.insert(pages).values({
-      workspaceId: ws.id, type: pageType as any, slug: pageSlug,
-      title, status: 'draft', blocks: blocks as any,
-    }).returning()
-    await logAiJob(ws.id, 'article', 'done', { source: 'generate', prompt: String(prompt).slice(0, 500), title: created.title }, 1, created.id)
+    // Home is the canonical index page: use slug 'home' and replace the existing
+    // home in place (so "Build with AI" on an empty site fills the homepage
+    // instead of spawning a random-slug duplicate).
+    let created: any
+    if (pageType === 'home') {
+      const [existingHome] = await db.select().from(pages).where(and(eq(pages.workspaceId, ws.id), eq(pages.type, 'home'))).limit(1)
+      if (existingHome) {
+        ;[created] = await db.update(pages).set({ title, blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, existingHome.id)).returning()
+      } else {
+        ;[created] = await db.insert(pages).values({ workspaceId: ws.id, type: 'home' as any, slug: 'home', title, status: 'draft', blocks: blocks as any }).returning()
+      }
+    } else {
+      const pageSlug = (title || 'untitled').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) + '-' + Math.random().toString(36).slice(2, 6)
+      ;[created] = await db.insert(pages).values({ workspaceId: ws.id, type: pageType as any, slug: pageSlug, title, status: 'draft', blocks: blocks as any }).returning()
+    }
+    await logAiJob(ws.id, 'article', 'done', { source: 'generate', pageType, prompt: String(prompt).slice(0, 500), title: created.title }, 1, created.id)
     res.json({ ok: true, data: { id: created.id, slug: created.slug, title: created.title } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'AI generation failed: ' + (e?.message || 'unknown') })
