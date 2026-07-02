@@ -22,7 +22,7 @@ type BrandAssets = {
   decor_svgs?: DecorSvg[]  // user-uploaded SVG decor for the AI to reuse
 }
 type Tokens = {
-  color: { primary: string; accent: string; surface: string; text: string; surfaceSoft?: string; surfaceMuted?: string; footerBg?: string; footerFg?: string }
+  color: { primary: string; accent: string; accent2?: string; surface: string; text: string; surfaceSoft?: string; surfaceMuted?: string; footerBg?: string; footerFg?: string }
   font: { heading: string; body: string; scale: number; lineHeight: number }
   shape: { buttonRadius: string; cardRadius: string; borderWidth: string; shadow?: string }
   vibe?: string
@@ -176,6 +176,8 @@ function BrandBook({ t, onColor, onAssets }: { t: Tokens; onColor?: (key: keyof 
   function removeSvg(id: string) { if (onAssets) onAssets({ ...a, decor_svgs: decor.filter((d) => d.id !== id) }) }
   const primScale = scale(t.color.primary)
   const accScale = scale(t.color.accent)
+  const accent2 = t.color.accent2 || mix(t.color.accent, toRgb(t.color.primary) || [0, 0, 0], 0.5)
+  const acc2Scale = scale(accent2)
   const specimen = [
     { label: 'Display / 64', size: 56, weight: 700, text: 'Învață jucându-te' },
     { label: 'H1 / 40', size: 36, weight: 700, text: 'Cursuri de germană' },
@@ -228,6 +230,16 @@ function BrandBook({ t, onColor, onAssets }: { t: Tokens; onColor?: (key: keyof 
             <ColorEdit key={s.step} className="bb-swatch" style={{ background: s.hex, color: fgOn(s.hex) }}
               value={t.color.accent} onChange={s.step === '600' ? (onColor ? (v) => onColor('accent', v) : undefined) : undefined}>
               {s.step === '600' && <span className="bb-swatch-tag">ACCENT</span>}
+              <div className="bb-swatch-meta"><b>{s.step}</b><span>{s.hex.toUpperCase()}</span></div>
+            </ColorEdit>
+          ))}
+        </div>
+        <div className="bb-scale-label">Accent secundar {onColor && <span className="bb-edit-hint">— click pe 600 ca să editezi</span>}</div>
+        <div className="bb-scale">
+          {acc2Scale.map((s) => (
+            <ColorEdit key={s.step} className="bb-swatch" style={{ background: s.hex, color: fgOn(s.hex) }}
+              value={accent2} onChange={s.step === '600' ? (onColor ? (v) => onColor('accent2', v) : undefined) : undefined}>
+              {s.step === '600' && <span className="bb-swatch-tag">ACCENT 2</span>}
               <div className="bb-swatch-meta"><b>{s.step}</b><span>{s.hex.toUpperCase()}</span></div>
             </ColorEdit>
           ))}
@@ -613,6 +625,7 @@ export default function Branding() {
   useCustomFontFaces((t as any)?.brand_assets?.font_faces)
 
   if (loading || !t) return <div className="empty">Loading…</div>
+  const accent2Fallback = (/^#[0-9a-fA-F]{6}$/.test(t.color.accent2 || '') ? t.color.accent2 : mix(t.color.accent, toRgb(t.color.primary) || [0, 0, 0], 0.5)) as string
 
   // Build the dropdown options: curated list grouped + ALWAYS include the
   // current value (it may have come from import — e.g. Quicksand) even if not
@@ -670,6 +683,12 @@ export default function Branding() {
             <h3>Colors</h3>
             <div className="ctl-row"><label>Primary</label><Swatch k="primary" /></div>
             <div className="ctl-row"><label>Accent</label><Swatch k="accent" /></div>
+            <div className="ctl-row"><label>Accent 2</label>
+              <div className="swatch">
+                <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(t.color.accent2 || '') ? (t.color.accent2 as string) : accent2Fallback} onChange={(e) => patch('color', 'accent2', e.target.value)} />
+                <input type="text" value={t.color.accent2 || ''} placeholder="(auto)" onChange={(e) => patch('color', 'accent2', e.target.value)} />
+              </div>
+            </div>
             <div className="ctl-row"><label>Surface</label><Swatch k="surface" /></div>
             <div className="ctl-row"><label>Text</label><Swatch k="text" /></div>
           </div>

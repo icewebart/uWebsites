@@ -11,7 +11,9 @@ import { renderHeader, renderFooter, fontsHead, siteCss, DEFAULT_TOKENS, HEADER_
 
 export const menusRouter = Router()
 type MenuItem = { label: string; href: string; children?: MenuItem[] }
-export type MenuTree = { items: MenuItem[]; cta?: { label: string; href: string } | null }
+export type HeaderStyle = 'glass' | 'solid' | 'minimal'
+export const HEADER_STYLES: HeaderStyle[] = ['glass', 'solid', 'minimal']
+export type MenuTree = { items: MenuItem[]; cta?: { label: string; href: string } | null; style?: HeaderStyle }
 
 // Map an imported nav tree ({ text, href, children }) to menu items
 // ({ label, href, children }). One level of children is kept — enough for
@@ -113,7 +115,8 @@ function clean(tree: any, maxItems: number): MenuTree {
   const cta = tree.cta?.label
     ? { label: String(tree.cta.label).trim().slice(0, 40), href: String(tree.cta.href || '').trim().slice(0, 500) }
     : null
-  return { items, cta }
+  const style = HEADER_STYLES.includes(tree.style) ? tree.style as HeaderStyle : undefined
+  return { items, cta, ...(style ? { style } : {}) }
 }
 
 // POST /workspaces/:slug/menus/refresh — re-fetch the source site (using the

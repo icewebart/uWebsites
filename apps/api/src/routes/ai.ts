@@ -167,7 +167,15 @@ aiRouter.post('/fill-images', requireAuth, async (req: AuthRequest, res) => {
   const blocks = Array.isArray(page.blocks) ? JSON.parse(JSON.stringify(page.blocks)) : []
   const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
   const vibe = (tok?.tokens as any)?.vibe
-  const mood = vibe ? `${vibe} brand aesthetic` : undefined
+  const navLabels = ((tok?.tokens as any)?.brand_assets?.nav || []).map((n: any) => n?.text).filter(Boolean).slice(0, 6)
+  // Give the image model real context so photos are RELEVANT: the site/topic,
+  // the industry (inferred from nav), and the brand vibe. Combined with each
+  // slot's own caption, this anchors the subject.
+  const context = [
+    `for the website "${ws.name}"${page.title ? ` — page: "${page.title}"` : ''}`,
+    navLabels.length ? `industry/topic inferred from: ${navLabels.join(', ')}` : '',
+    vibe ? `${vibe} visual style` : '',
+  ].filter(Boolean).join('. ')
 
   const MAX = 8
   type Gap = { caption: string; apply: (url: string) => void }
@@ -201,7 +209,7 @@ aiRouter.post('/fill-images', requireAuth, async (req: AuthRequest, res) => {
 
   // Generate in parallel (capped) so total latency ≈ the slowest single image.
   const results = await Promise.all(gaps.map((g, i) =>
-    generateImageResult(ws.slug, photoPrompt(g.caption, mood), `${page.id}:${i}:${g.caption}`).then((r) => ({ g, ...r })),
+    generateImageResult(ws.slug, photoPrompt(g.caption, context), `${page.id}:${i}:${g.caption}`).then((r) => ({ g, ...r })),
   ))
   let filled = 0
   for (const { g, url } of results) { if (url) { g.apply(url); filled++ } }
@@ -331,7 +339,9 @@ Silently critique the page against this rubric, then rewrite it to fix the weake
 - Imagery: keep every <div class="uw-img-slot" data-caption="..."> placeholder (do not delete image areas; improve their framing/aspect if needed).
 
 HARD RULES:
-- Work from the EXISTING content only. Reuse every heading, paragraph, label, button and image slot already on the page — keep them VERBATIM. Do NOT invent new copy, add new sections, or drop existing ones. You are redesigning the SAME content, not rewriting it.
+- Work from the EXISTING content and STRUCTURE. First read the page: the same sections, in the same order, with the same building blocks. Reuse every heading, paragraph, label, button and image slot VERBATIM. Do NOT invent new copy, add new sections, or drop existing ones.
+- Preserve component structure: if a section is a grid/list of CARDS, keep the same number of cards with the same content. If a card (or any element) has an IMAGE, recreate it with an image in the same place — keep a <div class="uw-img-slot" data-caption="…"> for every image the original had (never replace an image with a plain color block).
+- You are RE-DESIGNING the look (spacing, hierarchy, color, decoration, framing), not rewriting the content or re-architecting the page.
 - Output ONLY the page body: a series of <section> blocks. Emit NO <html>/<head>/<body>, and NO site <header>/<nav>/<footer> — the platform already renders the menu and footer, so including them would show the page's chrome twice.
 - Colors only via the CSS variables above. Headings font '${f.heading || 'inherit'}', body '${f.body || 'inherit'}'.
 - Return the full improved HTML via the tool.`,

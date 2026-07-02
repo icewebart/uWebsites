@@ -34,6 +34,7 @@ export default function PageEditor() {
   const [sectionizing, setSectionizing] = useState(false)
   const [fillingImg, setFillingImg] = useState(false)
   const [polishing, setPolishing] = useState(false)
+  const [sideCollapsed, setSideCollapsed] = useState(false)
 
   // Run a long server-side edit (critique / fill-images) that mutates + saves
   // the page. These calls can exceed the 60s proxy timeout — but the server
@@ -226,11 +227,12 @@ export default function PageEditor() {
             <button className="btn btn-secondary" onClick={() => setRebuildOpen(true)} title="Restructure into a designed layout using the section catalog">✦ AI rebuild</button>
           </>
         )}
+        <button className="btn btn-ghost" onClick={() => setSideCollapsed((v) => !v)} title={sideCollapsed ? 'Show the sections panel' : 'Hide the sections panel for a wider preview'}>{sideCollapsed ? '⊞ Sections' : '⊟ Hide panel'}</button>
         <button className="btn btn-primary" onClick={save} disabled={saving || polishing || fillingImg} title={polishing || fillingImg ? 'Wait for the AI edit to finish — it saves automatically' : ''}>{saving ? 'Saving…' : 'Save'}</button>
       </div>
       {err && <div className="err" style={{ marginBottom: 10 }}>{err}</div>}
 
-      <div className="editor-v2">
+      <div className={`editor-v2${sideCollapsed ? ' side-collapsed' : ''}`}>
         {/* Preview / Original */}
         <div className="ev-preview">
           <div className="pv-tabs">

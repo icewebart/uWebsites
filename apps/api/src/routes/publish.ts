@@ -48,7 +48,10 @@ function siteCss(t: any) {
   const footerBg = t.color?.footerBg || t.color.text
   const footerFg = t.color?.footerFg || t.color.surface
   const shadow = SHADOW_MAP[t.shape?.shadow as string] || SHADOW_MAP.soft
-  return `:root{--primary:${t.color.primary};--accent:${t.color.accent};--surface:${t.color.surface};--text:${t.color.text};--footer-bg:${footerBg};--footer-fg:${footerFg};--btn-r:${t.shape.buttonRadius};--card-r:${t.shape.cardRadius};--bw:${t.shape.borderWidth};--shadow:${shadow};--gap:${t.space.sectionGap};--pad:${t.space.sectionPaddingY};--container:${t.space.container}}
+  // Secondary accent — a third brand color for variety (gradients, alt cards).
+  // Defaults to a blend of accent + primary when not explicitly set.
+  const accent2 = t.color?.accent2 || `color-mix(in srgb, ${t.color.accent}, ${t.color.primary})`
+  return `:root{--primary:${t.color.primary};--accent:${t.color.accent};--accent2:${accent2};--surface:${t.color.surface};--text:${t.color.text};--footer-bg:${footerBg};--footer-fg:${footerFg};--btn-r:${t.shape.buttonRadius};--card-r:${t.shape.cardRadius};--bw:${t.shape.borderWidth};--shadow:${shadow};--gap:${t.space.sectionGap};--pad:${t.space.sectionPaddingY};--container:${t.space.container}}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'${t.font.body}',system-ui,-apple-system,sans-serif;color:var(--text);background:var(--surface);line-height:${t.font.lineHeight};-webkit-font-smoothing:antialiased}
 a{color:var(--primary)}
@@ -73,13 +76,22 @@ section + section{padding-top:0}
 .rt img{max-width:100%;height:auto;border-radius:var(--card-r)}
 .img img{display:block;width:100%;height:auto;border-radius:var(--card-r)}
 
-/* Header sits ON the hero — it's overlaid (absolute, transparent) so the hero's
-   background flows continuously behind it and the two read as ONE block instead
-   of a floating pill separated by a gap. The first section reserves top space
-   for it. Brand left, centered nav, pill CTA right. */
-.site-header{position:absolute;top:0;left:0;right:0;z-index:100;background:transparent;padding:18px 0}
-.site-header .container{background:transparent;box-shadow:none;padding:4px 24px;display:flex;align-items:center;gap:24px;min-height:52px}
-main > section:first-child{padding-top:calc(var(--pad) + 62px)}
+/* Header is FIXED and overlays the hero — the hero background flows behind it so
+   the two read as one block (like the ATA site), and it stays put on scroll
+   (sticky). Three styles: glass (frosted bar, default), solid (opaque bar),
+   minimal (no bar — logo/nav sit straight on the hero). The first section
+   reserves top space so nothing hides behind the fixed bar. */
+.site-header{position:fixed;top:0;left:0;right:0;z-index:100;background:transparent;padding:16px 0;transition:padding .2s ease}
+.site-header .container{display:flex;align-items:center;gap:24px;min-height:56px;padding:8px 22px;border-radius:16px;transition:background .2s ease, box-shadow .2s ease}
+.site-header .brand,.site-header .nav .nav-link,.site-header .caret{color:var(--text)}
+main > section:first-child{padding-top:calc(var(--pad) + 76px)}
+
+/* glass — frosted, translucent, subtle border; overlays + blurs the hero */
+.site-header.style-glass .container{background:color-mix(in srgb, var(--surface) 55%, transparent);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border:1px solid color-mix(in srgb, var(--text) 10%, transparent);box-shadow:0 8px 30px -12px rgba(20,10,40,.14)}
+/* solid — opaque surface bar */
+.site-header.style-solid .container{background:var(--surface);border:1px solid color-mix(in srgb, var(--text) 8%, transparent);box-shadow:0 8px 30px -14px rgba(20,10,40,.16)}
+/* minimal — no bar, brand + nav sit directly on the hero */
+.site-header.style-minimal .container{background:transparent;border:0;box-shadow:none;padding:8px 4px}
 .site-header .brand{font-family:'${t.font.heading}',sans-serif;font-weight:700;font-size:18px;color:var(--primary);text-decoration:none;display:flex;align-items:center;gap:10px;flex:0 0 auto}
 .site-header .brand img{height:32px;width:auto;display:block}
 .site-header .nav{flex:1;display:flex;justify-content:center;gap:26px;align-items:center;flex-wrap:wrap}
@@ -188,7 +200,8 @@ export function renderHeader(ws: any, base: string, header: MenuTree | undefined
   const navItems = (header?.items || []).map(renderNavItem).join('')
   const nav = navItems ? `<nav class="nav">${navItems}</nav>` : ''
   const cta = header?.cta?.label ? `<a class="header-cta" href="${esc(header.cta.href || '#')}">${esc(header.cta.label)}</a>` : ''
-  return `<header class="site-header"><div class="container">${brand}${nav}${cta}</div></header>`
+  const style = (header as any)?.style || 'glass'
+  return `<header class="site-header style-${esc(style)}"><div class="container">${brand}${nav}${cta}</div></header>`
 }
 
 // Injected once per page (published output + nav preview). On touch/narrow

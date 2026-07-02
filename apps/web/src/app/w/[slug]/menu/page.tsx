@@ -21,10 +21,16 @@ export default function MenuPage() {
 
   useEffect(() => {
     api<{ header: Tree; footer: Tree }>(`/workspaces/${slug}/menus`)
-      .then((d) => setHeader({ items: d.header.items || [], cta: d.header.cta || null }))
+      .then((d) => setHeader({ items: d.header.items || [], cta: d.header.cta || null, style: d.header.style || 'glass' }))
       .catch(() => router.push(`/w/${slug}`))
       .finally(() => setLoading(false))
   }, [slug])
+
+  const HEADER_STYLES: Array<{ id: 'glass' | 'solid' | 'minimal'; name: string; blurb: string }> = [
+    { id: 'glass', name: 'Glass overlay', blurb: 'Frosted, translucent bar that sits on the hero. Modern, premium.' },
+    { id: 'solid', name: 'Solid bar', blurb: 'Clean opaque bar, sticky at the top. Clear and legible.' },
+    { id: 'minimal', name: 'Minimal', blurb: 'No bar — logo, nav and CTA sit straight on the hero.' },
+  ]
 
   async function refreshFromSource() {
     if (!window.confirm('Re-fetch the header menu from your imported source URL? This will overwrite the current items + CTA.')) return
@@ -65,6 +71,17 @@ export default function MenuPage() {
       <div className="dash-sub" style={{ marginBottom: 18 }}>
         Edit the header navigation that appears on every published page. On import, we seed this from your old site's nav and main CTA — or let the AI propose a fresh one based on your pages.
       </div>
+
+      <div className="dash-h" style={{ margin: '0 0 10px' }}>Header style</div>
+      <div className="vibe-grid" style={{ marginBottom: 20 }}>
+        {HEADER_STYLES.map((s) => (
+          <button key={s.id} className={`vibe-card ${(header.style || 'glass') === s.id ? 'on' : ''}`} onClick={() => { setHeader({ ...header, style: s.id }); setPreviewKey((k) => k + 1) }}>
+            <div className="vibe-name" style={{ fontSize: 16 }}>{s.name}</div>
+            <div className="vibe-blurb">{s.blurb}</div>
+          </button>
+        ))}
+      </div>
+      <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>All styles are sticky and sit on the hero. Add a CTA in the Links tab (the button on the right).</div>
 
       <div className="ev-actions-row">
         <div className="nav-tabs">

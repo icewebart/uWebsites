@@ -144,7 +144,9 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 .editor-bar2 .title-input:hover{border-color:var(--border)}
 .editor-bar2 .title-input:focus{outline:none;border-color:var(--forest);background:var(--surface)}
 .editor-bar2 select{font-family:inherit;font-size:13px;border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 10px;background:var(--surface)}
-.editor-v2{display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start}
+.editor-v2{display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start;transition:grid-template-columns .18s ease}
+.editor-v2.side-collapsed{grid-template-columns:1fr}
+.editor-v2.side-collapsed .ev-side{display:none}
 .ev-preview{position:sticky;top:12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);overflow:hidden;height:calc(100vh - 160px)}
 .ev-preview iframe{width:100%;height:100%;border:0;display:block}
 .ev-preview .pv-tabs{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--bg-subtle)}
