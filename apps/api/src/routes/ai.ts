@@ -37,15 +37,16 @@ const BLOCK_SCHEMA = {
           props: { type: 'object', description: [
             'Section props by kind. Provide REAL content for EVERY field listed — empty arrays/strings render as blank white sections.',
             '- hero: { heading (REQUIRED, full sentence), sub (recommended), cta_label, cta_href }',
-            '- hero-image: { heading (REQUIRED), sub, image_url (REQUIRED — use an existing URL from the page), image_alt, cta_label, cta_href }',
+            '- hero-image: { eyebrow (short kicker), heading (REQUIRED), sub, image_url (REQUIRED — use an existing URL, else leave "" for a placeholder), image_alt, cta_label, cta_href, cta2_label, cta2_href, variant: "split"|"gradient" }',
             '- hero-blob: { eyebrow (short kicker), heading (REQUIRED), sub, cta_label, cta_href, cta2_label, cta2_href, image_url, image_alt } — playful blob-image hero; great for kids/lifestyle/community',
             '- program-cards: { eyebrow, heading, items (REQUIRED — exactly 3, each { badge (short category), title, desc, cta_label, cta_href, image_url (optional) }) } — colored program/plan/service cards',
             '- stats-band: { items (REQUIRED — 3 or 4, each { value, label }) } — bold colored full-width stats band; put right under a hero',
             '- richtext: { html (REQUIRED, semantic HTML: p/h2/h3/ul/li/strong/em/a) }',
             '- image: { url (REQUIRED), alt }',
-            '- features-3: { heading (REQUIRED), sub, items (REQUIRED — exactly 3, each { title, desc }) }',
-            '- cta-banner: { heading (REQUIRED), sub, cta_label (REQUIRED), cta_href }',
-            '- testimonials-3: { heading, items (REQUIRED — 1 to 3, each { quote, author, role }) }',
+            '- features-3: { eyebrow, heading (REQUIRED), sub, variant: "cards"|"minimal", items (REQUIRED — exactly 3, each { icon (ONE emoji), title, desc }) }',
+            '- steps: { eyebrow, heading (REQUIRED), items (REQUIRED — 3 or 4, each { title, desc }) } — numbered "how it works" flow',
+            '- cta-banner: { heading (REQUIRED), sub, cta_label (REQUIRED), cta_href, variant: "gradient"|"solid" }',
+            '- testimonials-3: { eyebrow, heading, items (REQUIRED — 1 to 3, each { quote, author, role, rating (integer 1–5) }) }',
             '- pricing-3: { heading, tiers (REQUIRED — 2 to 3, each { name, price, period, items: [string,...], cta_label, cta_href, featured: boolean }) }',
             '- faq: { heading (REQUIRED), items (REQUIRED — at least 2, each { q, a }) }',
             '- logo-cloud: { heading, logos (REQUIRED — only include this section if you have real logo URLs) }',
@@ -219,7 +220,15 @@ ${aestheticPrompt(aesthetic)}
 
 ${COPY_RULES}
 
-richtext sections use semantic HTML only (p, h2, h3, ul, li, strong, em, a — no inline styles or scripts). Aim for 4–7 sections, every one fully populated.${brief ? '\n\nSITE CONTEXT (use this to anchor industry, audience, and voice — refer to it in your copy):\n' + brief : ''}`,
+DESIGN DIRECTION — make it look designed, not template-y:
+- Open with hero-image (eyebrow + a strong image_url or "" placeholder + TWO buttons via cta_label + cta2_label), or hero-blob for playful/kids/lifestyle brands.
+- Put a stats-band directly under the hero when you have real numbers.
+- Give features-3 an eyebrow and a distinct, meaningful emoji "icon" per item.
+- Add a "steps" (how it works) section when there's a process, and testimonials-3 with a rating (5) and role when you have social proof.
+- Close with a cta-banner (variant "gradient").
+- Set an eyebrow on most section heads. Vary section rhythm; don't repeat the same block style twice in a row.
+
+richtext sections use semantic HTML only (p, h2, h3, ul, li, strong, em, a — no inline styles or scripts). Aim for 5–8 sections, every one fully populated.${brief ? '\n\nSITE CONTEXT (use this to anchor industry, audience, and voice — refer to it in your copy):\n' + brief : ''}`,
       tools: [{ name: 'page', description: 'The generated page.', input_schema: BLOCK_SCHEMA as any }],
       tool_choice: { type: 'tool', name: 'page' },
       messages: [{ role: 'user', content: prompt }],

@@ -9,7 +9,7 @@
 
 export type SectionKind =
   | 'hero' | 'hero-image' | 'hero-blob' | 'richtext' | 'image'
-  | 'features-3' | 'program-cards' | 'cta-banner'
+  | 'features-3' | 'program-cards' | 'cta-banner' | 'steps'
   | 'testimonials-3' | 'pricing-3' | 'faq' | 'logo-cloud' | 'image-text' | 'stats-row' | 'stats-band'
   | 'raw-html'
 
@@ -32,9 +32,9 @@ export const SECTIONS: SectionMeta[] = [
   {
     kind: 'hero-image',
     name: 'Hero — image right',
-    description: 'Headline + subhead on the left, supporting image on the right. Side-by-side on desktop.',
+    description: 'Eyebrow + headline + subhead + up to two buttons on the left, a strong image (framed, with a soft decorative accent) on the right. variant: "split" (default) or "gradient" (soft primary→accent wash background). Side-by-side on desktop.',
     category: 'hero',
-    defaults: { heading: 'Tell the story, see the proof', sub: 'Pair words with a single strong image.', image_url: '', image_alt: '', cta_label: '', cta_href: '' },
+    defaults: { eyebrow: '', heading: 'Tell the story, see the proof', sub: 'Pair words with a single strong image.', image_url: '', image_alt: '', cta_label: '', cta_href: '', cta2_label: '', cta2_href: '', variant: 'split' },
   },
   {
     kind: 'hero-blob',
@@ -67,15 +67,32 @@ export const SECTIONS: SectionMeta[] = [
   {
     kind: 'features-3',
     name: 'Features — 3 columns',
-    description: 'Three short value props side-by-side. Perfect under a hero.',
+    description: 'Three short value props side-by-side, each with an icon/emoji. Optional eyebrow. variant: "cards" (default, elevated cards with an accent icon chip) or "minimal" (clean, borderless). Perfect under a hero.',
     category: 'features',
     defaults: {
+      eyebrow: '',
       heading: 'Why it works',
       sub: '',
+      variant: 'cards',
       items: [
-        { title: 'Fast', desc: 'Compiled to static — fast on mobile by default.' },
-        { title: 'Safe', desc: 'No runtime to attack, mandatory 2FA for owners.' },
-        { title: 'On-brand', desc: 'One token set restyles every page.' },
+        { icon: '⚡', title: 'Fast', desc: 'Compiled to static — fast on mobile by default.' },
+        { icon: '🔒', title: 'Safe', desc: 'No runtime to attack, mandatory 2FA for owners.' },
+        { icon: '🎨', title: 'On-brand', desc: 'One token set restyles every page.' },
+      ],
+    },
+  },
+  {
+    kind: 'steps',
+    name: 'How it works — steps',
+    description: 'A numbered "how it works" flow: eyebrow + heading, then 3–4 numbered steps each with a title and one line of copy. Great for onboarding, process, or "what to expect".',
+    category: 'features',
+    defaults: {
+      eyebrow: 'How it works',
+      heading: 'Three simple steps',
+      items: [
+        { title: 'Tell us about you', desc: 'A short brief so we understand your goal.' },
+        { title: 'We build it', desc: 'A designed draft, ready in minutes.' },
+        { title: 'Go live', desc: 'Publish and share — edit anytime.' },
       ],
     },
   },
@@ -97,22 +114,23 @@ export const SECTIONS: SectionMeta[] = [
   {
     kind: 'cta-banner',
     name: 'CTA banner',
-    description: 'A full-width call-to-action band — heading, subhead, button.',
+    description: 'A full-width call-to-action band — heading, subhead, button. variant: "gradient" (default, primary→accent gradient with decorative shapes) or "solid".',
     category: 'cta',
-    defaults: { heading: 'Ready to begin?', sub: 'Start free. Upgrade when you grow.', cta_label: 'Get started', cta_href: '#' },
+    defaults: { heading: 'Ready to begin?', sub: 'Start free. Upgrade when you grow.', cta_label: 'Get started', cta_href: '#', variant: 'gradient' },
   },
   {
     kind: 'testimonials-3',
     name: 'Testimonials — 3 cards',
-    description: 'Three customer quotes side-by-side with author and role.',
+    description: 'Three customer quotes side-by-side, each with a star rating, an avatar (auto from initials), author and role. Optional eyebrow + heading.',
     category: 'social-proof',
     defaults: {
+      eyebrow: '',
       heading: 'What people say',
       sub: '',
       items: [
-        { quote: 'This changed how we ship.', author: 'Alex P.', role: 'Head of Product' },
-        { quote: 'Our team loves it.', author: 'Sam R.', role: 'Engineering Lead' },
-        { quote: 'Fast, reliable, simple.', author: 'Jordan M.', role: 'CTO' },
+        { quote: 'This changed how we ship.', author: 'Alex P.', role: 'Head of Product', rating: 5 },
+        { quote: 'Our team loves it.', author: 'Sam R.', role: 'Engineering Lead', rating: 5 },
+        { quote: 'Fast, reliable, simple.', author: 'Jordan M.', role: 'CTO', rating: 5 },
       ],
     },
   },
@@ -253,39 +271,70 @@ const STAR_SVG = `<svg class="deco-star" viewBox="0 0 24 24" width="34" height="
 // covers .container, .hero, .rt, .img — we just add the new ones here so
 // publish.ts stays focused on the page chrome.
 export const SECTION_CSS = `
-.hero-image{padding:var(--pad) 0}
-.hero-image .grid{display:grid;grid-template-columns:1.1fr 1fr;gap:48px;align-items:center}
-.hero-image h1{font-size:calc(2.1rem * var(--scale, 1.2));margin-bottom:14px;letter-spacing:-.02em;line-height:1.1}
-.hero-image .sub{font-size:1.05rem;opacity:.78;margin-bottom:22px;max-width:48ch}
-.hero-image img{display:block;width:100%;height:auto;border-radius:var(--card-r)}
-@media(max-width:760px){.hero-image .grid{grid-template-columns:1fr;gap:28px}}
+.hero-image{padding:var(--pad) 0;position:relative;overflow:hidden}
+.hero-image.v-gradient{background:radial-gradient(120% 130% at 88% 0%, color-mix(in srgb, var(--accent) 16%, var(--surface)), var(--surface) 62%)}
+.hero-image .grid{display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center}
+.hero-image .eyebrow{font-weight:700;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+.hero-image h1{font-size:calc(2.3rem * var(--scale, 1.2));margin-bottom:16px;letter-spacing:-.02em;line-height:1.06}
+.hero-image .sub{font-size:1.08rem;opacity:.76;margin-bottom:26px;max-width:46ch;line-height:1.55}
+.hero-image .actions{display:flex;gap:12px;flex-wrap:wrap}
+.hero-image .btn-ghost{background:transparent;color:var(--primary);border:2px solid var(--primary)}
+.hero-image .media{position:relative}
+.hero-image .media-accent{position:absolute;inset:auto -14px -14px auto;width:62%;height:70%;border-radius:calc(var(--card-r) * 1.4);background:color-mix(in srgb, var(--accent) 30%, var(--surface));z-index:0}
+.hero-image .media img{position:relative;z-index:1;display:block;width:100%;height:auto;border-radius:var(--card-r);box-shadow:0 24px 60px -24px color-mix(in srgb, var(--primary) 42%, transparent)}
+.hero-image .media-empty{aspect-ratio:4/3;border-radius:var(--card-r);background:color-mix(in srgb, var(--primary) 8%, var(--surface))}
+@media(max-width:760px){.hero-image .grid{grid-template-columns:1fr;gap:28px}.hero-image .media-accent{display:none}}
 
 .features-3{padding:var(--pad) 0}
-.features-3 .head{text-align:center;margin-bottom:34px}
-.features-3 .head h2{font-size:calc(1.6rem * var(--scale, 1.2));letter-spacing:-.01em;margin-bottom:8px}
-.features-3 .head .sub{opacity:.7;font-size:1rem;max-width:56ch;margin:0 auto}
+.features-3 .head{text-align:center;margin-bottom:38px}
+.features-3 .head .eyebrow{font-weight:700;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+.features-3 .head h2{font-size:calc(1.7rem * var(--scale, 1.2));letter-spacing:-.01em;margin-bottom:8px}
+.features-3 .head .sub{opacity:.7;font-size:1.02rem;max-width:56ch;margin:0 auto;line-height:1.55}
 .features-3 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
-.features-3 .item{background:var(--surface);border:var(--bw) solid rgba(0,0,0,.08);border-radius:var(--card-r);padding:24px}
-.features-3 .item h3{font-size:1.05rem;font-weight:600;margin-bottom:6px}
-.features-3 .item p{font-size:.95rem;opacity:.75}
+.features-3 .item{background:var(--surface);border:var(--bw) solid color-mix(in srgb, var(--primary) 12%, transparent);border-radius:var(--card-r);padding:28px 26px;box-shadow:0 6px 24px -14px rgba(30,10,50,.18);transition:transform .18s ease, box-shadow .18s ease}
+.features-3 .item:hover{transform:translateY(-4px);box-shadow:0 18px 40px -20px color-mix(in srgb, var(--primary) 40%, transparent)}
+.features-3 .item .icon{width:46px;height:46px;border-radius:calc(var(--card-r) * .6);display:flex;align-items:center;justify-content:center;font-size:22px;margin-bottom:16px;background:color-mix(in srgb, var(--accent) 20%, var(--surface))}
+.features-3 .item h3{font-size:1.12rem;font-weight:700;margin-bottom:7px}
+.features-3 .item p{font-size:.96rem;opacity:.74;line-height:1.55}
+.features-3.v-minimal .item{background:transparent;border:0;box-shadow:none;padding:8px 6px}
+.features-3.v-minimal .item:hover{transform:none;box-shadow:none}
+.features-3.v-minimal .item .icon{background:transparent;color:var(--primary);width:auto;height:auto;font-size:26px;margin-bottom:10px}
 @media(max-width:760px){.features-3 .grid{grid-template-columns:1fr}}
 
+/* steps — numbered how-it-works */
+.steps{padding:var(--pad) 0}
+.steps .head{text-align:center;margin-bottom:38px}
+.steps .head .eyebrow{font-weight:700;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+.steps .head h2{font-size:calc(1.7rem * var(--scale, 1.2));letter-spacing:-.01em}
+.steps .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:26px}
+.steps .step{position:relative;display:flex;gap:16px;align-items:flex-start}
+.steps .step-n{flex:0 0 auto;width:44px;height:44px;border-radius:50%;background:var(--primary);color:#fff;font-weight:800;font-size:1.1rem;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 20px -8px color-mix(in srgb, var(--primary) 55%, transparent)}
+.steps .step-txt h3{font-size:1.08rem;font-weight:700;margin-bottom:5px}
+.steps .step-txt p{font-size:.95rem;opacity:.72;line-height:1.5}
+
 .cta-banner{padding:var(--pad) 0}
-.cta-banner .box{background:var(--primary);color:#fff;border-radius:var(--card-r);padding:48px 28px;text-align:center}
-.cta-banner h2{font-size:calc(1.6rem * var(--scale, 1.2));color:#fff;margin-bottom:10px;letter-spacing:-.01em}
-.cta-banner .sub{font-size:1rem;color:rgba(255,255,255,.86);margin-bottom:22px;max-width:48ch;margin-left:auto;margin-right:auto}
-.cta-banner .btn{background:#fff;color:var(--primary)}
-.cta-banner .btn:hover{opacity:.92}
+.cta-banner .box{position:relative;background:linear-gradient(120deg, var(--primary), color-mix(in srgb, var(--accent) 70%, var(--primary)));color:#fff;border-radius:calc(var(--card-r) * 1.3);padding:56px 28px;text-align:center;overflow:hidden}
+.cta-banner.v-solid .box{background:var(--primary)}
+.cta-banner .cta-inner{position:relative;z-index:2}
+.cta-banner .cta-orb{position:absolute;border-radius:50%;background:rgba(255,255,255,.12);z-index:1;pointer-events:none}
+.cta-banner .cta-orb-1{width:240px;height:240px;top:-90px;right:-60px}
+.cta-banner .cta-orb-2{width:150px;height:150px;bottom:-70px;left:-30px;background:rgba(255,255,255,.09)}
+.cta-banner h2{font-size:calc(1.75rem * var(--scale, 1.2));color:#fff;margin-bottom:12px;letter-spacing:-.01em}
+.cta-banner .sub{font-size:1.05rem;color:rgba(255,255,255,.9);margin-bottom:24px;max-width:48ch;margin-left:auto;margin-right:auto;line-height:1.55}
+.cta-banner .btn{background:#fff;color:var(--primary);box-shadow:0 10px 30px -10px rgba(0,0,0,.35)}
+.cta-banner .btn:hover{transform:translateY(-1px)}
 
 .testimonials-3{padding:var(--pad) 0}
-.testimonials-3 .head{text-align:center;margin-bottom:34px}
-.testimonials-3 .head h2{font-size:calc(1.6rem * var(--scale, 1.2));margin-bottom:8px}
+.testimonials-3 .head{text-align:center;margin-bottom:38px}
+.testimonials-3 .head .eyebrow{font-weight:700;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+.testimonials-3 .head h2{font-size:calc(1.7rem * var(--scale, 1.2));margin-bottom:8px}
 .testimonials-3 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
-.testimonials-3 .card{background:var(--surface);border:var(--bw) solid rgba(0,0,0,.08);border-radius:var(--card-r);padding:24px}
-.testimonials-3 .quote{font-size:1rem;line-height:1.6;margin-bottom:14px;color:var(--text)}
-.testimonials-3 .quote:before{content:"\\201C";font-size:1.6rem;line-height:0;vertical-align:-0.4em;color:var(--primary);margin-right:4px;opacity:.65}
-.testimonials-3 .who{font-size:.85rem}
-.testimonials-3 .who b{font-weight:600;color:var(--text)}
+.testimonials-3 .card{background:var(--surface);border:var(--bw) solid color-mix(in srgb, var(--primary) 12%, transparent);border-radius:var(--card-r);padding:26px;box-shadow:0 6px 24px -14px rgba(30,10,50,.18)}
+.testimonials-3 .stars{color:#f5b301;font-size:.9rem;letter-spacing:2px;margin-bottom:12px}
+.testimonials-3 .quote{font-size:1.02rem;line-height:1.6;margin-bottom:18px;color:var(--text)}
+.testimonials-3 .who{display:flex;align-items:center;gap:11px;font-size:.85rem}
+.testimonials-3 .av{flex:0 0 auto;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;background:color-mix(in srgb, var(--primary) 78%, var(--accent))}
+.testimonials-3 .who b{display:block;font-weight:700;color:var(--text)}
 .testimonials-3 .who span{opacity:.6}
 @media(max-width:760px){.testimonials-3 .grid{grid-template-columns:1fr}}
 
@@ -403,9 +452,15 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
       return `<section class="hero"><div class="container"><h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${cta}</div></section>`
     }
     case 'hero-image': {
-      const cta = p.cta_label ? `<p><a class="btn" href="${esc(p.cta_href || '#')}">${esc(p.cta_label)}</a></p>` : ''
-      const img = p.image_url ? `<div><img src="${esc(p.image_url)}" alt="${esc(p.image_alt || '')}" loading="lazy"></div>` : '<div></div>'
-      return `<section class="hero-image"><div class="container"><div class="grid"><div><h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${cta}</div>${img}</div></div></section>`
+      const variant = p.variant === 'gradient' ? ' v-gradient' : ''
+      const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
+      const cta1 = p.cta_label ? `<a class="btn" href="${esc(p.cta_href || '#')}">${esc(p.cta_label)}</a>` : ''
+      const cta2 = p.cta2_label ? `<a class="btn btn-ghost" href="${esc(p.cta2_href || '#')}">${esc(p.cta2_label)}</a>` : ''
+      const ctas = (cta1 || cta2) ? `<div class="actions">${cta1}${cta2}</div>` : ''
+      const img = p.image_url
+        ? `<div class="media"><span class="media-accent"></span><img src="${esc(p.image_url)}" alt="${esc(p.image_alt || '')}" loading="lazy"></div>`
+        : '<div class="media media-empty"><span class="media-accent"></span></div>'
+      return `<section class="hero-image${variant}"><div class="container"><div class="grid"><div class="txt">${eyebrow}<h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${ctas}</div>${img}</div></div></section>`
     }
     case 'hero-blob': {
       const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
@@ -422,9 +477,20 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
     case 'image':
       return p.url ? `<section class="img"><div class="container"><img src="${esc(p.url)}" alt="${esc(p.alt || '')}" loading="lazy"></div></section>` : ''
     case 'features-3': {
+      const variant = p.variant === 'minimal' ? ' v-minimal' : ''
       const items = (Array.isArray(p.items) ? p.items : []).slice(0, 6)
-      const grid = items.map((it: any) => `<div class="item"><h3>${esc(it.title)}</h3><p>${esc(it.desc)}</p></div>`).join('')
-      return `<section class="features-3"><div class="container"><div class="head"><h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div><div class="grid">${grid}</div></div></section>`
+      const grid = items.map((it: any) => {
+        const icon = it.icon ? `<div class="icon">${esc(it.icon)}</div>` : ''
+        return `<div class="item">${icon}<h3>${esc(it.title)}</h3><p>${esc(it.desc)}</p></div>`
+      }).join('')
+      const eyebrow = p.eyebrow ? `<div class="eyebrow">${esc(p.eyebrow)}</div>` : ''
+      return `<section class="features-3${variant}"><div class="container"><div class="head">${eyebrow}<h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div><div class="grid">${grid}</div></div></section>`
+    }
+    case 'steps': {
+      const items = (Array.isArray(p.items) ? p.items : []).slice(0, 4)
+      const cells = items.map((it: any, i: number) => `<div class="step"><div class="step-n">${i + 1}</div><div class="step-txt"><h3>${esc(it.title)}</h3>${it.desc ? `<p>${esc(it.desc)}</p>` : ''}</div></div>`).join('')
+      const eyebrow = p.eyebrow ? `<div class="eyebrow">${esc(p.eyebrow)}</div>` : ''
+      return `<section class="steps"><div class="container"><div class="head">${eyebrow}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}</div><div class="grid">${cells}</div></div></section>`
     }
     case 'program-cards': {
       // Three rich cards; each cycles through an accent (primary → accent →
@@ -451,12 +517,21 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
       const cells = items.map((it: any) => `<div class="sb-stat"><div class="sb-val">${esc(it.value)}</div><div class="sb-lbl">${esc(it.label)}</div></div>`).join('')
       return `<section class="stats-band"><div class="container"><div class="sb-box">${cells}</div></div></section>`
     }
-    case 'cta-banner':
-      return `<section class="cta-banner"><div class="container"><div class="box"><h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${p.cta_label ? `<p><a class="btn" href="${esc(p.cta_href || '#')}">${esc(p.cta_label)}</a></p>` : ''}</div></div></section>`
+    case 'cta-banner': {
+      const solid = p.variant === 'solid' ? ' v-solid' : ''
+      return `<section class="cta-banner${solid}"><div class="container"><div class="box"><span class="cta-orb cta-orb-1"></span><span class="cta-orb cta-orb-2"></span><div class="cta-inner"><h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${p.cta_label ? `<p><a class="btn" href="${esc(p.cta_href || '#')}">${esc(p.cta_label)}</a></p>` : ''}</div></div></div></section>`
+    }
     case 'testimonials-3': {
       const items = (Array.isArray(p.items) ? p.items : []).slice(0, 6)
-      const cards = items.map((it: any) => `<div class="card"><p class="quote">${esc(it.quote)}</p><div class="who"><b>${esc(it.author)}</b>${it.role ? ` · <span>${esc(it.role)}</span>` : ''}</div></div>`).join('')
-      return `<section class="testimonials-3"><div class="container">${p.heading ? `<div class="head"><h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div>` : ''}<div class="grid">${cards}</div></div></section>`
+      const cards = items.map((it: any) => {
+        const n = Math.max(0, Math.min(5, Number(it.rating) || 0))
+        const stars = n ? `<div class="stars">${'★'.repeat(n)}${'☆'.repeat(5 - n)}</div>` : ''
+        const initial = esc(String(it.author || '?').trim().charAt(0).toUpperCase())
+        const av = `<span class="av" aria-hidden="true">${initial}</span>`
+        return `<div class="card">${stars}<p class="quote">${esc(it.quote)}</p><div class="who">${av}<div><b>${esc(it.author)}</b>${it.role ? `<span>${esc(it.role)}</span>` : ''}</div></div></div>`
+      }).join('')
+      const eyebrow = p.eyebrow ? `<div class="eyebrow">${esc(p.eyebrow)}</div>` : ''
+      return `<section class="testimonials-3"><div class="container">${(p.heading || eyebrow) ? `<div class="head">${eyebrow}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div>` : ''}<div class="grid">${cards}</div></div></section>`
     }
     case 'pricing-3': {
       const tiers = (Array.isArray(p.tiers) ? p.tiers : []).slice(0, 4)
