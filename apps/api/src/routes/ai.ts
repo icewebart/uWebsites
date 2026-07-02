@@ -5,7 +5,7 @@ import { db, workspaces, pages, brandingTokens, aiJobs } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { SECTIONS, SECTION_META } from '../lib/sections.js'
 import { pickAesthetic, aestheticPrompt, COPY_RULES, AESTHETICS } from '../lib/aesthetics.js'
-import { generateImage, photoPrompt, imageGenEnabled } from '../lib/imagegen.js'
+import { generateImage, generateImageResult, photoPrompt, imageGenEnabled, reasonMessage } from '../lib/imagegen.js'
 
 // AI: page generation + section rewrite. Lazy-init the client so the API
 // starts even without a key — the routes return 503 in that case.
@@ -133,8 +133,8 @@ aiRouter.post('/generate-image', requireAuth, async (req: AuthRequest, res) => {
   const ws = await ownedWs(String(slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
   const finalPrompt = prompt || photoPrompt(String(caption), mood)
-  const url = await generateImage(ws.slug, finalPrompt, `${ws.id}:${caption || prompt}:${Date.now()}`)
-  if (!url) return res.status(502).json({ ok: false, error: 'Image generation failed' })
+  const { url, reason } = await generateImageResult(ws.slug, finalPrompt, `${ws.id}:${caption || prompt}:${Date.now()}`)
+  if (!url) return res.status(reason === 'billing' ? 402 : 502).json({ ok: false, error: reasonMessage(reason) })
   await logAiJob(ws.id, 'image', 'done', { source: 'generate-image', caption: String(caption || '').slice(0, 200) }, 2, url)
   res.json({ ok: true, data: { url } })
 })
@@ -188,10 +188,15 @@ aiRouter.post('/fill-images', requireAuth, async (req: AuthRequest, res) => {
 
   // Generate in parallel (capped) so total latency ≈ the slowest single image.
   const results = await Promise.all(gaps.map((g, i) =>
-    generateImage(ws.slug, photoPrompt(g.caption, mood), `${page.id}:${i}:${g.caption}`).then((url) => ({ g, url })),
+    generateImageResult(ws.slug, photoPrompt(g.caption, mood), `${page.id}:${i}:${g.caption}`).then((r) => ({ g, ...r })),
   ))
   let filled = 0
   for (const { g, url } of results) { if (url) { g.apply(url); filled++ } }
+  // Nothing generated and it's a billing/quota problem → tell the user why.
+  if (filled === 0) {
+    const blocker = results.find((r) => r.reason === 'billing') || results.find((r) => r.reason === 'rate-limit')
+    if (blocker) return res.status(blocker.reason === 'billing' ? 402 : 429).json({ ok: false, error: reasonMessage(blocker.reason) })
+  }
   // Any raw-html tokens that failed to generate → strip back to an empty box.
   for (const b of blocks) if (b.type === 'raw-html' && typeof b.props?.html === 'string') {
     b.props.html = b.props.html.replace(/__UWIMG_\d+__/g, '<div style="width:100%;height:100%;min-height:180px;background:color-mix(in srgb,var(--primary) 8%,#fff);border-radius:16px"></div>')
