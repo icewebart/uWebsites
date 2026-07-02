@@ -34,13 +34,31 @@ export default function WorkspaceHome() {
   async function buildWithAi() {
     if (!aiPrompt.trim()) return
     setBuildErr(''); setBuilding(true)
-    try {
-      const endpoint = mode === 'freeform' ? '/ai/generate-freeform' : '/ai/generate-page'
-      const body: any = { slug, prompt: aiPrompt.trim(), type: 'home' }
-      if (mode === 'freeform' && kitText) body.kitHtml = kitText
-      const r = await api<{ id: string }>(endpoint, { method: 'POST', body: JSON.stringify(body) })
-      router.push(`/w/${slug}/p/${r.id}`)
-    } catch (e: any) { setBuildErr(e.message || 'AI build failed'); setBuilding(false) }
+    const endpoint = mode === 'freeform' ? '/ai/generate-freeform' : '/ai/generate-page'
+    const body: any = { slug, prompt: aiPrompt.trim(), type: 'home' }
+    if (mode === 'freeform' && kitText) body.kitHtml = kitText
+    // Fire the generation. A long free-form build can exceed the proxy timeout,
+    // but the page still saves server-side — so we ALSO poll for the new page
+    // and open it the moment it exists, whichever happens first.
+    let navigated = false
+    const open = (id: string) => { if (!navigated) { navigated = true; router.push(`/w/${slug}/p/${id}`) } }
+    api<{ id: string }>(endpoint, { method: 'POST', body: JSON.stringify(body) })
+      .then((r) => { if (r?.id) open(r.id) })
+      .catch(() => { /* may time out at the proxy; the poll below recovers */ })
+    const started = Date.now()
+    const poll = setInterval(async () => {
+      if (navigated) { clearInterval(poll); return }
+      if (Date.now() - started > 175000) {
+        clearInterval(poll); setBuilding(false)
+        setBuildErr('The AI is taking unusually long. Refresh in a moment — your page may already be ready.')
+        return
+      }
+      try {
+        const p = await api<PagesResp>(`/workspaces/${slug}/pages`)
+        const pg = p.pages?.find((x) => x.type === 'home') || p.pages?.[0]
+        if (pg) { clearInterval(poll); open(pg.id) }
+      } catch { /* keep polling */ }
+    }, 5000)
   }
 
   useEffect(() => {
