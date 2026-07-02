@@ -35,32 +35,48 @@ export default function PageEditor() {
   const [fillingImg, setFillingImg] = useState(false)
   const [polishing, setPolishing] = useState(false)
 
-  // AI design-critic pass over a free-form page — improves the layout, keeps
-  // the copy. Long runs can exceed the proxy timeout but still save, so we
-  // reload the page afterward either way.
-  async function polishDesign() {
-    setErr(''); setPolishing(true)
-    try {
-      await api('/ai/critique-page', { method: 'POST', body: JSON.stringify({ slug, pageId }) })
-      const p = await api<PageData>(`/pages/${pageId}`)
-      setBlocks(Array.isArray(p.blocks) ? p.blocks : []); setPreviewKey((k) => k + 1); setSavedAt('Design polished')
-    } catch (e: any) {
-      try { const p = await api<PageData>(`/pages/${pageId}`); setBlocks(Array.isArray(p.blocks) ? p.blocks : []); setPreviewKey((k) => k + 1) } catch {}
-      setErr(e?.message && !/gateway|timeout|network|fetch|504/i.test(e.message) ? e.message : 'Polish took a while — reloaded the latest. Check the preview.')
-    } finally { setPolishing(false) }
+  // Run a long server-side edit (critique / fill-images) that mutates + saves
+  // the page. These calls can exceed the 60s proxy timeout — but the server
+  // still finishes and saves. So instead of reloading once (which can grab the
+  // OLD blocks before the server has saved), we POLL the page until its blocks
+  // actually change, then adopt them. This keeps the editor's in-memory copy in
+  // sync with the server so a later Save can never clobber the new design.
+  async function runLongEdit(endpoint: string, successLabel: string): Promise<boolean> {
+    setErr('')
+    const beforeSig = JSON.stringify(blocks)
+    const isTimeout = (m: string) => /gateway|timeout|network|fetch|504|502|aborted/i.test(m || '')
+    let done = false, apiErr: any = null, resp: any = null
+    api(endpoint, { method: 'POST', body: JSON.stringify({ slug, pageId }) })
+      .then((d) => { resp = d; done = true })
+      .catch((e) => { apiErr = e; done = true })
+    const started = Date.now()
+    let changed = false, hardErr = ''
+    while (Date.now() - started < 210_000) {
+      await new Promise((r) => setTimeout(r, 4000))
+      if (apiErr && !isTimeout(apiErr.message || '')) { hardErr = apiErr.message || 'Request failed'; break }  // e.g. 400 free-form-only, 402 billing
+      try {
+        const p = await api<PageData>(`/pages/${pageId}`)
+        if (Array.isArray(p.blocks) && JSON.stringify(p.blocks) !== beforeSig) { setBlocks(p.blocks); changed = true; break }
+      } catch { /* keep polling */ }
+      if (done && !apiErr) break  // request completed with no change → stop
+    }
+    // Final authoritative sync — local state ALWAYS matches the server, so a
+    // subsequent Save can never overwrite the new design with a stale copy.
+    try { const p = await api<PageData>(`/pages/${pageId}`); if (Array.isArray(p.blocks)) setBlocks(p.blocks) } catch { /* ignore */ }
+    setPreviewKey((k) => k + 1)
+    if (hardErr) { setErr(hardErr); return false }
+    if (changed) { setSavedAt(successLabel); return true }
+    setSavedAt(resp?.message || (resp?.filled === 0 ? 'No empty image slots to fill.' : 'No changes were made — try again.'))
+    return true
   }
 
-  // Generate photos for every empty image slot on the page (Gemini). The
-  // endpoint mutates + saves the page server-side, so we reload blocks after.
+  async function polishDesign() {
+    setPolishing(true)
+    try { await runLongEdit('/ai/critique-page', 'Design polished ✓ — saved') } finally { setPolishing(false) }
+  }
   async function fillImages() {
-    setErr(''); setFillingImg(true)
-    try {
-      const r = await api<{ filled: number; message?: string }>('/ai/fill-images', { method: 'POST', body: JSON.stringify({ slug, pageId }) })
-      const p = await api<PageData>(`/pages/${pageId}`)
-      setBlocks(Array.isArray(p.blocks) ? p.blocks : [])
-      setPreviewKey((k) => k + 1)
-      setSavedAt(r.filled ? `${r.filled} image${r.filled > 1 ? 's' : ''} generated` : (r.message || 'No empty image slots'))
-    } catch (e: any) { setErr(e.message || 'Image generation failed') } finally { setFillingImg(false) }
+    setFillingImg(true)
+    try { await runLongEdit('/ai/fill-images', 'Images generated ✓ — saved') } finally { setFillingImg(false) }
   }
 
   async function rewriteRawHtml(idx: number) {
@@ -210,7 +226,7 @@ export default function PageEditor() {
             <button className="btn btn-secondary" onClick={() => setRebuildOpen(true)} title="Restructure into a designed layout using the section catalog">✦ AI rebuild</button>
           </>
         )}
-        <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving || polishing || fillingImg} title={polishing || fillingImg ? 'Wait for the AI edit to finish — it saves automatically' : ''}>{saving ? 'Saving…' : 'Save'}</button>
       </div>
       {err && <div className="err" style={{ marginBottom: 10 }}>{err}</div>}
 
