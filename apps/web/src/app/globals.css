@@ -266,10 +266,12 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .bb-spec-row:first-child{border-top:0}
 .bb-spec-label{font-family:'SF Mono','Fira Code',monospace;font-size:11px;color:var(--text-faint)}
 .bb-spec-text{line-height:1.15;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bb-buttons{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
-.bb-buttons button{border:0;padding:12px 24px;font-weight:700;font-size:14px;cursor:pointer}
+/* Buttons & controls — align to a baseline row, consistent sizing + spacing */
+.bb-buttons{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:26px}
+.bb-buttons button{border:0;padding:13px 26px;font-weight:700;font-size:14px;line-height:1;cursor:pointer;font-family:inherit;transition:filter .15s}
+.bb-buttons button:hover{filter:brightness(1.06)}
 .bb-buttons button.ghost{background:transparent}
-.bb-card-demo{padding:20px;max-width:340px}
+.bb-card-demo{padding:22px;max-width:360px;margin-top:4px}
 .bb-nav-stage{border-radius:var(--r-md);padding:26px;overflow:hidden}
 .bb-header-pill{background:#fff;border-radius:999px;padding:12px 12px 12px 22px;box-shadow:0 6px 24px rgba(60,20,90,.1);display:flex;align-items:center;gap:24px;min-height:60px}
 .bb-header-brand{flex:0 0 auto;display:flex;align-items:center}
@@ -281,11 +283,14 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .bb-mm-link{display:block;font-size:13px;color:var(--text-muted);padding:5px 0;text-decoration:none}
 .bb-mm-link:hover{color:var(--forest);text-decoration:underline}
 .bb-sec-lead{font-size:14px;opacity:.7;margin:-8px 0 20px;max-width:60ch;line-height:1.55}
-.bb-cols-2{display:grid;grid-template-columns:1.3fr 1fr;gap:28px;align-items:start}
-.bb-rules h4{font-size:15px;font-weight:700;margin-bottom:12px}
-.bb-rules ul{list-style:none;display:flex;flex-direction:column;gap:9px}
-.bb-rules li{position:relative;padding-left:20px;font-size:13.5px;opacity:.78;line-height:1.45}
-.bb-rules li::before{content:"";position:absolute;left:0;top:7px;width:8px;height:8px;border-radius:50%;background:var(--primary)}
+/* clear gap between the accent scale and the neutrals/rules row */
+.bb-cols-2{display:grid;grid-template-columns:1.3fr 1fr;gap:28px;align-items:stretch;margin-top:28px}
+/* Reguli de folosire — proper card (border + matched typography) */
+.bb-rules{background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--r-md);padding:20px 22px}
+.bb-rules h4{font-family:inherit;font-size:15px;font-weight:700;margin-bottom:14px;color:var(--text)}
+.bb-rules ul{list-style:none;display:flex;flex-direction:column;gap:11px}
+.bb-rules li{position:relative;padding-left:22px;font-size:13.5px;color:var(--text-muted);line-height:1.5}
+.bb-rules li::before{content:"";position:absolute;left:0;top:6px;width:9px;height:9px;border-radius:50%;background:var(--primary)}
 /* decor showcase */
 .bb-decor-stage{border-radius:var(--r-md);padding:34px;display:flex;align-items:center;justify-content:center;gap:34px;flex-wrap:wrap;margin-bottom:20px}
 .bb-decor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}

@@ -63,6 +63,29 @@ function regionAfterMarker(html: string, name: string): string | null {
   return null
 }
 
+// Preprocess a Claude-Design landing page for import: strip its template tags
+// (<sc-if>/{{…}}) and turn <image-slot> placeholders into fillable image
+// placeholders that carry the slot id + caption (so we can later fill them
+// with an uploaded/stock/generated image, targeted by [data-slot-id]).
+export function preprocessLandingHtml(html: string): string {
+  let s = html
+  // Claude-Design conditionals/loops — keep inner content, drop the wrapper.
+  s = s.replace(/<\/?sc-(?:if|for|each|show|else|slot)[^>]*>/gi, '')
+  s = s.replace(/<sc-[a-z-]+[^>]*\/>/gi, '')
+  // Mustache expressions → empty.
+  s = s.replace(/\{\{[^}]*\}\}/g, '')
+  const slotDiv = (attrs: string) => {
+    const id = attrs.match(/id=["']([^"']+)["']/)?.[1] || ''
+    const cap = attrs.match(/placeholder=["']([^"']+)["']/)?.[1] || 'Imagine'
+    const src = attrs.match(/src=["']([^"']+)["']/)?.[1]
+    if (src) return `<img data-slot-id="${id}" src="${src}" alt="${cap}" style="width:100%;height:100%;object-fit:cover;display:block;">`
+    return `<div class="uw-img-slot" data-slot-id="${id}" data-caption="${cap}" style="width:100%;height:100%;min-height:180px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 50%,#fff),color-mix(in srgb,var(--primary) 40%,#fff));color:#4a2a6a;font-size:13px;font-weight:600;text-align:center;padding:16px;">${cap}</div>`
+  }
+  s = s.replace(/<image-slot([^>]*)>[\s\S]*?<\/image-slot>/gi, (_m, a) => slotDiv(a))
+  s = s.replace(/<image-slot([^>]*)\/>/gi, (_m, a) => slotDiv(a))
+  return s
+}
+
 export function parseDesignSystem(html: string, assetsBaseUrl: string): ParsedDesignSystem {
   // ---- Colors ----
   // surface + text come from the body{} rule; primary/accent from frequency of

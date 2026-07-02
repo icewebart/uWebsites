@@ -7,7 +7,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { sectionizeHtml } from '../lib/html-sectionizer.js'
 import { createImageMirror } from '../lib/image-host.js'
 import { headlessRender, extractBrandFromDom, type NavNode } from '../lib/headless.js'
-import { parseDesignSystem } from '../lib/design-system.js'
+import { parseDesignSystem, preprocessLandingHtml } from '../lib/design-system.js'
 
 // ---- Color scale generation (for the design-system palette display) ----
 function _toRgb(h: string): [number, number, number] | null {
@@ -877,7 +877,7 @@ importRouter.post('/sectionize-page', requireAuth, async (req: AuthRequest, res)
 // where the doc's relative assets (logo SVG, images, fonts) are hosted so we
 // can mirror them into our own store — no hotlinking, nothing breaks.
 importRouter.post('/design-system', requireAuth, async (req: AuthRequest, res) => {
-  const { slug, html, assetsBaseUrl, apply = true } = req.body ?? {}
+  const { slug, html, landingHtml, assetsBaseUrl, apply = true } = req.body ?? {}
   if (!slug || !html) return res.status(400).json({ ok: false, error: 'slug and html required' })
   const ws = await db.select().from(workspaces).where(and(eq(workspaces.slug, String(slug)), eq(workspaces.accountId, req.user!.accountId))).limit(1).then((r) => r[0])
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
@@ -896,12 +896,15 @@ importRouter.post('/design-system', requireAuth, async (req: AuthRequest, res) =
     if (!logoLocal) logoLocal = parsed.logoUrl
   }
 
-  // Sectionize the SAMPLE LANDING (clean inline-styled HTML — no headless
-  // needed). Images mirrored against the assets base; brand hexes rewritten to
-  // var(--primary)/--accent so token edits cascade.
+  // Home page source: a dedicated landing page HTML (preferred — a full page
+  // with real sections) or the design system's own SAMPLE LANDING. Clean
+  // inline-styled HTML, so no headless needed. Images mirrored; brand hexes
+  // rewritten to var(--primary)/--accent so token edits cascade; Claude-Design
+  // template tags + <image-slot> placeholders resolved.
   let blocks: any[] = []
-  if (parsed.sampleLandingHtml) {
-    const sections = await sectionizeHtml(parsed.sampleLandingHtml, {
+  const homeSource = landingHtml ? preprocessLandingHtml(String(landingHtml)) : parsed.sampleLandingHtml
+  if (homeSource) {
+    const sections = await sectionizeHtml(homeSource, {
       baseUrl: base,
       brandColors: { primary: parsed.tokens.color.primary, accent: parsed.tokens.color.accent },
       brandFonts: { heading: parsed.tokens.font.heading, body: parsed.tokens.font.body },
