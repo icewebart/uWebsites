@@ -73,11 +73,13 @@ section + section{padding-top:0}
 .rt img{max-width:100%;height:auto;border-radius:var(--card-r)}
 .img img{display:block;width:100%;height:auto;border-radius:var(--card-r)}
 
-/* Kids.ro-style floating pill header — white bar with a subtle shadow, sticky
-   at the top, colorful brand on the left, centered nav, purple pill CTA on
-   the right. Falls back to a normal in-flow band on narrow viewports. */
-.site-header{background:transparent;padding:20px 0;position:sticky;top:16px;z-index:100}
-.site-header .container{background:#fff;border-radius:999px;padding:12px 12px 12px 22px;box-shadow:0 6px 28px rgba(60,20,90,.08);display:flex;align-items:center;gap:24px;min-height:64px}
+/* Header sits ON the hero — it's overlaid (absolute, transparent) so the hero's
+   background flows continuously behind it and the two read as ONE block instead
+   of a floating pill separated by a gap. The first section reserves top space
+   for it. Brand left, centered nav, pill CTA right. */
+.site-header{position:absolute;top:0;left:0;right:0;z-index:100;background:transparent;padding:18px 0}
+.site-header .container{background:transparent;box-shadow:none;padding:4px 24px;display:flex;align-items:center;gap:24px;min-height:52px}
+main > section:first-child{padding-top:calc(var(--pad) + 62px)}
 .site-header .brand{font-family:'${t.font.heading}',sans-serif;font-weight:700;font-size:18px;color:var(--primary);text-decoration:none;display:flex;align-items:center;gap:10px;flex:0 0 auto}
 .site-header .brand img{height:32px;width:auto;display:block}
 .site-header .nav{flex:1;display:flex;justify-content:center;gap:26px;align-items:center;flex-wrap:wrap}
@@ -118,7 +120,9 @@ section + section{padding-top:0}
 .site-footer .bottom a{color:var(--footer-fg);opacity:.85;text-decoration:none}
 .site-footer .bottom a:hover{opacity:1;text-decoration:underline}
 
-@media(max-width:900px){.site-header{position:relative;top:0}.site-header .container{flex-wrap:wrap;border-radius:24px;padding:12px 16px}.site-header .nav{gap:14px;justify-content:flex-start}.site-header .nav .nav-link{font-size:13px}
+@media(max-width:900px){.site-header .container{flex-wrap:wrap;border-radius:0;padding:12px 16px}.site-header .nav{gap:14px;justify-content:flex-start}.site-header .nav .nav-link{font-size:13px}
+/* overlay header can wrap on mobile — give the hero extra headroom */
+main > section:first-child{padding-top:calc(var(--pad) + 104px)}
 /* On narrow screens dropdowns expand inline (tap-to-open via HEADER_SCRIPT) */
 .site-header .dropdown{position:static;transform:none!important;box-shadow:none;opacity:1;visibility:visible;display:none;padding:2px 0 6px 14px;min-width:0;background:transparent}
 .site-header .dropdown.mega{grid-template-columns:1fr;min-width:0}
@@ -215,22 +219,34 @@ export const HEADER_SCRIPT = `<script>(function(){
 // half 'Companie'. Legal-looking items (Termeni / Privacy / GDPR / Confidențialitate)
 // get hoisted to the bottom bar. This keeps the flat items[] data shape while
 // giving the render the multi-column structure the Kids.ro system uses.
-export function renderFooter(ws: any, footer: MenuTree | undefined, tagline?: string | null): string {
+export function renderFooter(ws: any, footer: MenuTree | undefined, tagline?: string | null, logoUrl?: string | null): string {
+  const linkFor = (i: MenuItem) => `<a href="${esc(i.href)}">${esc(i.label)}</a>`
+  const brandLogo = logoUrl
+    ? `<div class="brand"><img src="${esc(logoUrl)}" alt="${esc(ws.name)}"></div>`
+    : `<div class="brand">${esc(ws.name)}</div>`
+  const brand = `<div class="brand-col">${brandLogo}${tagline ? `<p>${esc(tagline)}</p>` : ''}</div>`
+  const nl = `<div class="col newsletter"><h4>Newsletter</h4><form onsubmit="event.preventDefault();alert('Îți mulțumim! (formularul de newsletter va fi conectat în curând)')"><input type="email" placeholder="emailul tău" aria-label="Email"><button type="submit">OK</button></form></div>`
+  const bottomBar = (extra: string) => `<div class="bottom"><div>© ${new Date().getFullYear()} ${esc(ws.name)}</div><div>${extra || 'built with uWebsites'}</div></div>`
+
   const all = footer?.items || []
+  // Preferred: the footer menu carries COLUMN GROUPS (top-level item = column
+  // title, its children = links) — mirrors the imported/design-kit footer and
+  // is editable in the footer editor. Render each group as a column.
+  const groups = all.filter((i) => i.children && i.children.length)
+  if (groups.length) {
+    const colsHtml = groups.slice(0, 3).map((g) => `<div class="col"><h4>${esc(g.label)}</h4>${g.children!.slice(0, 8).map((c) => `<a href="${esc(c.href || '#')}">${esc(c.label)}</a>`).join('')}</div>`).join('')
+    return `<footer class="site-footer"><div class="container">${brand}${colsHtml}${nl}${bottomBar('')}</div></footer>`
+  }
+
+  // Fallback: split a flat footer menu into two columns + hoist legal links.
   const legalRe = /(termen|privacy|gdpr|confiden|politica|cookie|legal)/i
   const bottomItems = all.filter((i) => legalRe.test(i.label))
   const mainItems = all.filter((i) => !legalRe.test(i.label))
   const mid = Math.ceil(mainItems.length / 2)
-  const colA = mainItems.slice(0, mid)
-  const colB = mainItems.slice(mid)
-  const linkFor = (i: MenuItem) => `<a href="${esc(i.href)}">${esc(i.label)}</a>`
   const colHtml = (title: string, items: MenuItem[]) => items.length
     ? `<div class="col"><h4>${esc(title)}</h4>${items.map(linkFor).join('')}</div>`
     : '<div class="col"></div>'
-  const brand = `<div class="brand-col"><div class="brand">${esc(ws.name)}</div>${tagline ? `<p>${esc(tagline)}</p>` : ''}</div>`
-  const nl = `<div class="col newsletter"><h4>Newsletter</h4><form onsubmit="event.preventDefault();alert('Îți mulțumim! (formularul de newsletter va fi conectat în curând)')"><input type="email" placeholder="emailul tău" aria-label="Email"><button type="submit">OK</button></form></div>`
-  const bottomLinks = bottomItems.map(linkFor).join(' · ')
-  return `<footer class="site-footer"><div class="container">${brand}${colHtml('Programe', colA)}${colHtml('Companie', colB)}${nl}<div class="bottom"><div>© ${new Date().getFullYear()} ${esc(ws.name)}</div><div>${bottomLinks || 'built with uWebsites'}</div></div></div></footer>`
+  return `<footer class="site-footer"><div class="container">${brand}${colHtml('Programe', mainItems.slice(0, mid))}${colHtml('Companie', mainItems.slice(mid))}${nl}${bottomBar(bottomItems.map(linkFor).join(' · '))}</div></footer>`
 }
 
 function renderPage(page: any, body: string, t: any, ws: any, base: string, opts?: { header?: MenuTree; footer?: MenuTree }) {
@@ -238,7 +254,7 @@ function renderPage(page: any, body: string, t: any, ws: any, base: string, opts
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(page.title)} — ${esc(ws.name)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">${fontsHead(t)}<style>${siteCss(t)}</style></head><body>
 ${renderHeader(ws, base, opts?.header, logo)}
 <main>${body || ''}</main>
-${renderFooter(ws, opts?.footer)}
+${renderFooter(ws, opts?.footer, (t as any)?.brand_assets?.tagline, logo)}
 ${HEADER_SCRIPT}
 </body></html>`
 }

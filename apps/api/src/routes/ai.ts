@@ -7,6 +7,19 @@ import { SECTIONS, SECTION_META } from '../lib/sections.js'
 import { pickAesthetic, aestheticPrompt, COPY_RULES, AESTHETICS } from '../lib/aesthetics.js'
 import { generateImage, generateImageResult, photoPrompt, imageGenEnabled, reasonMessage } from '../lib/imagegen.js'
 
+// Strip document chrome the model must not emit — the platform wraps every page
+// with its OWN header (menu) + footer, so a <header>/<nav>/<footer> in the
+// generated body would render the page's chrome twice. Also drops stray
+// <html>/<head>/<body> wrappers.
+function stripPageChrome(html: string): string {
+  return String(html || '')
+    .replace(/<\/?(?:html|head|body)[^>]*>/gi, '')
+    .replace(/<header[\s\S]*?<\/header>/gi, '')
+    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+    .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+    .trim()
+}
+
 // AI: page generation + section rewrite. Lazy-init the client so the API
 // starts even without a key — the routes return 503 in that case.
 export const aiRouter = Router()
@@ -262,7 +275,7 @@ ${brief ? '\n\nSITE CONTEXT (anchor industry, audience, voice; reflect it in the
     const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
     if (!toolUse) return res.status(502).json({ ok: false, error: 'Model returned no page' })
     const { title, html } = toolUse.input as { title: string; html: string }
-    const blocks = [{ type: 'raw-html', props: { html, sourceLabel: 'AI · free-form' } }]
+    const blocks = [{ type: 'raw-html', props: { html: stripPageChrome(html), sourceLabel: 'AI · free-form' } }]
     const pageType = type === 'home' || !type ? 'home' : String(type)
     let created: any
     if (pageType === 'home') {
@@ -318,8 +331,8 @@ Silently critique the page against this rubric, then rewrite it to fix the weake
 - Imagery: keep every <div class="uw-img-slot" data-caption="..."> placeholder (do not delete image areas; improve their framing/aspect if needed).
 
 HARD RULES:
-- Keep ALL copy VERBATIM — every heading, paragraph, label, button text stays exactly as written. You are redesigning, NOT rewriting.
-- Output ONLY the page body: a series of <section> blocks. No <html>/<head>/<body>, no site <header>/<nav>/<footer> (the platform adds those).
+- Work from the EXISTING content only. Reuse every heading, paragraph, label, button and image slot already on the page — keep them VERBATIM. Do NOT invent new copy, add new sections, or drop existing ones. You are redesigning the SAME content, not rewriting it.
+- Output ONLY the page body: a series of <section> blocks. Emit NO <html>/<head>/<body>, and NO site <header>/<nav>/<footer> — the platform already renders the menu and footer, so including them would show the page's chrome twice.
 - Colors only via the CSS variables above. Headings font '${f.heading || 'inherit'}', body '${f.body || 'inherit'}'.
 - Return the full improved HTML via the tool.`,
       tools: [{ name: 'page', description: 'The redesigned page.', input_schema: {
@@ -332,7 +345,7 @@ HARD RULES:
     })
     const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
     if (!toolUse?.input?.html) return res.status(502).json({ ok: false, error: 'Model returned no page' })
-    blocks[rawIdx].props.html = toolUse.input.html
+    blocks[rawIdx].props.html = stripPageChrome(toolUse.input.html)
     await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
     await logAiJob(ws.id, 'edit', 'done', { source: 'critique', pageId: page.id }, 2, page.id)
     res.json({ ok: true, data: { ok: true } })

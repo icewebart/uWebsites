@@ -36,6 +36,37 @@ function hue(c: Rgb): number {
 }
 
 export type NavNode = { text: string; href: string; children?: NavNode[] }
+export type FooterColumn = { title: string; items: Array<{ text: string; href: string }> }
+export type ParsedFooter = { tagline: string; columns: FooterColumn[] }
+
+// Parse the <footer> of a design-kit page into a tagline + link columns, so the
+// published footer mirrors the kit's footer (the way the header mirrors its
+// nav). Handles the Claude-Design markup (a short title div followed by a group
+// of <span>/<a> items). Template tags are stripped first.
+export function parseFooter(html: string): ParsedFooter {
+  const footer = html.match(/<footer[\s\S]*?<\/footer>/i)?.[0] || ''
+  const region = footer.replace(/<\/?sc-[a-z-]+[^>]*>/gi, '').replace(/\{\{[^}]*\}\}/g, '')
+  const tagline = stripTags(region.match(/<p[^>]*>([\s\S]*?)<\/p>/i)?.[1] || '').slice(0, 240)
+  const columns: FooterColumn[] = []
+  // Column headings = short, text-only divs (no links/@/digits). Items = the
+  // <span>/<a> nodes that follow, up to the next heading.
+  const headRe = /<div[^>]*>\s*([A-Za-zĂÂÎȘȚ][A-Za-zĂÂÎȘȚăâîșț &]{1,22})\s*<\/div>/g
+  const heads = [...region.matchAll(headRe)].filter((m) => !/https?:|@|\d{3}/.test(m[1]))
+  for (let i = 0; i < heads.length; i++) {
+    const title = stripTags(heads[i][1])
+    const start = heads[i].index! + heads[i][0].length
+    const end = i + 1 < heads.length ? heads[i + 1].index! : region.length
+    const scope = region.slice(start, end)
+    const items: Array<{ text: string; href: string }> = []
+    for (const im of scope.matchAll(/<(?:a|span)[^>]*>([\s\S]*?)<\/(?:a|span)>/gi)) {
+      const text = stripTags(im[1])
+      const href = im[0].match(/href=["']([^"']*)["']/)?.[1] || '#'
+      if (text && text.length < 60) items.push({ text, href })
+    }
+    if (items.length) columns.push({ title, items })
+  }
+  return { tagline, columns }
+}
 export type ParsedDesignSystem = {
   tokens: any
   logoUrl: string | null           // resolved (absolute) source URL of the logo
@@ -44,6 +75,7 @@ export type ParsedDesignSystem = {
   fontFaces: Array<{ family: string; srcUrl: string; format?: string }>  // custom @font-face to self-host
   navTree: NavNode[]               // header navigation, with dropdown children
   cta: { label: string; href: string } | null  // primary header button
+  footer: ParsedFooter             // footer tagline + link columns
 }
 
 function stripTags(s: string): string {
@@ -219,6 +251,7 @@ export function parseDesignSystem(html: string, assetsBaseUrl: string): ParsedDe
   // ---- Navigation (header menu with dropdowns) ---- prefer the sample landing
   // (a real page header); fall back to the whole doc.
   const { navTree, cta } = parseNavTree(sampleLandingHtml || html)
+  const footer = parseFooter(sampleLandingHtml || html)
 
   const tokens = {
     color: { primary, accent, surface, text },
@@ -226,5 +259,5 @@ export function parseDesignSystem(html: string, assetsBaseUrl: string): ParsedDe
     shape: { buttonRadius: '999px', cardRadius: '20px', borderWidth: '2px' },
     space: { sectionGap: '80px', sectionPaddingY: '72px', container: '1180px' },
   }
-  return { tokens, logoUrl, logoAlt, sampleLandingHtml, fontFaces: faces, navTree, cta }
+  return { tokens, logoUrl, logoAlt, sampleLandingHtml, fontFaces: faces, navTree, cta, footer }
 }

@@ -919,8 +919,15 @@ importRouter.post('/design-system', requireAuth, async (req: AuthRequest, res) =
     nav_tree: parsed.navTree,       // header nav with dropdowns (from the doc's <header>)
     has_mega_menu: parsed.navTree.some((n) => (n.children?.length || 0) > 6),
     cta: parsed.cta,
+    tagline: parsed.footer.tagline || undefined,
   } }
   const headerItems = navTreeToItems(parsed.navTree)
+  // Footer menu — each column becomes a top-level item (title) with its links as
+  // children, so the published footer mirrors the kit's footer columns AND stays
+  // editable in the footer editor (which already supports child items).
+  const footerItems = parsed.footer.columns
+    .filter((col) => col.items.length)
+    .map((col) => ({ label: col.title, href: '#', children: col.items.map((i) => ({ label: i.text, href: i.href })) }))
 
   if (apply) {
     // Branding
@@ -930,6 +937,10 @@ importRouter.post('/design-system', requireAuth, async (req: AuthRequest, res) =
     // Header menu — seed from the doc's nav (dropdowns preserved) + primary CTA
     if (headerItems.length || parsed.cta) {
       await upsertMenu(ws.id, 'header', { items: headerItems, cta: parsed.cta })
+    }
+    // Footer menu — seed from the doc's footer links
+    if (footerItems.length) {
+      await upsertMenu(ws.id, 'footer', { items: footerItems })
     }
     // Home page — replace blocks if a home exists, else create one
     if (blocks.length) {
