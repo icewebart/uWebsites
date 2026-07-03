@@ -559,36 +559,41 @@ export const SECTION_CSS = `
 .stats-row .stat .val{font-size:2.6rem;font-weight:700;letter-spacing:-.02em;line-height:1;color:var(--primary);margin-bottom:6px}
 .stats-row .stat .lbl{font-size:.85rem;opacity:.7;text-transform:uppercase;letter-spacing:.06em}
 
-/* article-hero — designed masthead; extra top padding clears the fixed menu */
-.article-hero{padding:calc(var(--pad) + 72px) 0 8px}
-main > section.article-hero:first-child{padding-top:calc(var(--pad) + 112px)}
+/* article-hero — designed masthead. First hero clears the fixed menu with a
+   FIXED top gap (independent of --pad); bottom sits close to the article body. */
+.article-hero{padding:44px 0 32px}
+main > section.article-hero:first-child{padding-top:120px}
 .article-hero .ah-inner{max-width:820px}
 .article-hero .ah-kicker{display:inline-block;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--primary);background:color-mix(in srgb,var(--primary) 10%,transparent);padding:4px 12px;border-radius:999px;margin-bottom:18px}
-.article-hero h1{font-size:clamp(1.9rem, 5vw, calc(2.6rem * var(--scale, 1.2)));line-height:1.08;letter-spacing:-.02em;margin:0 0 16px;max-width:20ch}
+.article-hero h1{font-size:clamp(1.9rem, 5vw, calc(2.6rem * var(--scale, 1.2)));line-height:1.08;letter-spacing:-.02em;margin:0 0 16px;max-width:22ch}
 .article-hero .ah-deck{font-size:clamp(1.05rem,2.4vw,1.25rem);line-height:1.55;color:color-mix(in srgb,var(--text) 72%,transparent);max-width:60ch;margin:0 0 20px}
 .article-hero .ah-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.9rem;color:color-mix(in srgb,var(--text) 58%,transparent)}
 .article-hero .ah-meta i{opacity:.5;font-style:normal}
 .article-hero .ah-banner{margin-top:32px}
 .article-hero .ah-banner img{width:100%;height:auto;max-height:460px;object-fit:cover;border-radius:calc(var(--card-r) + 4px)}
-@media(max-width:640px){main > section.article-hero:first-child{padding-top:calc(var(--pad) + 92px)}.article-hero .ah-banner{margin-top:22px}}
-/* article-hero variants */
+@media(max-width:640px){main > section.article-hero:first-child{padding-top:96px}.article-hero{padding-bottom:24px}.article-hero .ah-banner{margin-top:22px}}
+/* --- variants --- */
+/* Centered + Boxed: content is centered AND spans the full width of its column
+   (headline/deck no longer capped, so the box fills). */
 .article-hero.ah-centered .ah-inner{max-width:760px;margin:0 auto;text-align:center}
-.article-hero.ah-centered .ah-meta{justify-content:center}
+.article-hero.ah-centered .ah-meta,.article-hero.ah-boxed .ah-meta{justify-content:center}
+.article-hero.ah-centered h1,.article-hero.ah-centered .ah-deck{max-width:none;margin-left:auto;margin-right:auto}
 .article-hero.ah-boxed{background:color-mix(in srgb,var(--primary) 6%,var(--surface))}
-.article-hero.ah-boxed .ah-inner{max-width:820px;margin:0 auto;background:var(--surface);border:1px solid color-mix(in srgb,var(--text) 8%,transparent);border-radius:calc(var(--card-r) + 4px);padding:40px;box-shadow:var(--shadow);text-align:center}
-.article-hero.ah-boxed .ah-meta{justify-content:center}
-.article-hero.ah-minimal{padding-bottom:0}
-.article-hero.ah-minimal h1{font-size:clamp(1.6rem,4vw,calc(2.1rem * var(--scale,1.2)))}
-.article-hero.ah-cover{color:#fff;background-size:cover;background-position:center;display:flex;align-items:flex-end;min-height:min(62vh,520px);padding:0}
+.article-hero.ah-boxed .ah-inner{max-width:840px;margin:0 auto;background:var(--surface);border:1px solid color-mix(in srgb,var(--text) 8%,transparent);border-radius:calc(var(--card-r) + 4px);padding:48px 56px;box-shadow:var(--shadow);text-align:center}
+.article-hero.ah-boxed h1,.article-hero.ah-boxed .ah-deck{max-width:none}
+.article-hero.ah-minimal{padding-bottom:20px}
+.article-hero.ah-minimal h1{font-size:clamp(1.6rem,4vw,calc(2.1rem * var(--scale,1.2)));max-width:26ch}
+/* Cover (image) + Gradient share the full-bleed overlay layout */
+.article-hero.ah-cover{color:#fff;background-size:cover;background-position:center;display:flex;align-items:flex-end;min-height:min(60vh,500px);padding:0}
 main > section.article-hero.ah-cover:first-child{padding-top:0}
-.article-hero.ah-cover .container{padding-top:120px;padding-bottom:48px}
-.article-hero.ah-cover .ah-inner{max-width:820px}
-.article-hero.ah-cover h1{color:#fff}
-.article-hero.ah-cover .ah-deck{color:rgba(255,255,255,.9)}
-.article-hero.ah-cover .ah-meta{color:rgba(255,255,255,.8)}
+.article-hero.ah-cover .container{padding-top:128px;padding-bottom:52px}
+.article-hero.ah-cover .ah-inner{max-width:860px}
+.article-hero.ah-cover h1{color:#fff;max-width:none}
+.article-hero.ah-cover .ah-deck{color:rgba(255,255,255,.9);max-width:60ch}
+.article-hero.ah-cover .ah-meta{color:rgba(255,255,255,.82)}
 .article-hero.ah-cover .ah-kicker{background:rgba(255,255,255,.2);color:#fff}
 .article-hero.ah-cover-noimg{background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--accent) 60%,var(--primary)))}
-@media(max-width:640px){.article-hero.ah-boxed .ah-inner{padding:26px 20px}.article-hero.ah-cover{min-height:auto}.article-hero.ah-cover .container{padding-top:100px;padding-bottom:32px}}
+@media(max-width:640px){.article-hero.ah-boxed .ah-inner{padding:28px 22px}.article-hero.ah-cover{min-height:auto}.article-hero.ah-cover .container{padding-top:104px;padding-bottom:34px}}
 
 /* article-body — main text + sticky sidebar, tuned for reading + SEO */
 .article-body{padding:var(--pad) 0}
@@ -622,7 +627,10 @@ main > section.article-hero.ah-cover:first-child{padding-top:0}
 .article-body .ab-content :where(p,ul,ol){margin-bottom:1.1em}
 .article-body .ab-content :where(ul,ol){padding-left:1.4em}
 .article-body .ab-content a{color:var(--primary);text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1.5px}
-.article-body .ab-content img{width:100%;height:auto;border-radius:var(--card-r);margin:16px 0}
+.article-body .ab-content img{display:block;width:100%;height:auto!important;border-radius:var(--card-r);margin:18px 0;object-fit:cover}
+.article-body .ab-content :where(figure,p) img{margin:0}
+.article-body .ab-content figure{margin:18px 0}
+.article-body .ab-content figure img{width:100%}
 .article-body .ab-content blockquote{border-left:3px solid var(--primary);padding:2px 0 2px 18px;margin:20px 0;font-style:italic;color:color-mix(in srgb, var(--text) 82%, transparent)}
 .article-body .ab-side{position:sticky;top:96px;display:flex;flex-direction:column;gap:14px}
 .article-body .ab-card{background:var(--surface);border:1px solid color-mix(in srgb, var(--text) 8%, transparent);border-radius:var(--card-r);padding:18px}

@@ -20,7 +20,7 @@ const DEFAULT_TOKENS: any = {
   color: { primary: '#16324A', accent: '#8FD7F1', surface: '#FFFFFF', text: '#16242E' },
   font: { heading: 'Space Grotesk', body: 'Inter', scale: 1.2, lineHeight: 1.6 },
   shape: { buttonRadius: '12px', cardRadius: '16px', borderWidth: '1px' },
-  space: { sectionGap: '64px', sectionPaddingY: '48px', container: '1200px' },
+  space: { sectionGap: '64px', sectionPaddingY: '72px', container: '1200px' },
 }
 const esc = escSh
 
@@ -57,8 +57,14 @@ body{font-family:'${t.font.body}',system-ui,-apple-system,sans-serif;color:var(-
 a{color:var(--primary)}
 .container{max-width:var(--container);margin:0 auto;padding:0 24px;position:relative;z-index:1}
 h1,h2,h3{font-family:'${t.font.heading}',system-ui,sans-serif;line-height:1.12;letter-spacing:-.02em}
+img{max-width:100%}
+/* Section rhythm — each section owns symmetric vertical padding (no collapse),
+   so there's consistent, generous breathing room between every section. The
+   spacing is driven by --pad (Branding → "Space between sections"). */
 section{padding:var(--pad) 0;position:relative}
-section + section{padding-top:0}
+/* Neighbouring same-tone sections would otherwise double up — halve the seam so
+   it stays generous but not cavernous; alternating tones keep full padding. */
+section.tone-surface + section.tone-surface{padding-top:calc(var(--pad) * .4)}
 
 /* Section tones — alternating landing-page rhythm. Tinted bands get their own
    top+bottom padding (override the collapse) plus soft decorative circles in
@@ -130,7 +136,7 @@ main > section.uw-raw:first-child{padding-top:0}
 
 /* Kids.ro-style dark footer — rounded top, three-column info + brand block,
    cream text on the workspace's footer-bg (defaults to --text). */
-.site-footer{background:var(--footer-bg);color:var(--footer-fg);margin-top:calc(var(--pad) + 20px);padding:64px 0 32px;position:relative;border-radius:32px 32px 0 0}
+.site-footer{background:var(--footer-bg);color:var(--footer-fg);margin-top:0;padding:64px 0 32px;position:relative}
 .site-footer .container{display:grid;grid-template-columns:1.4fr 1fr 1fr 1.4fr;gap:40px;align-items:start}
 .site-footer .brand-col{display:flex;flex-direction:column;gap:16px}
 .site-footer .brand-col .brand{font-family:'${t.font.heading}',sans-serif;font-weight:800;font-size:22px;color:var(--footer-fg);display:flex;align-items:center;gap:10px}
@@ -184,7 +190,7 @@ main > section.uw-raw:first-child{padding-top:0}
   main > section.uw-raw:first-child{padding-top:0}
   /* Footer stacks nicely */
   .site-footer .container{grid-template-columns:1fr 1fr;gap:24px;padding:0 18px}
-  .site-footer{border-radius:24px 24px 0 0;padding:48px 0 24px}
+  .site-footer{padding:48px 0 24px}
 }
 @media(max-width:560px){
   :root{--pad:28px}
@@ -219,9 +225,9 @@ function composeBody(blocks: any[], renderOne: (b: any, i: number) => string): s
     }
     // hero-blob gets a very soft wash so the opening doesn't read as flat white
     if (type === 'hero-blob') tone = 'hero-wash'
-    if (tone !== 'surface') {
-      html = html.replace(/<section class="/, `<section data-tone="${tone}" class="tone-${tone} `)
-    }
+    // Always stamp the tone class (incl. tone-surface) so the section-rhythm CSS
+    // can tighten same-tone seams. All section renderers start with <section class=".
+    html = html.replace(/<section class="/, `<section data-tone="${tone}" class="tone-${tone} `)
     return html
   }).join('\n')
 }
