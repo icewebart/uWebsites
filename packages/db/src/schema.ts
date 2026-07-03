@@ -20,6 +20,9 @@ export const accounts = pgTable('accounts', {
   name: text('name').notNull(),
   plan: text('plan').notNull().default('trial'),
   stripeCustomerId: text('stripe_customer_id'),
+  // Account-level settings & integrations (e.g. { cloudflare: { apiToken, verified } }).
+  // Stored server-side; secrets are never returned to the client.
+  settings: jsonb('settings'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 

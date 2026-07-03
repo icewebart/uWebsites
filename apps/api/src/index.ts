@@ -10,6 +10,7 @@ import { publishRouter } from './routes/publish.js'
 import { aiRouter } from './routes/ai.js'
 import { domainsRouter } from './routes/domains.js'
 import { menusRouter } from './routes/menus.js'
+import { accountRouter } from './routes/account.js'
 
 const app = express()
 app.set('trust proxy', 1) // Cloudflare is the first hop in prod
@@ -44,5 +45,6 @@ import { SECTIONS as __SECTIONS } from './lib/sections.js'
 app.get('/sections', (_req, res) => res.json({ ok: true, data: __SECTIONS }))
 app.use('/workspaces', domainsRouter)
 app.use('/workspaces', menusRouter)
+app.use('/account', accountRouter)
 
 app.listen(PORT, () => console.log(`[uwebsites-api] listening on :${PORT}`))

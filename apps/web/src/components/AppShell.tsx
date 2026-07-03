@@ -20,7 +20,7 @@ const NAV: NavEntry[] = [
   { label: 'Branding', Icon: IconBranding },
   { label: 'Stats', Icon: IconStats },
 ]
-const PROFILE_ITEMS = ['Settings', 'Integrations', 'Email Setup', 'Billing']
+const PROFILE_ITEMS = ['Settings', 'Domains', 'Integrations', 'Email Setup', 'Billing']
 
 export function AppShell({ title, currentSlug, active = 'Dashboard', children, chatPageId, chatPageContext, onChatMutate, hideWorkspaceSwitch }: {
   title: string; currentSlug?: string; active?: string; children: React.ReactNode
@@ -132,11 +132,15 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               {profileOpen && (
                 <div className="profile-menu">
                   <div className="profile-head"><b>{displayName}</b><span>{current?.name || ''}</span></div>
-                  {PROFILE_ITEMS.map((label) => (
-                    label === 'Settings' && current
-                      ? <a key={label} className="profile-item" href={`/w/${current.slug}/settings`}>{label}</a>
+                  {PROFILE_ITEMS.map((label) => {
+                    const href = label === 'Settings' && current ? `/w/${current.slug}/settings`
+                      : label === 'Integrations' ? '/integrations'
+                      : label === 'Domains' ? '/domains'
+                      : null
+                    return href
+                      ? <a key={label} className="profile-item" href={href}>{label}</a>
                       : <button key={label} className="profile-item" onClick={() => { /* TODO: route */ }}>{label}</button>
-                  ))}
+                  })}
                   <button className="profile-item danger" onClick={logout}>Sign out</button>
                 </div>
               )}
