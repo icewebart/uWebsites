@@ -613,7 +613,7 @@ main > section.article-hero.ah-cover:first-child{padding-top:0}
 .article-body .ab-card-news input:focus{outline:2px solid color-mix(in srgb,var(--primary) 40%,transparent);outline-offset:1px;border-color:var(--primary)}
 .article-body .ab-card-news .btn{width:100%;text-align:center}
 @media(max-width:640px){.article-body .ab-toc-inline ul{columns:1}}
-.article-body .grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:56px;align-items:start}
+.article-body .grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:50px;align-items:start}
 .article-body .ab-main{min-width:0}
 .article-body .ab-meta{font-size:.85rem;color:color-mix(in srgb, var(--text) 55%, transparent);text-transform:uppercase;letter-spacing:.05em;margin-bottom:16px}
 .article-body .ab-content{font-size:1.05rem;line-height:1.75;color:var(--text);max-width:70ch}

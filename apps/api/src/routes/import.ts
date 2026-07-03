@@ -190,7 +190,36 @@ function safeHtml(html: string): string {
 // - Home pages: if there's a featured image, build a hero-image with the
 //   extracted main CTA; otherwise a centered hero carrying the same CTA.
 // - Other pages: simple hero + (optional) image + richtext body.
-function importedBlocks(title: string, contentHtml: string, featuredImg?: { url: string; alt?: string }, opts?: { isHome?: boolean; cta?: { label: string; href: string } | null }) {
+// Default article layout used at import time (deterministic — no AI) so every
+// imported article gets the header + sidebar columns from the get-go. Users can
+// change the design in Website → Article Template, or run AI Normalise to clean
+// the body markup.
+const DEFAULT_ARTICLE_SIDEBAR = [
+  { kind: 'cta', title: 'Ready to start?', text: 'A short line about the next step.', cta_label: 'Get in touch', cta_href: '/contact/' },
+  { kind: 'newsletter', title: 'Get our newsletter', text: 'Tips in your inbox, no spam.', cta_label: 'Subscribe', placeholder: 'you@email.com' },
+]
+function articleBlocksFromImport(title: string, contentHtml: string, featuredImg?: { url: string; alt?: string }, tmpl?: { heroVariant: string; sidebar: any[] }) {
+  const html = String(contentHtml || '')
+  // Pull the first paragraph as the deck, and drop it from the body to avoid a
+  // duplicate lead line.
+  const firstP = html.match(/<p[^>]*>([\s\S]*?)<\/p>/i)
+  const deck = firstP ? firstP[1].replace(/<[^>]*>/g, '').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 200) : ''
+  const body = firstP ? html.replace(firstP[0], '') : html
+  const readMins = Math.max(2, Math.round(html.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length / 200))
+  const heroVariant = tmpl?.heroVariant || 'classic'
+  const sidebar = JSON.parse(JSON.stringify(tmpl?.sidebar?.length ? tmpl.sidebar : DEFAULT_ARTICLE_SIDEBAR))
+  return [
+    { type: 'article-hero', props: { variant: heroVariant, eyebrow: '', heading: title || '', sub: deck, author: '', date: '', readMins, image_url: featuredImg?.url || '', image_alt: featuredImg?.alt || title || '' } },
+    { type: 'article-body', props: { html: safeHtml(body), toc: true, headline: title || '', author: '', publishedAt: '', readMins, sidebar } },
+    { type: 'cta-ref', props: { cta_id: '', variant: 'gradient' } },
+  ]
+}
+
+function importedBlocks(title: string, contentHtml: string, featuredImg?: { url: string; alt?: string }, opts?: { isHome?: boolean; cta?: { label: string; href: string } | null; pageType?: string; articleTemplate?: { heroVariant: string; sidebar: any[] } }) {
+  // Article-type pages import straight into the article template.
+  if ((opts?.pageType === 'article' || opts?.pageType === 'collection_item') && contentHtml && contentHtml.trim()) {
+    return articleBlocksFromImport(title, contentHtml, featuredImg, opts.articleTemplate)
+  }
   const blocks: any[] = []
   const cta = opts?.isHome ? (opts.cta || null) : null
 
@@ -731,7 +760,7 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
         blocks = importedBlocks(item.title, contentHtml, featured || undefined, { isHome, cta: brandCta })
       }
     } else {
-      blocks = importedBlocks(item.title, contentHtml, featured || undefined, { isHome, cta: isHome ? brandCta : null })
+      blocks = importedBlocks(item.title, contentHtml, featured || undefined, { isHome, cta: isHome ? brandCta : null, pageType: type })
     }
 
     await db.insert(pages).values({

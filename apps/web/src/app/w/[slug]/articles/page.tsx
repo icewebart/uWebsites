@@ -17,6 +17,7 @@ export default function ArticlesPage() {
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [note, setNote] = useState('')
+  const [err, setErr] = useState('')
 
   function load() {
     return api<PagesResp>(`/workspaces/${slug}/pages`).then(setData).catch(() => router.push(`/w/${slug}`))
@@ -43,25 +44,47 @@ export default function ArticlesPage() {
 
   // Normalise: reshape the article into the canonical structure (hero →
   // article-body with sidebar+TOC → CTA), keeping text/images verbatim.
+  // Fire normalise and poll the page until it becomes an article (hero+body).
+  // The AI call routinely exceeds the 60s proxy timeout — the server still
+  // finishes and saves, so we poll instead of surfacing a false 504 error.
+  async function runNormalise(pageId: string): Promise<'ok' | 'error'> {
+    let apiErr: any = null, done = false
+    api('/ai/normalise-article', { method: 'POST', body: JSON.stringify({ pageId }) })
+      .then(() => { done = true }).catch((e) => { apiErr = e; done = true })
+    const isTimeout = (m: string) => /gateway|timeout|network|fetch|504|502|aborted/i.test(m || '')
+    const started = Date.now()
+    while (Date.now() - started < 210_000) {
+      await new Promise((r) => setTimeout(r, 4000))
+      if (apiErr && !isTimeout(apiErr.message || '')) return 'error'
+      try {
+        const pg = await api<{ blocks?: Array<{ type: string }> }>(`/pages/${pageId}`)
+        if (Array.isArray(pg.blocks) && pg.blocks.some((b) => b.type === 'article-hero')) return 'ok'
+      } catch { /* keep polling */ }
+      if (done && !apiErr) return 'ok'
+    }
+    return 'error'
+  }
+
   async function normalise(p: Page) {
     if (!window.confirm(`Normalise "${p.title || p.slug}" into the standard article layout (hero → body with sidebar → CTA)? Your text and images are kept; only the structure changes.`)) return
     setBusyId(p.id); setNote('')
-    try {
-      const r = await api<{ sections: number }>('/ai/normalise-article', { method: 'POST', body: JSON.stringify({ pageId: p.id }) })
-      setNote(`Normalised "${p.title}" into ${r.sections} sections.`)
-      await load()
-    } catch (e: any) { alert(e.message || 'Normalise failed') } finally { setBusyId(null) }
+    const r = await runNormalise(p.id)
+    setBusyId(null)
+    if (r === 'error') { setErr(`Could not normalise "${p.title}". Try again.`); return }
+    setNote(`Normalised "${p.title}" ✓`); await load()
   }
 
   async function normaliseAll() {
     if (!articles.length) return
-    if (!window.confirm(`Normalise all ${articles.length} article(s) into the standard layout? This runs one after another and can take a while.`)) return
-    setNote('')
+    if (!window.confirm(`Normalise all ${articles.length} article(s) into the standard layout? This runs one after another and can take a while — keep this tab open.`)) return
+    setNote(''); setErr('')
+    let ok = 0
     for (const p of articles) {
       setBusyId(p.id)
-      try { await api('/ai/normalise-article', { method: 'POST', body: JSON.stringify({ pageId: p.id }) }) } catch { /* keep going */ }
+      if (await runNormalise(p.id) === 'ok') ok++
+      setNote(`Normalised ${ok}/${articles.length}…`)
     }
-    setBusyId(null); setNote(`Normalised ${articles.length} article(s).`); await load()
+    setBusyId(null); setNote(`Normalised ${ok}/${articles.length} article(s) ✓`); await load()
   }
 
   if (loading) return <div className="empty">Loading…</div>
@@ -78,6 +101,7 @@ export default function ArticlesPage() {
         </div>
       </div>
       {note && <div className="banner-ok" style={{ marginBottom: 14 }}>{note}</div>}
+      {err && <div className="err" style={{ marginBottom: 14 }}>{err}</div>}
 
       {articles.length === 0 ? (
         <div className="aside-block" style={{ textAlign: 'center', padding: 40 }}>
