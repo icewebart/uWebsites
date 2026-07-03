@@ -142,7 +142,12 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 .feat a.go{display:inline-block;margin-top:12px;font-size:13px;font-weight:600;color:var(--forest)}
 
 /* ============ Editor v2 — preview-centric ============ */
-.editor-bar2{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.editor-bars{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.editor-bar2{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.editor-bar2.eb-row1{margin-bottom:0}
+/* Row 2 — tools, left-aligned, own line so they never overlap row 1 */
+.editor-bar2.eb-row2{padding-top:8px;border-top:1px solid var(--border)}
+.editor-bar2 .eb-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%}
 .img-gen-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:40;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow-lg);padding:6px;width:260px;display:flex;flex-direction:column;gap:2px}
 .img-gen-menu button{display:flex;flex-direction:column;gap:2px;text-align:left;background:none;border:0;border-radius:var(--r-sm);padding:9px 11px;cursor:pointer;font-family:inherit}
 .img-gen-menu button:hover{background:var(--bg-subtle)}

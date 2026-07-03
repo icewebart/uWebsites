@@ -281,47 +281,55 @@ export default function PageEditor() {
       chatPageContext={{ type: page?.type || '', title, blocks }}
       onChatMutate={(newBlocks) => { setBlocks(newBlocks); setPreviewKey((k) => k + 1); setSavedAt(new Date().toLocaleTimeString()) }}
     >
-      <div className="editor-bar2">
-        <div className="eb-left">
-          <a className="back" href={`/w/${slug}`}>← {page?.wsName}</a>
-          <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Page title" />
-          <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="draft">Draft</option><option value="published">Published</option></select>
-          {savedAt && <span className="muted eb-saved" style={{ fontSize: 12 }}>Saved {savedAt}</span>}
-          <button className="btn btn-ghost" onClick={undo} disabled={!history.length} title={history.length ? `Undo the last change (${history.length} step${history.length > 1 ? 's' : ''} available)` : 'Nothing to undo'}>↶ Undo</button>
-          <a className="btn btn-ghost" href={`${API_URL}/pages/${pageId}/preview`} target="_blank" rel="noreferrer" title="Open in a new tab (without editor UI)">↗ Preview</a>
+      <div className="editor-bars">
+        {/* Row 1 — page identity + history + save (always reachable) */}
+        <div className="editor-bar2 eb-row1">
+          <div className="eb-left">
+            <a className="back" href={`/w/${slug}`}>← {page?.wsName}</a>
+            <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Page title" />
+            <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="draft">Draft</option><option value="published">Published</option></select>
+            {savedAt && <span className="muted eb-saved" style={{ fontSize: 12 }}>Saved {savedAt}</span>}
+          </div>
+          <div className="eb-right">
+            <button className="btn btn-ghost" onClick={undo} disabled={!history.length} title={history.length ? `Undo the last change (${history.length} step${history.length > 1 ? 's' : ''} available)` : 'Nothing to undo'}>↶ Undo</button>
+            <a className="btn btn-ghost" href={`${API_URL}/pages/${pageId}/preview`} target="_blank" rel="noreferrer" title="Open in a new tab (without editor UI)">↗ Preview</a>
+            <button className="btn btn-ghost" onClick={() => setSideCollapsed((v) => !v)} title={sideCollapsed ? 'Show the sections panel' : 'Hide the sections panel for a wider preview'}>{sideCollapsed ? '⊞ Sections' : '⊟ Hide panel'}</button>
+            <button className="btn btn-primary" onClick={save} disabled={saving || polishing || fillingImg} title={polishing || fillingImg ? 'Wait for the AI edit to finish — it saves automatically' : ''}>{saving ? 'Saving…' : 'Save'}</button>
+          </div>
         </div>
-        <div className="eb-right">
-          <div className="img-gen-wrap" style={{ position: 'relative' }}>
-            <button className="btn btn-secondary" onClick={() => setImgMenuOpen((v) => !v)} disabled={fillingImg} title="Generate images with AI">
-              {fillingImg ? 'Generating…' : '✨ Generate images ▾'}
+        {/* Row 2 — content & AI tools */}
+        <div className="editor-bar2 eb-row2">
+          <div className="eb-tools">
+            <div className="img-gen-wrap" style={{ position: 'relative' }}>
+              <button className="btn btn-secondary" onClick={() => setImgMenuOpen((v) => !v)} disabled={fillingImg} title="Generate images with AI">
+                {fillingImg ? 'Generating…' : '✨ Generate images ▾'}
+              </button>
+              {imgMenuOpen && !fillingImg && (
+                <div className="img-gen-menu" onMouseLeave={() => setImgMenuOpen(false)}>
+                  <button onClick={() => fillImages('placeholders')}><b>✨ Fill empty images</b><span>Every blank image slot on the page</span></button>
+                  <button onClick={() => fillImages('featured')}><b>🖼 Featured + social image</b><span>Hero photo + OG/social share image</span></button>
+                  <button onClick={() => fillImages('sections')}><b>📄 Illustrate sections</b><span>One image before each H2 heading</span></button>
+                </div>
+              )}
+            </div>
+            <button className="btn btn-secondary" onClick={polishDesign} disabled={polishing} title="AI design pass — redesigns imported sections, or sharpens the copy on typed pages; keeps your links + images">
+              {polishing ? 'Polishing…' : '✦ Polish design'}
             </button>
-            {imgMenuOpen && !fillingImg && (
-              <div className="img-gen-menu" onMouseLeave={() => setImgMenuOpen(false)}>
-                <button onClick={() => fillImages('placeholders')}><b>✨ Fill empty images</b><span>Every blank image slot on the page</span></button>
-                <button onClick={() => fillImages('featured')}><b>🖼 Featured + social image</b><span>Hero photo + OG/social share image</span></button>
-                <button onClick={() => fillImages('sections')}><b>📄 Illustrate sections</b><span>One image before each H2 heading</span></button>
-              </div>
+            <button className="btn btn-secondary" onClick={fixLinks} disabled={fixingLinks} title="Rewrite links to the original site into internal links, and resolve placeholder (#) links">
+              {fixingLinks ? 'Fixing…' : '🔗 Fix links'}
+            </button>
+            <button className="btn btn-secondary" onClick={healImages} disabled={healing} title="Copy any missing image files from sibling workspaces (fixes broken images without a full re-import)">
+              {healing ? 'Healing…' : '⚕ Fix images'}
+            </button>
+            {page?.seo?.import_source && (
+              <>
+                <button className="btn btn-secondary" onClick={sectionizeFromSource} disabled={sectionizing} title="Pixel-faithful import — recopy the source page's layout, swap colors/fonts to your brand, mirror images locally.">
+                  {sectionizing ? 'Importing…' : '⌕ Re-import'}
+                </button>
+                <button className="btn btn-secondary" onClick={() => setRebuildOpen(true)} title="Restructure into a designed layout using the section catalog">✦ AI rebuild</button>
+              </>
             )}
           </div>
-          <button className="btn btn-secondary" onClick={polishDesign} disabled={polishing} title="AI design pass — redesigns imported sections, or sharpens the copy on typed pages; keeps your links + images">
-            {polishing ? 'Polishing…' : '✦ Polish design'}
-          </button>
-          <button className="btn btn-secondary" onClick={fixLinks} disabled={fixingLinks} title="Resolve placeholder (#) links on this page to real pages by matching link text to page titles">
-            {fixingLinks ? 'Fixing…' : '🔗 Fix links'}
-          </button>
-          <button className="btn btn-secondary" onClick={healImages} disabled={healing} title="Copy any missing image files from sibling workspaces (fixes broken images without a full re-import)">
-            {healing ? 'Healing…' : '⚕ Fix images'}
-          </button>
-          {page?.seo?.import_source && (
-            <>
-              <button className="btn btn-secondary" onClick={sectionizeFromSource} disabled={sectionizing} title="Pixel-faithful import — recopy the source page's layout, swap colors/fonts to your brand, mirror images locally.">
-                {sectionizing ? 'Importing…' : '⌕ Re-import'}
-              </button>
-              <button className="btn btn-secondary" onClick={() => setRebuildOpen(true)} title="Restructure into a designed layout using the section catalog">✦ AI rebuild</button>
-            </>
-          )}
-          <button className="btn btn-ghost" onClick={() => setSideCollapsed((v) => !v)} title={sideCollapsed ? 'Show the sections panel' : 'Hide the sections panel for a wider preview'}>{sideCollapsed ? '⊞ Sections' : '⊟ Hide panel'}</button>
-          <button className="btn btn-primary" onClick={save} disabled={saving || polishing || fillingImg} title={polishing || fillingImg ? 'Wait for the AI edit to finish — it saves automatically' : ''}>{saving ? 'Saving…' : 'Save'}</button>
         </div>
       </div>
       {err && <div className="err" style={{ marginBottom: 10 }}>{err}</div>}
