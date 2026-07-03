@@ -1289,8 +1289,8 @@ const NAV_SCHEMA = {
   properties: {
     items: {
       type: 'array',
-      description: 'Ordered nav items. Use existing page paths from PAGES below when possible; only invent paths when the page truly does not exist yet.',
-      items: { type: 'object', properties: { label: { type: 'string' }, href: { type: 'string' } }, required: ['label', 'href'] },
+      description: 'Ordered nav items. Use existing page paths from PAGES below when possible; only invent paths when the page truly does not exist yet. For a FOOTER, return each item as a COLUMN: label = the column title (e.g. "Company"), children = the links in that column.',
+      items: { type: 'object', properties: { label: { type: 'string' }, href: { type: 'string' }, children: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, href: { type: 'string' } }, required: ['label', 'href'] } } }, required: ['label'] },
     },
     cta: {
       type: 'object',
@@ -1317,7 +1317,7 @@ aiRouter.post('/generate-nav', requireAuth, async (req: AuthRequest, res) => {
 
   const intent = loc === 'header'
     ? 'Build a HEADER navigation: 3–6 short items (1–2 words each) that cover the primary user journeys. Optionally include ONE main CTA (e.g. "Book a call", "Get started", "Sign up") when it matches the site\'s intent.'
-    : 'Build a FOOTER navigation: 4–10 utility / discoverability links (About, Contact, Legal, Resources, Categories, etc.). No CTA. Short labels (1–3 words).'
+    : 'Build a FOOTER as 2–4 titled COLUMNS. Each top-level item is a column: its label is the column TITLE (e.g. "Company", "Resources", "Legal", or category groups that fit this site), and its children are the links in that column (3–6 each). Use real page hrefs. No CTA.'
 
   try {
     const r = await a.messages.create({
@@ -1330,8 +1330,13 @@ aiRouter.post('/generate-nav', requireAuth, async (req: AuthRequest, res) => {
     })
     const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
     if (!toolUse) return res.status(502).json({ ok: false, error: 'Model returned no nav' })
-    const input = toolUse.input as { items: { label: string; href: string }[]; cta?: { label: string; href: string } }
-    const items = (input.items || []).slice(0, loc === 'header' ? 8 : 12).map((i) => ({ label: String(i.label || '').slice(0, 40), href: String(i.href || '').slice(0, 500) })).filter((i) => i.label && i.href)
+    const input = toolUse.input as { items: any[]; cta?: { label: string; href: string } }
+    const items = (input.items || []).slice(0, loc === 'header' ? 8 : 6).map((i: any) => {
+      const kids = Array.isArray(i.children) ? i.children.map((c: any) => ({ label: String(c.label || '').slice(0, 40), href: String(c.href || '').slice(0, 500) })).filter((c: any) => c.label && c.href).slice(0, 8) : []
+      const item: any = { label: String(i.label || '').slice(0, 40), href: String(i.href || (kids.length ? '#' : '')).slice(0, 500) }
+      if (kids.length) item.children = kids
+      return item
+    }).filter((i: any) => i.label && (i.href || i.children))
     const cta = loc === 'header' && input.cta?.label ? { label: String(input.cta.label).slice(0, 40), href: String(input.cta.href || '').slice(0, 500) } : undefined
     await logAiJob(ws.id, 'edit', 'done', { source: 'generate-nav', location: loc, count: items.length }, 1)
     res.json({ ok: true, data: { items, cta } })
