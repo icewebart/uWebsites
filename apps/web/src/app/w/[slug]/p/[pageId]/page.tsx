@@ -134,6 +134,19 @@ export default function PageEditor() {
     try { await runLongEdit('/ai/critique-page', 'Design polished ✓ — saved') } finally { setPolishing(false) }
   }
 
+  const [structuring, setStructuring] = useState(false)
+  // Deterministic (no-AI) restructure: turn imported/messy content into a clean
+  // hero-image + body + CTA. Fixes the ugly imported hero for free.
+  async function structurePage() {
+    if (!window.confirm('Restructure this page into a clean hero + content + CTA from its existing text and images? Free — no AI credits. (Undo is available.)')) return
+    setErr(''); setStructuring(true); pushHistory()
+    try {
+      await api(`/workspaces/${slug}/structure-page`, { method: 'POST', body: JSON.stringify({ pageId }) })
+      const p = await api<PageData>(`/pages/${pageId}`); setBlocks(Array.isArray(p.blocks) ? p.blocks : []); setSelected(null); setPreviewKey((k) => k + 1)
+      setSavedAt('Structured ✓ — clean hero + content')
+    } catch (e: any) { setErr(e.message || 'Structure failed') } finally { setStructuring(false) }
+  }
+
   const [healing, setHealing] = useState(false)
   // Heal broken image references on this page — copy any missing files from a
   // sibling workspace that has the same content-hashed filename, and rewrite
@@ -312,6 +325,11 @@ export default function PageEditor() {
                 </div>
               )}
             </div>
+            {blocks.some((b) => (b.type === 'raw-html' || b.type === 'richtext') && b.props?.html) && (
+              <button className="btn btn-secondary" onClick={structurePage} disabled={structuring} title="Free, no AI — rebuild into a clean hero + content + CTA from existing text/images">
+                {structuring ? 'Structuring…' : '⚡ Structure'}
+              </button>
+            )}
             <button className="btn btn-secondary" onClick={polishDesign} disabled={polishing} title="AI design pass — redesigns imported sections, or sharpens the copy on typed pages; keeps your links + images">
               {polishing ? 'Polishing…' : '✦ Polish design'}
             </button>

@@ -281,6 +281,42 @@ menusRouter.post('/:slug/relink-internal', requireAuth, async (req: AuthRequest,
   res.json({ ok: true, data })
 })
 
+// POST /workspaces/:slug/structure-page { pageId } — DETERMINISTIC (no AI).
+// Turns an imported/messy page into clean typed sections: a proper hero-image
+// (kicker/title + first paragraph + first image + first button) followed by the
+// body as richtext and a Smart CTA. Fixes the ugly imported hero for free; the
+// user can then swap the hero design or add richer sections. This is the
+// credit-free path for the "all pages share the same pattern" case.
+menusRouter.post('/:slug/structure-page', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const pageId = String(req.body?.pageId || '')
+  const [p] = await db.select().from(pages).where(and(eq(pages.id, pageId), eq(pages.workspaceId, ws.id))).limit(1)
+  if (!p) return res.status(404).json({ ok: false, error: 'page not found' })
+
+  const cleanRaw = (h: string) => String(h || '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<!--[\s\S]*?-->/g, '').replace(/\sstyle=("[^"]*"|'[^']*')/gi, '')
+  const blocks = Array.isArray(p.blocks) ? (p.blocks as any[]) : []
+  let html = '', image = '', cta: { label: string; href: string } | null = null
+  for (const b of blocks) {
+    const pr = b?.props || {}
+    if (typeof pr.html === 'string' && pr.html.trim()) html += (b.type === 'raw-html' ? cleanRaw(pr.html) : pr.html) + '\n'
+    else if (pr.heading) { html += `<h2>${pr.heading}</h2>`; if (pr.sub) html += `<p>${pr.sub}</p>` }
+    if (!image) { if (pr.image_url) image = pr.image_url; else if (pr.url && b.type === 'image') image = pr.url; else if (typeof pr.html === 'string') { const m = pr.html.match(/<img[^>]+src=["']([^"']+)["']/i); if (m) image = m[1] } }
+    if (!cta && typeof pr.html === 'string') { const m = pr.html.match(/<a[^>]+href=["']([^"']+)["'][^>]*class=["'][^"']*(?:btn|button)[^"']*["'][^>]*>([\s\S]*?)<\/a>/i); if (m) cta = { label: m[2].replace(/<[^>]*>/g, '').trim().slice(0, 40), href: m[1] } }
+  }
+  // Deck = first paragraph; drop it from the body to avoid duplication.
+  const firstP = html.match(/<p[^>]*>([\s\S]*?)<\/p>/i)
+  const deck = firstP ? firstP[1].replace(/<[^>]*>/g, '').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 220) : ''
+  const body = firstP ? html.replace(firstP[0], '') : html
+  const newBlocks: any[] = [
+    { type: 'hero-image', props: { eyebrow: '', heading: p.title || '', sub: deck, image_url: image || '', image_alt: p.title || '', cta_label: cta?.label || '', cta_href: cta?.href || '', variant: 'split' } },
+    ...(body.replace(/<[^>]*>/g, '').trim().length > 20 ? [{ type: 'richtext', props: { html: body } }] : []),
+    { type: 'cta-ref', props: { cta_id: '', variant: 'gradient' } },
+  ]
+  await db.update(pages).set({ blocks: newBlocks as any, updatedAt: new Date() }).where(eq(pages.id, p.id))
+  res.json({ ok: true, data: { sections: newBlocks.length } })
+})
+
 // POST /workspaces/:slug/rewrap-articles — DETERMINISTIC (no AI, no credits).
 // Rebuilds every article into the article template using its existing content:
 // article-hero (title + first paragraph + first image) → article-body (content
