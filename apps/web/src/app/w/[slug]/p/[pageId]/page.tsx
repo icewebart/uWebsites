@@ -575,6 +575,44 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
         </details>
       </>)
     }
+    case 'timeline':
+      return (<>
+        <div className="field"><label>Eyebrow</label><input className="inp" value={p.eyebrow || ''} onChange={(e) => onChange({ eyebrow: e.target.value })} placeholder="(optional kicker)" /></div>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        {(p.items || []).map((it: any, j: number) => (
+          <div className="field" key={j}>
+            <label>Step {j + 1}</label>
+            <input className="inp" placeholder="Marker (e.g. Week 1)" value={it.marker || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, marker: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Title" value={it.title || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, title: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Description" value={it.desc || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, desc: e.target.value } : x))} />
+          </div>
+        ))}
+        <div className="ev-actions" style={{ marginTop: 4 }}>
+          <button onClick={() => setItems([...(p.items || []), { marker: '', title: '', desc: '' }])} disabled={(p.items || []).length >= 8}>＋ Add step</button>
+          {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
+        </div>
+      </>)
+    case 'gallery':
+      return (<>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        <div className="field"><label>Layout</label>
+          <select className="inp" value={p.layout || 'bento'} onChange={(e) => onChange({ layout: e.target.value })}>
+            <option value="bento">Bento (mixed sizes)</option>
+            <option value="grid">Grid (uniform)</option>
+          </select>
+        </div>
+        {(p.items || []).map((it: any, j: number) => (
+          <div className="field" key={j}>
+            <label>Image {j + 1}</label>
+            <input className="inp" placeholder="Image URL" value={it.image_url || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, image_url: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Caption (optional)" value={it.caption || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, caption: e.target.value } : x))} />
+          </div>
+        ))}
+        <div className="ev-actions" style={{ marginTop: 4 }}>
+          <button onClick={() => setItems([...(p.items || []), { image_url: '', caption: '' }])} disabled={(p.items || []).length >= 12}>＋ Add image</button>
+          {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
+        </div>
+      </>)
     default:
       return <div className="muted" style={{ fontSize: 13 }}>No editor for "{block.type}" sections yet.</div>
   }

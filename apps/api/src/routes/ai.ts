@@ -67,6 +67,8 @@ const BLOCK_SCHEMA = {
             '- logo-cloud: { heading, logos (REQUIRED — only include this section if you have real logo URLs) }',
             '- image-text: { heading (REQUIRED), html (REQUIRED — at least one <p>), image_url (REQUIRED), image_alt, image_side: "left"|"right" }',
             '- stats-row: { heading, items (REQUIRED — exactly 3, each { value, label }) }',
+            '- timeline: { eyebrow, heading (REQUIRED), items (REQUIRED — 3 to 6, each { marker (short date/label like "Week 1"), title, desc }) } — vertical process/roadmap/history/journey',
+            '- gallery: { eyebrow, heading, layout: "grid"|"bento", items (REQUIRED — 4 to 7, each { image_url (use an existing URL, else ""), caption }) } — image showcase; bento = mixed tile sizes',
             'RULE: if you do not have material to populate a section properly, DO NOT include it. Prefer 3 fully-populated sections over 6 empty ones.',
           ].join('\n') },
         },

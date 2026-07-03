@@ -11,7 +11,7 @@ export type SectionKind =
   | 'hero' | 'hero-image' | 'hero-blob' | 'richtext' | 'image'
   | 'features-3' | 'program-cards' | 'cta-banner' | 'steps'
   | 'testimonials-3' | 'pricing-3' | 'faq' | 'logo-cloud' | 'image-text' | 'stats-row' | 'stats-band'
-  | 'article-body'
+  | 'article-body' | 'timeline' | 'gallery'
   | 'raw-html'
 
 export type SectionMeta = {
@@ -240,6 +240,39 @@ export const SECTIONS: SectionMeta[] = [
       ],
     },
   },
+  {
+    kind: 'timeline',
+    name: 'Timeline',
+    description: 'A vertical timeline down the page — each step has an optional date/label, a title and a line of copy, joined by a connecting spine. Perfect for a process, roadmap, company history, or "what to expect" journey.',
+    category: 'features',
+    defaults: {
+      eyebrow: '',
+      heading: 'How the journey works',
+      items: [
+        { marker: 'Week 1', title: 'We get to know each other', desc: 'A relaxed first session to place your child at the right level.' },
+        { marker: 'Week 2–6', title: 'Playful foundations', desc: 'Songs, games and short stories build real vocabulary fast.' },
+        { marker: 'Week 8', title: 'First full conversation', desc: 'Your child holds a simple conversation — in German.' },
+      ],
+    },
+  },
+  {
+    kind: 'gallery',
+    name: 'Gallery',
+    description: 'A responsive image grid. layout: "grid" (uniform tiles) or "bento" (mixed sizes for a more editorial feel). Optional eyebrow + heading. Great for photos, spaces, work, or a product showcase.',
+    category: 'content',
+    defaults: {
+      eyebrow: '',
+      heading: 'A look inside',
+      layout: 'bento',
+      items: [
+        { image_url: '', caption: '' },
+        { image_url: '', caption: '' },
+        { image_url: '', caption: '' },
+        { image_url: '', caption: '' },
+        { image_url: '', caption: '' },
+      ],
+    },
+  },
 ]
 
 export const SECTION_META: Record<string, SectionMeta> = Object.fromEntries(SECTIONS.map((s) => [s.kind, s]))
@@ -268,6 +301,8 @@ export function sectionHasContent(b: any): boolean {
     case 'faq': return arrOk(p.items) && p.items.some((i: any) => has(i?.q) || has(i?.a))
     case 'logo-cloud': return arrOk(p.logos) && p.logos.some((l: any) => has(l?.url))
     case 'image-text': return has(p.heading) || has(p.html) || has(p.image_url)
+    case 'timeline': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.desc))
+    case 'gallery': return arrOk(p.items) && p.items.some((i: any) => has(i?.image_url))
     case 'stats-row': return arrOk(p.items) && p.items.some((i: any) => has(i?.value) || has(i?.label))
     case 'raw-html': return has(p.html)
     default: return false
@@ -489,6 +524,38 @@ export const SECTION_CSS = `
   .stats-row .stat .val{font-size:1.9rem}
   .testimonials-3 .card{flex:0 0 82%}
 }
+
+/* timeline — vertical spine with dotted markers */
+.timeline .head{text-align:center;max-width:640px;margin:0 auto 40px}
+.timeline .tl-list{list-style:none;margin:0 auto;padding:0;max-width:760px;position:relative}
+.timeline .tl-list::before{content:"";position:absolute;left:11px;top:6px;bottom:6px;width:2px;background:color-mix(in srgb, var(--primary) 22%, transparent)}
+.timeline .tl-item{position:relative;padding:0 0 30px 44px}
+.timeline .tl-item:last-child{padding-bottom:0}
+.timeline .tl-dot{position:absolute;left:3px;top:4px;width:18px;height:18px;border-radius:50%;background:var(--surface);border:3px solid var(--primary);box-shadow:0 0 0 4px color-mix(in srgb, var(--primary) 12%, transparent)}
+.timeline .tl-marker{display:inline-block;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--primary);background:color-mix(in srgb, var(--primary) 10%, transparent);padding:3px 9px;border-radius:999px;margin-bottom:8px}
+.timeline .tl-content h3{font-size:calc(1.15rem * var(--scale, 1.2));margin:0 0 4px;letter-spacing:-.01em}
+.timeline .tl-content p{margin:0;color:color-mix(in srgb, var(--text) 78%, transparent);line-height:1.6}
+
+/* gallery — uniform grid or editorial bento */
+.gallery .head{text-align:center;max-width:640px;margin:0 auto 34px}
+.gallery .g-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.gallery .g-tile{margin:0;position:relative;overflow:hidden;border-radius:var(--card-r);background:color-mix(in srgb, var(--text) 5%, transparent);aspect-ratio:4/3}
+.gallery .g-tile img{width:100%;height:100%;object-fit:cover;display:block}
+.gallery .g-tile .g-ph{width:100%;height:100%;background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--primary) 8%,transparent) 0 12px,transparent 12px 24px)}
+.gallery .g-tile figcaption{position:absolute;left:0;right:0;bottom:0;padding:18px 14px 10px;font-size:.82rem;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.6))}
+.gallery.is-bento .g-grid{grid-auto-rows:180px;grid-auto-flow:dense}
+.gallery.is-bento .g-tile{aspect-ratio:auto}
+.gallery.is-bento .g-b1{grid-column:span 2;grid-row:span 2}
+.gallery.is-bento .g-b4{grid-row:span 2}
+@media(max-width:760px){
+  .gallery .g-grid,.gallery.is-bento .g-grid{grid-template-columns:repeat(2,1fr);grid-auto-rows:140px}
+  .gallery.is-bento .g-b1{grid-column:span 2}
+}
+@media(max-width:460px){
+  .gallery .g-grid,.gallery.is-bento .g-grid{grid-template-columns:1fr;grid-auto-rows:auto}
+  .gallery.is-bento .g-tile{grid-column:auto!important;grid-row:auto!important;aspect-ratio:4/3}
+  .timeline .tl-item{padding-left:38px}
+}
 `
 
 // ---- per-kind static HTML renderer (used by publish.ts) ----
@@ -602,6 +669,28 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
       const items = (Array.isArray(p.items) ? p.items : []).slice(0, 4)
       const cells = items.map((it: any) => `<div class="sb-stat"><div class="sb-val">${esc(it.value)}</div><div class="sb-lbl">${esc(it.label)}</div></div>`).join('')
       return `<section class="stats-band"><div class="container"><div class="sb-box">${cells}</div></div></section>`
+    }
+    case 'timeline': {
+      const items = (Array.isArray(p.items) ? p.items : []).slice(0, 8)
+      const rows = items.map((it: any) => `<li class="tl-item"><div class="tl-dot"></div><div class="tl-content">${it.marker ? `<div class="tl-marker">${esc(it.marker)}</div>` : ''}${it.title ? `<h3>${esc(it.title)}</h3>` : ''}${it.desc ? `<p>${esc(it.desc)}</p>` : ''}</div></li>`).join('')
+      const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
+      const head = (p.heading || eyebrow) ? `<div class="head">${eyebrow}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div>` : ''
+      return `<section class="timeline"><div class="container">${head}<ul class="tl-list">${rows}</ul></div></section>`
+    }
+    case 'gallery': {
+      const bento = p.layout === 'bento'
+      const items = (Array.isArray(p.items) ? p.items : []).filter((it: any) => it && (it.image_url || it.caption)).slice(0, bento ? 7 : 12)
+      const tiles = items.map((it: any, i: number) => {
+        const cls = bento ? ` g-b${(i % 6) + 1}` : ''
+        const img = it.image_url
+          ? `<img src="${esc(it.image_url)}" alt="${esc(it.caption || '')}" loading="lazy">`
+          : `<div class="g-ph" aria-hidden="true"></div>`
+        const cap = it.caption ? `<figcaption>${esc(it.caption)}</figcaption>` : ''
+        return `<figure class="g-tile${cls}">${img}${cap}</figure>`
+      }).join('')
+      const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
+      const head = (p.heading || eyebrow) ? `<div class="head">${eyebrow}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div>` : ''
+      return `<section class="gallery${bento ? ' is-bento' : ''}"><div class="container">${head}<div class="g-grid">${tiles}</div></div></section>`
     }
     case 'cta-banner': {
       const solid = p.variant === 'solid' ? ' v-solid' : ''
