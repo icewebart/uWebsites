@@ -127,22 +127,38 @@ accountRouter.post('/domains/:id/cloudflare-dns', requireAuth, async (req: AuthR
   if (!d) return res.status(404).json({ ok: false, error: 'domain not found' })
   const token = await cfToken(req.user!.accountId)
   if (!token) return res.status(400).json({ ok: false, error: 'Connect Cloudflare first (Integrations).' })
+  // The Cloudflare zone is the registrable domain (last two labels — good enough
+  // for common TLDs). We ONLY ever create a record for the EXACT hostname the
+  // user added: a bare root domain also gets a www alias; a subdomain
+  // (nou.example.com) gets ONLY that subdomain — never the root.
   const zoneName = d.hostname.split('.').slice(-2).join('.')
+  const isRoot = d.hostname === zoneName
+  const names = isRoot ? [zoneName, `www.${zoneName}`] : [d.hostname]
   try {
     const zj = await cf(`/zones?name=${encodeURIComponent(zoneName)}`, token)
     const zone = zj?.result?.[0]
     if (!zone) return res.status(400).json({ ok: false, error: `The zone "${zoneName}" isn't in this Cloudflare account. Add the domain to Cloudflare first, then retry.` })
-    // Records: root + www, both A → our server. Grey-cloud (proxied:false) so the
-    // per-workspace HTTPS (certbot) can validate over the direct connection.
-    const wanted = [{ name: zoneName, type: 'A', content: SERVER_IP, proxied: false, ttl: 3600 }, { name: `www.${zoneName}`, type: 'A', content: SERVER_IP, proxied: false, ttl: 3600 }]
-    for (const rec of wanted) {
-      const ex = await cf(`/zones/${zone.id}/dns_records?type=A&name=${encodeURIComponent(rec.name)}`, token)
+    const created: string[] = []
+    const conflicts: { name: string; current: string }[] = []
+    for (const name of names) {
+      const ex = await cf(`/zones/${zone.id}/dns_records?type=A&name=${encodeURIComponent(name)}`, token)
       const existing = ex?.result?.[0]
-      if (existing) await cf(`/zones/${zone.id}/dns_records/${existing.id}`, token, { method: 'PUT', body: JSON.stringify(rec) })
-      else await cf(`/zones/${zone.id}/dns_records`, token, { method: 'POST', body: JSON.stringify(rec) })
+      const rec = { name, type: 'A', content: SERVER_IP, proxied: false, ttl: 3600 }
+      if (existing) {
+        // Already points at us → fine. Points elsewhere → DO NOT overwrite a
+        // live record; flag it so we never break someone's main domain again.
+        if (existing.content === SERVER_IP) created.push(name)
+        else conflicts.push({ name, current: existing.content })
+      } else {
+        await cf(`/zones/${zone.id}/dns_records`, token, { method: 'POST', body: JSON.stringify(rec) })
+        created.push(name)
+      }
+    }
+    if (conflicts.length) {
+      return res.status(409).json({ ok: false, error: `A DNS record already exists for ${conflicts.map((c) => `${c.name} → ${c.current}`).join(', ')}. To avoid breaking a live site it was left untouched — remove/repoint it in Cloudflare, then retry.` })
     }
     await db.update(domains).set({ status: 'dns_set' }).where(eq(domains.id, d.id))
-    res.json({ ok: true, data: { zone: zoneName, records: wanted.map((r) => r.name) } })
+    res.json({ ok: true, data: { zone: zoneName, records: created } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'Cloudflare DNS update failed: ' + (e?.message || 'unknown') })
   }
