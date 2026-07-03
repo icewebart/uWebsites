@@ -59,10 +59,11 @@ export default function PageEditor() {
   async function fixLinks() {
     setErr(''); setFixingLinks(true); pushHistory()
     try {
+      const rel = await api<{ totalFixed: number }>(`/workspaces/${slug}/relink-internal`, { method: 'POST', body: JSON.stringify({ pageId }) })
       const r = await api<{ totalFixed: number; pages: Array<{ stillEmpty: number }> }>('/ai/verify-links', { method: 'POST', body: JSON.stringify({ slug, pageId }) })
       const p = await api<PageData>(`/pages/${pageId}`); setBlocks(Array.isArray(p.blocks) ? p.blocks : []); setPreviewKey((k) => k + 1)
       const unresolved = r.pages.reduce((s, x) => s + x.stillEmpty, 0)
-      setSavedAt(`Fixed ${r.totalFixed} link(s)${unresolved ? ` · ${unresolved} couldn't be matched` : ''}`)
+      setSavedAt(`${rel.totalFixed} → internal, ${r.totalFixed} placeholder(s) fixed${unresolved ? ` · ${unresolved} unmatched` : ''}`)
     } catch (e: any) { setErr(e.message || 'Fix links failed') } finally { setFixingLinks(false) }
   }
 

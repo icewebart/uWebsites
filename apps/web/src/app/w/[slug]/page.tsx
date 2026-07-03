@@ -102,10 +102,13 @@ export default function WorkspaceHome() {
   async function verifyLinks() {
     setVerifying(true)
     try {
-      const r = await api<{ totalFixed: number; pages: Array<{ title: string; fixed: number; stillEmpty: number }> }>('/ai/verify-links', { method: 'POST', body: JSON.stringify({ slug }) })
+      // 1) rewrite links to the original imported site → internal (free, no AI)
+      const rel = await api<{ totalFixed: number }>(`/workspaces/${slug}/relink-internal`, { method: 'POST', body: JSON.stringify({}) })
+      // 2) resolve remaining placeholder (#) links by title match
+      const r = await api<{ totalFixed: number; pages: Array<{ stillEmpty: number }> }>('/ai/verify-links', { method: 'POST', body: JSON.stringify({ slug }) })
       const unresolved = r.pages.reduce((s, p) => s + p.stillEmpty, 0)
-      alert(`Fixed ${r.totalFixed} link(s) across ${r.pages.length} page(s).${unresolved ? `\n${unresolved} placeholder link(s) could not be matched — edit them manually or create the target pages.` : ''}`)
-    } catch (e: any) { alert(e.message || 'Verify failed') } finally { setVerifying(false) }
+      alert(`Made ${rel.totalFixed} external link(s) internal, and resolved ${r.totalFixed} placeholder link(s).${unresolved ? `\n${unresolved} placeholder link(s) could not be matched — edit them manually or create the target pages.` : ''}`)
+    } catch (e: any) { alert(e.message || 'Fix links failed') } finally { setVerifying(false) }
   }
   async function polishAllPages() {
     const pgs = data?.pages || []
@@ -214,8 +217,8 @@ export default function WorkspaceHome() {
                   <button className="btn btn-secondary" onClick={polishAllPages} disabled={polishingAll} title="Run the AI design polish on every page">
                     {polishingAll ? 'Polishing…' : '✦ Polish all pages'}
                   </button>
-                  <button className="btn btn-secondary" onClick={verifyLinks} disabled={verifying} title="Resolve placeholder (#) links to real pages by matching link text ↔ page title">
-                    {verifying ? 'Verifying…' : '🔗 Verify links'}
+                  <button className="btn btn-secondary" onClick={verifyLinks} disabled={verifying} title="Rewrite links to the original site into internal links to your imported pages, and resolve placeholder (#) links by title">
+                    {verifying ? 'Fixing…' : '🔗 Fix internal links'}
                   </button>
                   <button className="btn btn-primary" onClick={publish} disabled={publishing}>{publishing ? 'Publishing…' : 'Publish'}</button>
                 </div>

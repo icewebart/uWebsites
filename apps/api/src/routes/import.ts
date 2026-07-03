@@ -3,7 +3,7 @@ import path from 'node:path'
 import { and, eq } from 'drizzle-orm'
 import Anthropic from '@anthropic-ai/sdk'
 import { db, workspaces, pages, redirects, brandingTokens } from '@uwebsites/db'
-import { upsertMenu, navTreeToItems } from './menus.js'
+import { upsertMenu, navTreeToItems, relinkInternal } from './menus.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { sectionizeHtml } from '../lib/html-sectionizer.js'
 import { createImageMirror } from '../lib/image-host.js'
@@ -780,7 +780,12 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
     }
   }
 
-  res.json({ ok: true, data: { created, skipped, discarded, redirects: redirectCount, total: scan.total, slug: ws.slug, mode, brandingApplied } })
+  // Rewrite links that point to the original site into internal links now that
+  // all the pages exist — so the imported site is correctly cross-linked.
+  let relinked = 0
+  try { relinked = (await relinkInternal(ws.id)).totalFixed } catch { /* non-fatal */ }
+
+  res.json({ ok: true, data: { created, skipped, discarded, redirects: redirectCount, total: scan.total, slug: ws.slug, mode, brandingApplied, relinked } })
 })
 
 // Reusable core: render `sourceUrl` in Chromium, split into styled raw-html

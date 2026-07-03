@@ -216,6 +216,70 @@ export function articleTemplateOf(tokens: any) {
   }
 }
 
+// POST /workspaces/:slug/relink-internal — DETERMINISTIC (no AI, no credits).
+// Rewrites links that point to the ORIGINAL imported site into INTERNAL links
+// to the matching downloaded page, so the site is correctly cross-linked before
+// go-live. Matches by the page's import_source URL path, then by slug. Links to
+// the source domain that we DIDN'T import are left alone; so are real externals,
+// mailto:, tel:, and #anchors. Optional { pageId } scopes to one page.
+export async function relinkInternal(workspaceId: string, onlyId?: string | null): Promise<{ totalFixed: number; pages: number; importedPages: number }> {
+  const rows = await db.select({ id: pages.id, slug: pages.slug, type: pages.type, blocks: pages.blocks, seo: pages.seo }).from(pages).where(eq(pages.workspaceId, workspaceId))
+
+  const norm = (path: string) => { try { return (decodeURIComponent(String(path || '')).toLowerCase().split('#')[0].split('?')[0].replace(/\/+$/, '')) || '/' } catch { return String(path || '').toLowerCase().replace(/\/+$/, '') || '/' } }
+  const internalUrl = (p: any) => (p.type === 'home' || p.slug === 'home') ? '/' : `/${p.slug}/`
+  const pathMap = new Map<string, string>(), slugMap = new Map<string, string>()
+  const hosts = new Set<string>()
+  for (const p of rows) {
+    const src = (p.seo as any)?.import_source?.url
+    if (src) { try { const u = new URL(src); hosts.add(u.host.replace(/^www\./, '')); pathMap.set(norm(u.pathname), internalUrl(p)) } catch { /* ignore */ } }
+    slugMap.set(String(p.slug).toLowerCase(), internalUrl(p))
+  }
+  // Resolve one href to an internal URL, or null to leave it unchanged.
+  const rewrite = (href: string): string | null => {
+    const h = String(href || '').trim()
+    if (!h || h.startsWith('#') || /^(mailto:|tel:|javascript:)/i.test(h)) return null
+    let path: string | null = null, fromSource = false
+    if (/^https?:\/\//i.test(h)) {
+      try { const u = new URL(h); if (hosts.has(u.host.replace(/^www\./, ''))) { path = u.pathname; fromSource = true } } catch { return null }
+    } else if (h.startsWith('/')) { path = h }  // root-relative (may already be internal)
+    if (path == null) return null
+    const key = norm(path)
+    if (key === '/') return fromSource ? '/' : null
+    const seg = key.replace(/^\//, '').split('/').filter(Boolean).pop() || ''
+    const target = pathMap.get(key) || slugMap.get(seg)
+    if (target && target !== h) return target
+    return null
+  }
+
+  const scope = onlyId ? rows.filter((p) => p.id === onlyId) : rows
+  let totalFixed = 0
+  for (const p of scope) {
+    const blocks = Array.isArray(p.blocks) ? JSON.parse(JSON.stringify(p.blocks)) : []
+    let fixed = 0
+    const walk = (props: any) => {
+      if (!props || typeof props !== 'object') return
+      for (const k of ['cta_href', 'cta2_href', 'href']) if (typeof props[k] === 'string') { const r = rewrite(props[k]); if (r) { props[k] = r; fixed++ } }
+      for (const key of ['items', 'tiers', 'sidebar']) if (Array.isArray(props[key])) for (const it of props[key]) walk(it)
+      if (typeof props.html === 'string') {
+        props.html = props.html.replace(/(<a\b[^>]*?\bhref=)(["'])([^"']*)\2/gi, (m: string, pre: string, q: string, href: string) => {
+          const r = rewrite(href); if (r) { fixed++; return `${pre}${q}${r}${q}` } return m
+        })
+      }
+    }
+    for (const b of blocks) walk(b?.props)
+    if (fixed) await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, p.id))
+    totalFixed += fixed
+  }
+  return { totalFixed, pages: scope.length, importedPages: pathMap.size }
+}
+
+menusRouter.post('/:slug/relink-internal', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const data = await relinkInternal(ws.id, req.body?.pageId ? String(req.body.pageId) : null)
+  res.json({ ok: true, data })
+})
+
 // POST /workspaces/:slug/rewrap-articles — DETERMINISTIC (no AI, no credits).
 // Rebuilds every article into the article template using its existing content:
 // article-hero (title + first paragraph + first image) → article-body (content
