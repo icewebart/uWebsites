@@ -136,6 +136,9 @@ export default function WorkspaceHome() {
   async function publish() {
     setPubErr(''); setPublishing(true); setPublishedUrl('')
     try {
+      // Safety net: make sure every link to the original site is internal before
+      // the site goes live (cheap, deterministic, no AI).
+      await api(`/workspaces/${slug}/relink-internal`, { method: 'POST', body: JSON.stringify({}) }).catch(() => {})
       const r = await api<{ url: string; pages: number }>(`/workspaces/${slug}/publish`, { method: 'POST' })
       setPublishedUrl(r.url)
     } catch (e: any) { setPubErr(e.message || 'Publish failed') } finally { setPublishing(false) }
