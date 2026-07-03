@@ -192,6 +192,58 @@ function cleanCtas(input: any): any[] {
   }))
 }
 
+// ---- Article template (Website → Article Template) ----
+// A workspace-wide default for article pages: which hero design + the default
+// sidebar cards. Stored on brandingTokens.tokens.article_template.
+const DEFAULT_ARTICLE_TEMPLATE = {
+  heroVariant: 'classic',
+  sidebar: [
+    { kind: 'cta', title: 'Ready to start?', text: 'A short line about the next step.', cta_label: 'Get in touch', cta_href: '/contact/' },
+    { kind: 'newsletter', title: 'Get our newsletter', text: 'Tips in your inbox, no spam.', cta_label: 'Subscribe', placeholder: 'you@email.com' },
+  ],
+}
+export function articleTemplateOf(tokens: any) {
+  const at = tokens?.article_template
+  return {
+    heroVariant: ['classic', 'centered', 'boxed', 'cover', 'minimal'].includes(at?.heroVariant) ? at.heroVariant : 'classic',
+    sidebar: Array.isArray(at?.sidebar) && at.sidebar.length ? at.sidebar : DEFAULT_ARTICLE_TEMPLATE.sidebar,
+  }
+}
+
+menusRouter.get('/:slug/article-template', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  res.json({ ok: true, data: articleTemplateOf(tok?.tokens as any) })
+})
+
+menusRouter.put('/:slug/article-template', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const heroVariant = ['classic', 'centered', 'boxed', 'cover', 'minimal'].includes(req.body?.heroVariant) ? req.body.heroVariant : 'classic'
+  const sidebar = Array.isArray(req.body?.sidebar) ? req.body.sidebar.slice(0, 6) : DEFAULT_ARTICLE_TEMPLATE.sidebar
+  const article_template = { heroVariant, sidebar }
+  const [existing] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  if (existing) await db.update(brandingTokens).set({ tokens: { ...(existing.tokens as any), article_template } }).where(eq(brandingTokens.id, existing.id))
+  else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: { ...DEFAULT_TOKENS, article_template } as any })
+
+  // Optionally push the template onto every existing article now.
+  let applied = 0
+  if (req.body?.applyToAll) {
+    const arts = await db.select().from(pages).where(and(eq(pages.workspaceId, ws.id), eq(pages.type, 'article' as any)))
+    for (const p of arts) {
+      const blocks = Array.isArray(p.blocks) ? JSON.parse(JSON.stringify(p.blocks)) : []
+      let changed = false
+      for (const b of blocks) {
+        if (b?.type === 'article-hero') { b.props = { ...b.props, variant: heroVariant }; changed = true }
+        if (b?.type === 'article-body') { b.props = { ...b.props, sidebar }; changed = true }
+      }
+      if (changed) { await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, p.id)); applied++ }
+    }
+  }
+  res.json({ ok: true, data: { article_template, applied } })
+})
+
 menusRouter.get('/:slug/ctas', requireAuth, async (req: AuthRequest, res) => {
   const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })

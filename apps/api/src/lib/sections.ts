@@ -198,7 +198,7 @@ export const SECTIONS: SectionMeta[] = [
     name: 'Article hero',
     description: 'A designed masthead for an article: a category kicker, the big headline, a one-line deck, and a meta row (author · date · read time). Optional wide banner image. Generous top spacing so the fixed menu never overlaps it. Use at the very top of articles.',
     category: 'content',
-    defaults: { eyebrow: '', heading: 'Article headline', sub: '', author: '', date: '', readMins: 5, image_url: '', image_alt: '' },
+    defaults: { variant: 'classic', eyebrow: '', heading: 'Article headline', sub: '', author: '', date: '', readMins: 5, image_url: '', image_alt: '' },
   },
   {
     kind: 'article-body',
@@ -571,6 +571,24 @@ main > section.article-hero:first-child{padding-top:calc(var(--pad) + 112px)}
 .article-hero .ah-banner{margin-top:32px}
 .article-hero .ah-banner img{width:100%;height:auto;max-height:460px;object-fit:cover;border-radius:calc(var(--card-r) + 4px)}
 @media(max-width:640px){main > section.article-hero:first-child{padding-top:calc(var(--pad) + 92px)}.article-hero .ah-banner{margin-top:22px}}
+/* article-hero variants */
+.article-hero.ah-centered .ah-inner{max-width:760px;margin:0 auto;text-align:center}
+.article-hero.ah-centered .ah-meta{justify-content:center}
+.article-hero.ah-boxed{background:color-mix(in srgb,var(--primary) 6%,var(--surface))}
+.article-hero.ah-boxed .ah-inner{max-width:820px;margin:0 auto;background:var(--surface);border:1px solid color-mix(in srgb,var(--text) 8%,transparent);border-radius:calc(var(--card-r) + 4px);padding:40px;box-shadow:var(--shadow);text-align:center}
+.article-hero.ah-boxed .ah-meta{justify-content:center}
+.article-hero.ah-minimal{padding-bottom:0}
+.article-hero.ah-minimal h1{font-size:clamp(1.6rem,4vw,calc(2.1rem * var(--scale,1.2)))}
+.article-hero.ah-cover{color:#fff;background-size:cover;background-position:center;display:flex;align-items:flex-end;min-height:min(62vh,520px);padding:0}
+main > section.article-hero.ah-cover:first-child{padding-top:0}
+.article-hero.ah-cover .container{padding-top:120px;padding-bottom:48px}
+.article-hero.ah-cover .ah-inner{max-width:820px}
+.article-hero.ah-cover h1{color:#fff}
+.article-hero.ah-cover .ah-deck{color:rgba(255,255,255,.9)}
+.article-hero.ah-cover .ah-meta{color:rgba(255,255,255,.8)}
+.article-hero.ah-cover .ah-kicker{background:rgba(255,255,255,.2);color:#fff}
+.article-hero.ah-cover-noimg{background:linear-gradient(135deg,var(--primary),color-mix(in srgb,var(--accent) 60%,var(--primary)))}
+@media(max-width:640px){.article-hero.ah-boxed .ah-inner{padding:26px 20px}.article-hero.ah-cover{min-height:auto}.article-hero.ah-cover .container{padding-top:100px;padding-bottom:32px}}
 
 /* article-body — main text + sticky sidebar, tuned for reading + SEO */
 .article-body{padding:var(--pad) 0}
@@ -856,11 +874,18 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
     case 'richtext':
       return `<section class="rt"><div class="container">${p.html || ''}</div></section>`
     case 'article-hero': {
+      const variant = ['classic', 'centered', 'boxed', 'cover', 'minimal'].includes(p.variant) ? p.variant : 'classic'
       const eyebrow = p.eyebrow ? `<div class="ah-kicker"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
       const meta = [p.author ? `By ${esc(p.author)}` : '', p.date ? esc(p.date) : '', p.readMins ? `${esc(String(p.readMins))} min read` : ''].filter(Boolean)
       const metaRow = meta.length ? `<div class="ah-meta">${meta.map((m) => `<span>${m}</span>`).join('<i>·</i>')}</div>` : ''
-      const banner = p.image_url ? `<div class="ah-banner"><img src="${esc(p.image_url)}" alt="${esc(p.image_alt || '')}" loading="eager"></div>` : ''
-      return `<section class="article-hero"><div class="container"><div class="ah-inner">${eyebrow}<h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="ah-deck"${f('sub')}>${esc(p.sub)}</p>` : ''}${metaRow}</div>${banner}</div></section>`
+      const inner = `${eyebrow}<h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="ah-deck"${f('sub')}>${esc(p.sub)}</p>` : ''}${metaRow}`
+      // 'cover' = full-bleed banner image with the title overlaid.
+      if (variant === 'cover') {
+        const bg = p.image_url ? ` style="background-image:linear-gradient(180deg,rgba(0,0,0,.15),rgba(0,0,0,.62)),url('${esc(p.image_url)}')"` : ''
+        return `<section class="article-hero ah-cover${p.image_url ? '' : ' ah-cover-noimg'}"${bg}><div class="container"><div class="ah-inner">${inner}</div></div></section>`
+      }
+      const banner = (variant !== 'minimal' && p.image_url) ? `<div class="ah-banner"><img src="${esc(p.image_url)}" alt="${esc(p.image_alt || '')}" loading="eager"></div>` : ''
+      return `<section class="article-hero ah-${variant}"><div class="container"><div class="ah-inner">${inner}</div>${banner}</div></section>`
     }
     case 'article-body': {
       // Build a Table of Contents from the h2/h3 in the body HTML. Also

@@ -1,8 +1,9 @@
 import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
-import { db, pages, workspaces } from '@uwebsites/db'
+import { db, pages, workspaces, brandingTokens } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { renderPreview } from './publish.js'
+import { articleTemplateOf } from './menus.js'
 
 // Single-page load/save for the block editor. Account-scoped via the page's
 // workspace (page → workspace → account).
@@ -85,9 +86,20 @@ pagesRouter.post('/', requireAuth, async (req: AuthRequest, res) => {
     if (!dup) break
     slug = `${baseSlug}-${i}`
   }
+  // Article template: apply the workspace's chosen hero design + sidebar so
+  // every new article matches the site's Article Template by default.
+  let tplBlocks: any[] = tpl?.blocks ? JSON.parse(JSON.stringify(tpl.blocks)) : []
+  if (tpl?.key === 'article') {
+    const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+    const at = articleTemplateOf(tok?.tokens as any)
+    for (const b of tplBlocks) {
+      if (b?.type === 'article-hero') b.props = { ...b.props, variant: at.heroVariant }
+      if (b?.type === 'article-body') b.props = { ...b.props, sidebar: at.sidebar }
+    }
+  }
   const [created] = await db.insert(pages).values({
     workspaceId: ws.id, type: type as any, slug, title: String(title).trim().slice(0, 200), status: 'draft',
-    blocks: (tpl?.blocks ?? []) as any, seo: (tpl?.seo ?? {}) as any,
+    blocks: tplBlocks as any, seo: (tpl?.seo ?? {}) as any,
   }).returning()
   res.json({ ok: true, data: { id: created.id, slug: created.slug, title: created.title, type: created.type } })
 })

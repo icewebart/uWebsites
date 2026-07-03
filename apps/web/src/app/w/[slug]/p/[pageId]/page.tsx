@@ -420,6 +420,7 @@ export default function PageEditor() {
 // Contextual form per section kind. Keeps the editor uncluttered: only the
 // fields for the selected section are shown.
 function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Record<string, any>) => void }) {
+  const { slug } = useParams<{ slug: string }>()
   const p = block.props || {}
   const setItems = (items: any[]) => onChange({ items })
   switch (block.type) {
@@ -662,6 +663,16 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
       </>)
     case 'article-hero':
       return (<>
+        <div className="field"><label>Hero design</label>
+          <select className="inp" value={p.variant || 'classic'} onChange={(e) => onChange({ variant: e.target.value })}>
+            <option value="classic">Classic — left-aligned</option>
+            <option value="centered">Centered</option>
+            <option value="boxed">Boxed card</option>
+            <option value="cover">Cover — image background</option>
+            <option value="minimal">Minimal</option>
+          </select>
+          <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>Set the default for all articles in <a href={`/w/${slug}/article-template`}>Article Template</a>.</p>
+        </div>
         <div className="field"><label>Kicker / category</label><input className="inp" value={p.eyebrow || ''} onChange={(e) => onChange({ eyebrow: e.target.value })} placeholder="Guide" /></div>
         <div className="field"><label>Headline</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
         <div className="field"><label>Deck (one line)</label><textarea className="inp" value={p.sub || ''} onChange={(e) => onChange({ sub: e.target.value })} /></div>

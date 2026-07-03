@@ -6,7 +6,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { SECTIONS, SECTION_META, sectionHasContent } from '../lib/sections.js'
 import { pickAesthetic, brandVoicePrompt, COPY_RULES, AESTHETICS } from '../lib/aesthetics.js'
 import { generateImage, generateImageResult, photoPrompt, imageGenEnabled, reasonMessage } from '../lib/imagegen.js'
-import { upsertMenu } from './menus.js'
+import { upsertMenu, articleTemplateOf } from './menus.js'
 
 // Strip document chrome the model must not emit — the platform wraps every page
 // with its OWN header (menu) + footer, so a <header>/<nav>/<footer> in the
@@ -554,14 +554,12 @@ ${brief ? '\nSITE CONTEXT (for the CTA only):\n' + brief : ''}`,
     const body = stripPageChrome(String(out.body_html || ''))
     if (body.length < 60) return res.status(502).json({ ok: false, error: 'Could not extract an article body.' })
     const readMins = Math.max(2, Math.round(body.replace(/<[^>]*>/g, ' ').split(/\s+/).length / 200))
+    const at = articleTemplateOf(t)  // workspace Article Template (hero design + sidebar)
     const blocks: any[] = [
-      { type: 'article-hero', props: { eyebrow: '', heading: out.heading || row.title, sub: out.deck || '', author: '', date: '', readMins } },
+      { type: 'article-hero', props: { variant: at.heroVariant, eyebrow: '', heading: out.heading || row.title, sub: out.deck || '', author: '', date: '', readMins } },
       { type: 'article-body', props: {
         html: body, toc: true, headline: out.heading || row.title, author: '', publishedAt: '', readMins,
-        sidebar: [
-          ...(out.cta_label ? [{ kind: 'cta', title: 'Next step', text: '', cta_label: out.cta_label, cta_href: out.cta_href || '/contact/' }] : []),
-          { kind: 'newsletter', title: 'Get our newsletter', text: 'Tips in your inbox, no spam.', cta_label: 'Subscribe', placeholder: 'you@email.com' },
-        ],
+        sidebar: JSON.parse(JSON.stringify(at.sidebar)),
       } },
     ]
     // Bottom CTA pulls from the workspace CTA library (consistent, not an
