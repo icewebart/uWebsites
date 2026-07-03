@@ -669,10 +669,35 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
             <option value="centered">Centered</option>
             <option value="boxed">Boxed card</option>
             <option value="cover">Cover — image background</option>
+            <option value="gradient">Gradient — brand colors</option>
             <option value="minimal">Minimal</option>
           </select>
           <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>Set the default for all articles in <a href={`/w/${slug}/article-template`}>Article Template</a>.</p>
         </div>
+        {p.variant === 'cover' && (
+          <div className="field"><label>Cover image</label>
+            <ImageUpload slug={slug} value={p.image_url || ''} onChange={(url) => onChange({ image_url: url })} />
+          </div>
+        )}
+        {p.variant === 'gradient' && (
+          <div className="field"><label>Gradient colors (from your brand)</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select className="inp" value={p.grad_from || 'primary'} onChange={(e) => onChange({ grad_from: e.target.value })}>
+                <option value="primary">Primary</option><option value="accent">Accent</option><option value="accent2">Accent 2</option><option value="text">Text</option>
+              </select>
+              <span style={{ alignSelf: 'center', color: 'var(--text-faint)' }}>→</span>
+              <select className="inp" value={p.grad_to || 'accent'} onChange={(e) => onChange({ grad_to: e.target.value })}>
+                <option value="primary">Primary</option><option value="accent">Accent</option><option value="accent2">Accent 2</option><option value="text">Text</option>
+              </select>
+            </div>
+            <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>Edit these colors in <a href={`/w/${slug}/branding`}>Branding</a>.</p>
+          </div>
+        )}
+        {(p.variant === 'classic' || p.variant === 'centered' || p.variant === 'boxed') && (
+          <div className="field"><label>Banner image (optional)</label>
+            <ImageUpload slug={slug} value={p.image_url || ''} onChange={(url) => onChange({ image_url: url })} />
+          </div>
+        )}
         <div className="field"><label>Kicker / category</label><input className="inp" value={p.eyebrow || ''} onChange={(e) => onChange({ eyebrow: e.target.value })} placeholder="Guide" /></div>
         <div className="field"><label>Headline</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
         <div className="field"><label>Deck (one line)</label><textarea className="inp" value={p.sub || ''} onChange={(e) => onChange({ sub: e.target.value })} /></div>
@@ -839,4 +864,37 @@ function CtaRefForm({ block, onChange }: { block: Block; onChange: (partial: Rec
       <a href={`/w/${slug}/cta`}>{ctas.length ? 'Manage CTAs →' : 'create one →'}</a>
     </p>
   </>)
+}
+
+// Reusable image upload: pick a file → base64 → POST to the workspace, store the
+// returned public URL. Also accepts a pasted URL. Shows a preview.
+function ImageUpload({ slug, value, onChange }: { slug: string; value: string; onChange: (url: string) => void }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  async function pick(file?: File | null) {
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { setErr('Image is over 5MB — use a smaller file.'); return }
+    setErr(''); setBusy(true)
+    try {
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = reject; r.readAsDataURL(file)
+      })
+      const r = await api<{ url: string }>(`/workspaces/${slug}/upload-image`, { method: 'POST', body: JSON.stringify({ dataUrl }) })
+      onChange(r.url)
+    } catch (e: any) { setErr(e.message || 'Upload failed') } finally { setBusy(false) }
+  }
+  return (
+    <div>
+      {value && <div style={{ marginBottom: 8 }}><img src={value} alt="" style={{ width: '100%', maxHeight: 140, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }} /></div>}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label className="btn-mini" style={{ cursor: busy ? 'wait' : 'pointer' }}>
+          {busy ? 'Uploading…' : (value ? 'Replace image' : '⬆ Upload image')}
+          <input type="file" accept="image/*" style={{ display: 'none' }} disabled={busy} onChange={(e) => pick(e.target.files?.[0])} />
+        </label>
+        {value && <button className="btn-mini danger" onClick={() => onChange('')}>Remove</button>}
+      </div>
+      <input className="inp" style={{ marginTop: 8 }} placeholder="…or paste an image URL" value={value} onChange={(e) => onChange(e.target.value)} />
+      {err && <p className="err" style={{ fontSize: 12, marginTop: 6 }}>{err}</p>}
+    </div>
+  )
 }

@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import { db, workspaces, menus, pages, brandingTokens } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { analyzeBranding, richBranding, articleBlocksFromImport } from './import.js'
+import { saveImageBytes } from '../lib/image-host.js'
 import { renderHeader, renderFooter, fontsHead, siteCss, DEFAULT_TOKENS, HEADER_SCRIPT } from './publish.js'
 
 // Workspace-level menus — header + footer — applied to every published page.
@@ -205,7 +206,7 @@ const DEFAULT_ARTICLE_TEMPLATE = {
 export function articleTemplateOf(tokens: any) {
   const at = tokens?.article_template
   return {
-    heroVariant: ['classic', 'centered', 'boxed', 'cover', 'minimal'].includes(at?.heroVariant) ? at.heroVariant : 'classic',
+    heroVariant: ['classic', 'centered', 'boxed', 'cover', 'gradient', 'minimal'].includes(at?.heroVariant) ? at.heroVariant : 'classic',
     sidebar: Array.isArray(at?.sidebar) && at.sidebar.length ? at.sidebar : DEFAULT_ARTICLE_TEMPLATE.sidebar,
   }
 }
@@ -257,6 +258,22 @@ menusRouter.post('/:slug/rewrap-articles', requireAuth, async (req: AuthRequest,
   res.json({ ok: true, data: { rewrapped: count, total: targets.length } })
 })
 
+// POST /workspaces/:slug/upload-image — accept a base64 data URL, save it to
+// the workspace's local img dir, return the public URL. Used by the editor's
+// image-upload widgets (hero banner, etc.).
+menusRouter.post('/:slug/upload-image', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const dataUrl = String(req.body?.dataUrl || '')
+  const m = dataUrl.match(/^data:image\/(png|jpe?g|webp|gif|avif);base64,([A-Za-z0-9+/=]+)$/)
+  if (!m) return res.status(400).json({ ok: false, error: 'Expected an image data URL (png/jpg/webp/gif/avif).' })
+  const ext = '.' + (m[1] === 'jpeg' ? 'jpg' : m[1])
+  const buf = Buffer.from(m[2], 'base64')
+  if (buf.length > 5 * 1024 * 1024) return res.status(413).json({ ok: false, error: 'Image is over 5MB — please use a smaller file.' })
+  const url = await saveImageBytes(ws.slug, buf, ext, dataUrl.slice(0, 64) + buf.length)
+  res.json({ ok: true, data: { url } })
+})
+
 menusRouter.get('/:slug/article-template', requireAuth, async (req: AuthRequest, res) => {
   const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
@@ -267,7 +284,7 @@ menusRouter.get('/:slug/article-template', requireAuth, async (req: AuthRequest,
 menusRouter.put('/:slug/article-template', requireAuth, async (req: AuthRequest, res) => {
   const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
-  const heroVariant = ['classic', 'centered', 'boxed', 'cover', 'minimal'].includes(req.body?.heroVariant) ? req.body.heroVariant : 'classic'
+  const heroVariant = ['classic', 'centered', 'boxed', 'cover', 'gradient', 'minimal'].includes(req.body?.heroVariant) ? req.body.heroVariant : 'classic'
   const sidebar = Array.isArray(req.body?.sidebar) ? req.body.sidebar.slice(0, 6) : DEFAULT_ARTICLE_TEMPLATE.sidebar
   const article_template = { heroVariant, sidebar }
   const [existing] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)

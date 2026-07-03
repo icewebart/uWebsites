@@ -198,7 +198,7 @@ export const SECTIONS: SectionMeta[] = [
     name: 'Article hero',
     description: 'A designed masthead for an article: a category kicker, the big headline, a one-line deck, and a meta row (author · date · read time). Optional wide banner image. Generous top spacing so the fixed menu never overlaps it. Use at the very top of articles.',
     category: 'content',
-    defaults: { variant: 'classic', eyebrow: '', heading: 'Article headline', sub: '', author: '', date: '', readMins: 5, image_url: '', image_alt: '' },
+    defaults: { variant: 'classic', eyebrow: '', heading: 'Article headline', sub: '', author: '', date: '', readMins: 5, image_url: '', image_alt: '', grad_from: 'primary', grad_to: 'accent' },
   },
   {
     kind: 'article-body',
@@ -874,15 +874,23 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
     case 'richtext':
       return `<section class="rt"><div class="container">${p.html || ''}</div></section>`
     case 'article-hero': {
-      const variant = ['classic', 'centered', 'boxed', 'cover', 'minimal'].includes(p.variant) ? p.variant : 'classic'
+      const variant = ['classic', 'centered', 'boxed', 'cover', 'gradient', 'minimal'].includes(p.variant) ? p.variant : 'classic'
       const eyebrow = p.eyebrow ? `<div class="ah-kicker"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
       const meta = [p.author ? `By ${esc(p.author)}` : '', p.date ? esc(p.date) : '', p.readMins ? `${esc(String(p.readMins))} min read` : ''].filter(Boolean)
       const metaRow = meta.length ? `<div class="ah-meta">${meta.map((m) => `<span>${m}</span>`).join('<i>·</i>')}</div>` : ''
       const inner = `${eyebrow}<h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="ah-deck"${f('sub')}>${esc(p.sub)}</p>` : ''}${metaRow}`
-      // 'cover' = full-bleed banner image with the title overlaid.
-      if (variant === 'cover') {
-        const bg = p.image_url ? ` style="background-image:linear-gradient(180deg,rgba(0,0,0,.15),rgba(0,0,0,.62)),url('${esc(p.image_url)}')"` : ''
-        return `<section class="article-hero ah-cover${p.image_url ? '' : ' ah-cover-noimg'}"${bg}><div class="container"><div class="ah-inner">${inner}</div></div></section>`
+      // 'cover' = full-bleed banner image with the title overlaid;
+      // 'gradient' = same overlay layout but a brand-color gradient background.
+      if (variant === 'cover' || variant === 'gradient') {
+        const brandVar = (k: string) => ['primary', 'accent', 'accent2', 'text'].includes(k) ? `var(--${k})` : 'var(--primary)'
+        let bg = ''
+        if (variant === 'gradient') {
+          bg = ` style="background-image:linear-gradient(135deg, ${brandVar(p.grad_from || 'primary')}, ${brandVar(p.grad_to || 'accent')})"`
+        } else if (p.image_url) {
+          bg = ` style="background-image:linear-gradient(180deg,rgba(0,0,0,.15),rgba(0,0,0,.62)),url('${esc(p.image_url)}')"`
+        }
+        const noimg = variant === 'cover' && !p.image_url ? ' ah-cover-noimg' : ''
+        return `<section class="article-hero ah-cover${noimg}"${bg}><div class="container"><div class="ah-inner">${inner}</div></div></section>`
       }
       const banner = (variant !== 'minimal' && p.image_url) ? `<div class="ah-banner"><img src="${esc(p.image_url)}" alt="${esc(p.image_alt || '')}" loading="eager"></div>` : ''
       return `<section class="article-hero ah-${variant}"><div class="container"><div class="ah-inner">${inner}</div>${banner}</div></section>`

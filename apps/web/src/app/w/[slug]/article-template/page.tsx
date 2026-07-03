@@ -11,15 +11,16 @@ const HEROES: { id: string; name: string; blurb: string }[] = [
   { id: 'classic', name: 'Classic', blurb: 'Left-aligned kicker, headline, deck + meta.' },
   { id: 'centered', name: 'Centered', blurb: 'Everything centered — clean and editorial.' },
   { id: 'boxed', name: 'Boxed card', blurb: 'Title in a card on a tinted band.' },
-  { id: 'cover', name: 'Cover image', blurb: 'Full-bleed banner image with the title over it.' },
+  { id: 'cover', name: 'Cover image', blurb: 'Full-bleed banner image with the title over it. Upload per article.' },
+  { id: 'gradient', name: 'Gradient', blurb: 'Title over a brand-color gradient — no image needed.' },
   { id: 'minimal', name: 'Minimal', blurb: 'Compact — small kicker + tight headline.' },
 ]
 
 // Tiny CSS mock of each hero variant for the chooser.
 function HeroMock({ v }: { v: string }) {
   const bar = (w: string, h = 6, c = '#c9cfd6') => <div style={{ width: w, height: h, background: c, borderRadius: 3 }} />
-  if (v === 'cover') return (
-    <div style={{ height: 74, borderRadius: 8, background: 'linear-gradient(135deg,var(--forest),#6aa9c9)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 5, padding: 10 }}>
+  if (v === 'cover' || v === 'gradient') return (
+    <div style={{ height: 74, borderRadius: 8, background: v === 'gradient' ? 'linear-gradient(135deg,var(--forest),var(--lime))' : 'linear-gradient(135deg,#3a4a55,#6aa9c9)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 5, padding: 10 }}>
       {bar('30%', 5, 'rgba(255,255,255,.7)')}{bar('72%', 8, '#fff')}{bar('50%', 5, 'rgba(255,255,255,.6)')}
     </div>)
   const align = v === 'centered' || v === 'boxed' ? 'center' : 'flex-start'
