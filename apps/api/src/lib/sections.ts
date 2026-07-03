@@ -283,7 +283,7 @@ export const SECTION_CSS = `
 .hero-image .media-accent{position:absolute;inset:auto -14px -14px auto;width:62%;height:70%;border-radius:calc(var(--card-r) * 1.4);background:color-mix(in srgb, var(--accent) 30%, var(--surface));z-index:0}
 .hero-image .media img{position:relative;z-index:1;display:block;width:100%;height:auto;border-radius:var(--card-r);box-shadow:0 24px 60px -24px color-mix(in srgb, var(--primary) 42%, transparent)}
 .hero-image .media-empty{aspect-ratio:4/3;border-radius:var(--card-r);background:color-mix(in srgb, var(--primary) 8%, var(--surface))}
-@media(max-width:760px){.hero-image .grid{grid-template-columns:1fr;gap:28px}.hero-image .media-accent{display:none}}
+@media(max-width:760px){.hero-image .grid{grid-template-columns:1fr;gap:28px}.hero-image .media-accent{display:none}.hero-image .actions{flex-direction:column;align-items:stretch}.hero-image .actions .btn{width:100%;text-align:center}}
 
 .features-3{padding:var(--pad) 0}
 .features-3 .head{text-align:center;margin-bottom:38px}
@@ -414,7 +414,7 @@ export const SECTION_CSS = `
 .hero-blob .blob img{width:100%;height:100%;object-fit:cover;display:block}
 .hero-blob .blob-empty{display:flex;align-items:center;justify-content:center}
 .hero-blob .deco-star{position:absolute;top:8%;right:8%;color:var(--accent);filter:drop-shadow(0 2px 4px rgba(0,0,0,.12));z-index:2}
-@media(max-width:760px){.hero-blob .grid{grid-template-columns:1fr;gap:28px}.hero-blob .blob{max-width:320px;margin:0 auto}}
+@media(max-width:760px){.hero-blob .grid{grid-template-columns:1fr;gap:28px}.hero-blob .blob{max-width:320px;margin:0 auto}.hero-blob .actions{flex-direction:column;align-items:stretch}.hero-blob .actions .btn{width:100%;text-align:center}.hero-blob h1{font-size:clamp(1.7rem, 8.5vw, 2.3rem)}}
 
 /* program-cards — 3 rich cards with colored badges + per-card accent CTA */
 .program-cards{padding:var(--pad) 0}
@@ -438,6 +438,12 @@ export const SECTION_CSS = `
 .stats-band .sb-box{background:var(--primary);color:#fff;border-radius:calc(var(--card-r) * 1.4);padding:36px 28px;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:22px;text-align:center}
 .stats-band .sb-val{font-size:2.6rem;font-weight:800;line-height:1;letter-spacing:-.02em;color:#fff}
 .stats-band .sb-lbl{font-size:.85rem;opacity:.82;margin-top:8px}
+@media(max-width:640px){
+  .stats-band .sb-box{padding:24px 18px;gap:16px}
+  .stats-band .sb-val{font-size:1.9rem}
+  .stats-row .stat .val{font-size:1.9rem}
+  .testimonials-3 .card{flex:0 0 82%}
+}
 `
 
 // ---- per-kind static HTML renderer (used by publish.ts) ----

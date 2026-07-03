@@ -147,16 +147,49 @@ main > section.uw-raw:first-child{padding-top:0}
 .site-footer .bottom a{color:var(--footer-fg);opacity:.85;text-decoration:none}
 .site-footer .bottom a:hover{opacity:1;text-decoration:underline}
 
-@media(max-width:900px){.site-header .container{flex-wrap:wrap;border-radius:0;padding:12px 16px}.site-header .nav{gap:14px;justify-content:flex-start}.site-header .nav .nav-link{font-size:13px}
-/* overlay header can wrap on mobile — give the hero extra headroom */
-main > section:first-child{padding-top:calc(var(--pad) + 104px)}
-/* On narrow screens dropdowns expand inline (tap-to-open via HEADER_SCRIPT) */
-.site-header .dropdown{position:static;transform:none!important;box-shadow:none;opacity:1;visibility:visible;display:none;padding:2px 0 6px 14px;min-width:0;background:transparent}
-.site-header .dropdown.mega{grid-template-columns:1fr;min-width:0}
-.site-header .nav-item.open .dropdown{display:flex}
-.site-header .nav-item{display:inline-flex}
-.site-footer .container{grid-template-columns:1fr 1fr}}
-@media(max-width:560px){.site-footer .container{grid-template-columns:1fr}}
+/* ---------- Mobile hamburger ---------- */
+.site-header .burger{display:none;flex:0 0 auto;width:40px;height:40px;background:transparent;border:0;padding:0;cursor:pointer;position:relative;z-index:2}
+.site-header .burger span{display:block;width:22px;height:2px;background:var(--text);border-radius:2px;margin:5px auto;transition:transform .2s ease, opacity .2s ease}
+.site-header.nav-open .burger span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+.site-header.nav-open .burger span:nth-child(2){opacity:0}
+.site-header.nav-open .burger span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+
+@media(max-width:900px){
+  /* Fluid, phone-friendly heading & container sizes for EVERY generated site */
+  :root{--pad:36px}
+  .container{padding:0 18px}
+  section{padding:var(--pad) 0}
+  .hero h1{font-size:clamp(1.65rem, 8vw, 2.1rem)}
+  .site-header .container{flex-wrap:nowrap;border-radius:0;padding:10px 14px;gap:12px}
+  .site-header .brand{flex:1 1 auto;font-size:15px;min-width:0}
+  .site-header .brand img{max-width:70%}
+  .site-header .header-cta{padding:8px 14px;font-size:13px}
+  .site-header .burger{display:block}
+  .site-header .nav{position:fixed;top:0;left:0;right:0;bottom:0;background:var(--surface);padding:80px 24px 32px;flex-direction:column;justify-content:flex-start;align-items:stretch;gap:6px;overflow-y:auto;opacity:0;visibility:hidden;transform:translateY(-8px);transition:opacity .2s ease, transform .2s ease, visibility .2s ease;z-index:1}
+  .site-header.nav-open .nav{opacity:1;visibility:visible;transform:none}
+  .site-header .nav .nav-link{font-size:18px;padding:12px 4px;border-bottom:1px solid color-mix(in srgb,var(--text) 8%,transparent);width:100%}
+  .site-header .nav-item{display:block;width:100%}
+  .site-header .nav-item.has-children::after{display:none}
+  /* Dropdowns expand inline in the mobile panel (tap-to-open via HEADER_SCRIPT) */
+  .site-header .dropdown{position:static;transform:none!important;box-shadow:none;opacity:1;visibility:visible;display:none;padding:0 0 8px 12px;min-width:0;background:transparent;flex-direction:column}
+  .site-header .dropdown.mega{grid-template-columns:1fr;min-width:0}
+  .site-header .nav-item.open .dropdown{display:flex}
+  .site-header .dropdown a{padding:10px 4px;font-size:15px}
+  /* overlay header stays overlaid on the hero — a bit more headroom */
+  main > section:first-child{padding-top:calc(var(--pad) + 90px)}
+  main > section.uw-raw:first-child{padding-top:0}
+  /* Footer stacks nicely */
+  .site-footer .container{grid-template-columns:1fr 1fr;gap:24px;padding:0 18px}
+  .site-footer{border-radius:24px 24px 0 0;padding:48px 0 24px}
+}
+@media(max-width:560px){
+  :root{--pad:28px}
+  .hero h1{font-size:clamp(1.5rem, 9vw, 1.95rem);max-width:24ch}
+  .hero .sub,.hero-image .sub,.hero-blob .sub{font-size:.98rem}
+  .btn{padding:11px 20px;font-size:.95rem}
+  .site-footer .container{grid-template-columns:1fr}
+  .cta-banner .box{padding:36px 20px;border-radius:24px}
+}
 ${SECTION_CSS}`
 }
 
@@ -216,7 +249,8 @@ export function renderHeader(ws: any, base: string, header: MenuTree | undefined
   const nav = navItems ? `<nav class="nav">${navItems}</nav>` : ''
   const cta = header?.cta?.label ? `<a class="header-cta" href="${esc(header.cta.href || '#')}">${esc(header.cta.label)}</a>` : ''
   const style = (header as any)?.style || 'glass'
-  return `<header class="site-header style-${esc(style)}"><div class="container">${brand}${nav}${cta}</div></header>`
+  const burger = navItems ? `<button class="burger" type="button" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button>` : ''
+  return `<header class="site-header style-${esc(style)}"><div class="container">${brand}${nav}${cta}${burger}</div></header>`
 }
 
 // Injected once per page (published output + nav preview). On touch/narrow
@@ -226,6 +260,14 @@ export const HEADER_SCRIPT = `<script>(function(){
   // Scroll state — transparent header at the top, frosted bar once scrolled.
   var hdr=document.querySelector('.site-header');
   if(hdr){var onScroll=function(){hdr.classList.toggle('scrolled', window.scrollY>16);};onScroll();window.addEventListener('scroll',onScroll,{passive:true});}
+  // Mobile hamburger — toggles the fullscreen nav panel; also closes on link tap
+  // and locks scroll while the panel is open.
+  var burger=hdr && hdr.querySelector('.burger');
+  if(burger){
+    var setOpen=function(v){hdr.classList.toggle('nav-open', v); burger.setAttribute('aria-expanded', v?'true':'false'); document.body.style.overflow=v?'hidden':'';};
+    burger.addEventListener('click',function(){setOpen(!hdr.classList.contains('nav-open'));});
+    hdr.querySelectorAll('.nav a').forEach(function(a){a.addEventListener('click',function(){setOpen(false);});});
+  }
   var mq=window.matchMedia('(max-width:900px)');
   var triggers=document.querySelectorAll('.site-header .nav-item.has-children > .nav-trigger');
   triggers.forEach(function(t){
