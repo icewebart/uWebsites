@@ -174,8 +174,10 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 .sec-row .lbl .kind{font-family:'SF Mono','Fira Code',monospace;font-size:10px;color:var(--text-faint);text-transform:lowercase}
 .sec-row .num{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:var(--bg-subtle);color:var(--text-faint);border-radius:5px;font-size:10px;font-weight:600}
 .sec-row.active .num{background:var(--forest);color:#fff}
-.sec-row .sec-del{flex:0 0 auto;width:22px;height:22px;border:0;border-radius:6px;background:transparent;color:var(--text-faint);font-size:12px;line-height:1;cursor:pointer;opacity:0;transition:opacity .12s,background .12s,color .12s}
-.sec-row:hover .sec-del,.sec-row.active .sec-del{opacity:1}
+.sec-row .sec-polish,.sec-row .sec-del{flex:0 0 auto;width:22px;height:22px;border:0;border-radius:6px;background:transparent;color:var(--text-faint);font-size:12px;line-height:1;cursor:pointer;opacity:0;transition:opacity .12s,background .12s,color .12s}
+.sec-row:hover .sec-polish,.sec-row.active .sec-polish,.sec-row:hover .sec-del,.sec-row.active .sec-del{opacity:1}
+.sec-row .sec-polish:hover:not(:disabled){background:var(--lime-light);color:var(--forest)}
+.sec-row .sec-polish:disabled{opacity:1;cursor:wait;color:var(--forest)}
 .sec-row .sec-del:hover{background:#e5484d;color:#fff}
 .add-section{margin-top:8px}
 .add-section .btn{width:100%}

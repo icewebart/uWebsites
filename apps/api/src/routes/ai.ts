@@ -390,6 +390,55 @@ aiRouter.post('/critique-page', requireAuth, async (req: AuthRequest, res) => {
   }
 })
 
+// POST /ai/critique-section — polish a SINGLE raw-html section. Same content
+// guarantee as critique-page (keeps every img src + link href verbatim).
+aiRouter.post('/critique-section', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured.' })
+  const { slug, pageId, index } = req.body ?? {}
+  if (!slug || !pageId || typeof index !== 'number') return res.status(400).json({ ok: false, error: 'slug, pageId, index required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const [page] = await db.select().from(pages).where(and(eq(pages.id, String(pageId)), eq(pages.workspaceId, ws.id))).limit(1)
+  if (!page) return res.status(404).json({ ok: false, error: 'page not found' })
+  const blocks = Array.isArray(page.blocks) ? JSON.parse(JSON.stringify(page.blocks)) : []
+  const b = blocks[index]
+  if (!b || b.type !== 'raw-html' || typeof b?.props?.html !== 'string' || b.props.html.length < 120) {
+    return res.status(400).json({ ok: false, error: 'This section is not a raw-html block, or is too short to redesign.' })
+  }
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const t: any = tok?.tokens || {}
+  const system = critiqueSystemPrompt(t.color || {}, t.font || {})
+  const orig = String(b.props.html)
+  const oImgs = [...orig.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)].map((m) => m[1])
+  const oHrefs = [...new Set([...orig.matchAll(/<a[^>]+href=["']([^"']+)["']/gi)].map((m) => m[1]))]
+  const assets = [
+    oImgs.length ? `You MUST keep every one of these images, each as an <img> with this EXACT src:\n${oImgs.map((s) => `- ${s}`).join('\n')}` : '',
+    oHrefs.length ? `You MUST keep every one of these links, each as an <a> with this EXACT href:\n${oHrefs.map((s) => `- ${s}`).join('\n')}` : '',
+  ].filter(Boolean).join('\n\n')
+  try {
+    const r = await a.messages.create({
+      model: MODEL, max_tokens: 8000, system,
+      tools: [{ name: 'section', description: 'The redesigned section.', input_schema: {
+        type: 'object', properties: { html: { type: 'string' } }, required: ['html'],
+      } as any }],
+      tool_choice: { type: 'tool', name: 'section' },
+      messages: [{ role: 'user', content: `Redesign this section.\n\n${assets ? assets + '\n\n' : ''}--- CURRENT SECTION HTML ---\n${orig.slice(0, 24000)}` }],
+    })
+    const tu = r.content.find((x: any) => x.type === 'tool_use') as any
+    const html = tu?.input?.html ? stripPageChrome(tu.input.html) : ''
+    if (html.length < 40) return res.status(502).json({ ok: false, error: 'Model returned no section' })
+    const keepsAll = oImgs.every((s) => html.includes(s)) && oHrefs.every((s) => html.includes(s))
+    if (!keepsAll) return res.status(422).json({ ok: false, error: 'Polish would drop content — please try again.' })
+    blocks[index].props.html = html
+    await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
+    await logAiJob(ws.id, 'edit', 'done', { source: 'critique-section', pageId: page.id, index }, 2, page.id)
+    res.json({ ok: true, data: { index } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Polish failed: ' + (e?.message || 'unknown') })
+  }
+})
+
 // POST /ai/verify-links — walk every page's blocks, find placeholder/dead links
 // (href of "#", empty, or missing) and match them to REAL pages by link-text ↔
 // page title. Fixes CTA cta_href and <a href> inside richtext/raw-html. Returns

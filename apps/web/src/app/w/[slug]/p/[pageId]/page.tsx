@@ -34,7 +34,32 @@ export default function PageEditor() {
   const [sectionizing, setSectionizing] = useState(false)
   const [fillingImg, setFillingImg] = useState(false)
   const [polishing, setPolishing] = useState(false)
+  const [polishingSectionIdx, setPolishingSectionIdx] = useState<number | null>(null)
   const [sideCollapsed, setSideCollapsed] = useState(false)
+
+  // Redesign a SINGLE raw-html section. Same content guarantee as full polish,
+  // but much faster because it's just one block. The endpoint saves server-side,
+  // so we poll for a hash change to survive the proxy timeout.
+  async function polishSection(idx: number) {
+    setErr(''); setPolishingSectionIdx(idx)
+    const before = JSON.stringify(blocks[idx]?.props?.html || '')
+    let apiErr: any = null
+    api('/ai/critique-section', { method: 'POST', body: JSON.stringify({ slug, pageId, index: idx }) })
+      .catch((e) => { apiErr = e })
+    const started = Date.now()
+    while (Date.now() - started < 180_000) {
+      await new Promise((r) => setTimeout(r, 3000))
+      if (apiErr && !/gateway|timeout|network|fetch|504|502|aborted/i.test(apiErr.message || '')) {
+        setErr(apiErr.message || 'Polish failed'); setPolishingSectionIdx(null); return
+      }
+      try {
+        const p = await api<PageData>(`/pages/${pageId}`)
+        const nowHtml = JSON.stringify((Array.isArray(p.blocks) ? p.blocks[idx] : null)?.props?.html || '')
+        if (nowHtml !== before) { setBlocks(p.blocks); setPreviewKey((k) => k + 1); setSavedAt('Section polished ✓'); setPolishingSectionIdx(null); return }
+      } catch { /* keep polling */ }
+    }
+    setPolishingSectionIdx(null); setErr('Polish took too long — reload to see if the section changed.')
+  }
 
   // Run a long server-side edit (critique / fill-images) that mutates + saves
   // the page. These calls can exceed the 60s proxy timeout — but the server
@@ -269,10 +294,16 @@ export default function PageEditor() {
               {blocks.length === 0 && <div className="ev-empty">No sections yet. Add one below.</div>}
               {blocks.map((b, i) => {
                 const meta = catalog[b.type]
+                const canPolish = b.type === 'raw-html' && typeof b.props?.html === 'string' && b.props.html.length > 120
                 return (
                   <div key={i} className={`sec-row ${selected === i ? 'active' : ''}`} onClick={() => setSelected(i)}>
                     <div className="lbl"><span className="num">{i + 1}</span><span>{meta?.name || b.type}</span></div>
                     <span className="kind">{b.type}</span>
+                    {canPolish && (
+                      <button className="sec-polish" title="Redesign this section — keeps text, links and images" disabled={polishingSectionIdx === i} onClick={(e) => { e.stopPropagation(); polishSection(i) }}>
+                        {polishingSectionIdx === i ? '…' : '✦'}
+                      </button>
+                    )}
                     <button className="sec-del" title="Delete this section" onClick={(e) => { e.stopPropagation(); if (window.confirm('Delete this section?')) remove(i) }}>✕</button>
                   </div>
                 )
