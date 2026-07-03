@@ -304,9 +304,28 @@ ${brief ? '\n\nSITE CONTEXT (anchor industry, audience, voice; reflect it in the
   }
 })
 
-// POST /ai/critique-page — a design-critic pass over a free-form (raw-html)
-// page: Claude critiques the layout against a rubric then returns an IMPROVED
-// version. Copy is preserved verbatim (text-lock); only the design changes.
+// System prompt for the per-section design pass. Each raw-html block is treated
+// as ONE section of the page: read its content, keep it, redesign the look.
+function critiqueSystemPrompt(c: any, f: any): string {
+  return `You are a senior brand & web designer. You are given the current HTML of ONE section of a web page (it was imported from an old website, so its markup is messy/dated). REDESIGN this one section into a clean, modern, well-composed section — but keep 100% of its meaning.
+
+DESIGN GOALS: strong visual hierarchy, generous spacing, clear type scale, purposeful color, rounded cards + soft shadows, tasteful decorative accents, confident CTAs.
+
+HARD RULES (content is sacred — you REDESIGN, you do NOT rewrite):
+- Keep EVERY piece of text VERBATIM — headings, paragraphs, list items, labels, button text. Do not add, drop, translate or reword anything.
+- Keep EVERY link: preserve each <a>'s href EXACTLY and its visible text.
+- Keep EVERY image: preserve each <img> with its EXACT src (they are already hosted) and alt; you may restyle/reframe it (rounded corners, aspect) but never remove it or swap it for a color block. If the source used a placeholder <div class="uw-img-slot" data-caption="…">, keep it.
+- Keep the section's building blocks: if it's a grid of cards/list/stats, keep the same count and the same content per item.
+- Colors ONLY via CSS variables: var(--primary) ${c.primary || ''}, var(--accent) ${c.accent || ''}, var(--accent2), var(--surface), var(--text). Derive tints with color-mix. Never hardcode brand hexes.
+- Fonts: headings '${f.heading || 'inherit'}', body '${f.body || 'inherit'}'.
+- Output ONLY this section's markup — one <section>…</section> (or a couple if it clearly splits). NO <html>/<head>/<body>, and NO site <header>/<nav>/<footer> (the platform adds those).
+- Return the redesigned section HTML via the tool.`
+}
+
+// POST /ai/critique-page — design pass. Goes through EACH raw-html block of the
+// page (imported or free-form), one by one (in parallel), keeps its text/links/
+// images and redesigns the layout into real page design. Structured sections
+// are left untouched.
 aiRouter.post('/critique-page', requireAuth, async (req: AuthRequest, res) => {
   const a = ai()
   if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
@@ -317,48 +336,41 @@ aiRouter.post('/critique-page', requireAuth, async (req: AuthRequest, res) => {
   const [page] = await db.select().from(pages).where(and(eq(pages.id, String(pageId)), eq(pages.workspaceId, ws.id))).limit(1)
   if (!page) return res.status(404).json({ ok: false, error: 'page not found' })
   const blocks = Array.isArray(page.blocks) ? JSON.parse(JSON.stringify(page.blocks)) : []
-  const rawIdx = blocks.findIndex((b: any) => b?.type === 'raw-html' && typeof b?.props?.html === 'string' && b.props.html.length > 200)
-  if (rawIdx < 0) return res.status(400).json({ ok: false, error: 'Design polish works on full-custom (free-form) pages. This page is built from editable sections instead.' })
+
+  const MAX_BLOCKS = 14
+  const targets = blocks
+    .map((b: any, i: number) => ({ b, i }))
+    .filter((x: any) => x.b?.type === 'raw-html' && typeof x.b?.props?.html === 'string' && x.b.props.html.length > 120)
+    .slice(0, MAX_BLOCKS)
+  if (!targets.length) return res.status(400).json({ ok: false, error: 'Design polish works on imported / full-custom (raw-html) pages. This page is built from editable sections instead.' })
 
   const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
   const t: any = tok?.tokens || {}
-  const c = t.color || {}, f = t.font || {}
+  const system = critiqueSystemPrompt(t.color || {}, t.font || {})
+  const tools = [{ name: 'section', description: 'The redesigned section.', input_schema: {
+    type: 'object', properties: { html: { type: 'string', description: 'The redesigned section HTML (<section> markup only).' } }, required: ['html'],
+  } as any }]
+
   try {
-    const r = await a.messages.create({
-      model: MODEL,
-      max_tokens: 16000,
-      system: `You are a senior brand & web designer doing a focused DESIGN PASS on an existing landing page.
-
-Silently critique the page against this rubric, then rewrite it to fix the weakest points:
-- Visual hierarchy: is the eye led from headline → value → CTA?
-- Spacing rhythm: consistent, generous vertical rhythm between sections.
-- Type scale: strong contrast between display, headings and body.
-- Color & tokens: purposeful use of var(--primary) ${c.primary || ''} / var(--accent) ${c.accent || ''}; tints via color-mix. Never hardcode brand hexes.
-- Section variety: alternate surface / tinted backgrounds; no two adjacent sections that look identical.
-- Polish: rounded cards, soft shadows, tasteful decorative accents (blobs/shapes), confident CTAs.
-- Imagery: keep every <div class="uw-img-slot" data-caption="..."> placeholder (do not delete image areas; improve their framing/aspect if needed).
-
-HARD RULES:
-- Work from the EXISTING content and STRUCTURE. First read the page: the same sections, in the same order, with the same building blocks. Reuse every heading, paragraph, label, button and image slot VERBATIM. Do NOT invent new copy, add new sections, or drop existing ones.
-- Preserve component structure: if a section is a grid/list of CARDS, keep the same number of cards with the same content. If a card (or any element) has an IMAGE, recreate it with an image in the same place — keep a <div class="uw-img-slot" data-caption="…"> for every image the original had (never replace an image with a plain color block).
-- You are RE-DESIGNING the look (spacing, hierarchy, color, decoration, framing), not rewriting the content or re-architecting the page.
-- Output ONLY the page body: a series of <section> blocks. Emit NO <html>/<head>/<body>, and NO site <header>/<nav>/<footer> — the platform already renders the menu and footer, so including them would show the page's chrome twice.
-- Colors only via the CSS variables above. Headings font '${f.heading || 'inherit'}', body '${f.body || 'inherit'}'.
-- Return the full improved HTML via the tool.`,
-      tools: [{ name: 'page', description: 'The redesigned page.', input_schema: {
-        type: 'object',
-        properties: { html: { type: 'string', description: 'The full improved page body markup (sections only).' } },
-        required: ['html'],
-      } as any }],
-      tool_choice: { type: 'tool', name: 'page' },
-      messages: [{ role: 'user', content: blocks[rawIdx].props.html }],
-    })
-    const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
-    if (!toolUse?.input?.html) return res.status(502).json({ ok: false, error: 'Model returned no page' })
-    blocks[rawIdx].props.html = stripPageChrome(toolUse.input.html)
+    // Redesign each raw-html block in parallel — total time ≈ the slowest block.
+    const results = await Promise.all(targets.map(async ({ b, i }: any) => {
+      try {
+        const r = await a.messages.create({
+          model: MODEL, max_tokens: 8000, system,
+          tools, tool_choice: { type: 'tool', name: 'section' },
+          messages: [{ role: 'user', content: String(b.props.html).slice(0, 24000) }],
+        })
+        const tu = r.content.find((x: any) => x.type === 'tool_use') as any
+        const html = tu?.input?.html ? stripPageChrome(tu.input.html) : ''
+        return { i, html: html.length > 40 ? html : null }
+      } catch { return { i, html: null } }
+    }))
+    let changed = 0
+    for (const { i, html } of results) { if (html) { blocks[i].props.html = html; changed++ } }
+    if (!changed) return res.status(502).json({ ok: false, error: 'Design polish produced no changes — please try again.' })
     await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
-    await logAiJob(ws.id, 'edit', 'done', { source: 'critique', pageId: page.id }, 2, page.id)
-    res.json({ ok: true, data: { ok: true } })
+    await logAiJob(ws.id, 'edit', 'done', { source: 'critique', pageId: page.id, sections: changed }, changed * 2, page.id)
+    res.json({ ok: true, data: { redesigned: changed } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'Design polish failed: ' + (e?.message || 'unknown') })
   }
