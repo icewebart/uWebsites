@@ -64,7 +64,9 @@ img{max-width:100%}
 section{padding:var(--pad) 0;position:relative}
 /* Neighbouring same-tone sections would otherwise double up — halve the seam so
    it stays generous but not cavernous; alternating tones keep full padding. */
-section.tone-surface + section.tone-surface{padding-top:calc(var(--pad) * .4)}
+section.tone-surface:not(.uw-raw) + section.tone-surface:not(.uw-raw){padding-top:calc(var(--pad) * .4)}
+/* imported sections carry their own spacing — never add a seam between them */
+.uw-raw + .uw-raw{padding-top:0}
 
 /* Section tones — alternating landing-page rhythm. Tinted bands get their own
    top+bottom padding (override the collapse) plus soft decorative circles in
