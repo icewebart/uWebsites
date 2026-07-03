@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 import { GOOGLE_FONTS, GOOGLE_FONT_NAMES, VIBES } from '@uwebsites/shared'
+import { ImageUpload } from '@/components/ImageUpload'
 
 type NavNode = { text: string; href: string; children?: NavNode[] }
 type LogoRich =
@@ -13,6 +14,7 @@ type LogoRich =
 type DecorSvg = { id: string; name: string; svg: string }
 type BrandAssets = {
   logo?: { url: string; alt?: string } | null
+  logo_white?: { url: string; alt?: string } | null   // light/white version for dark footers
   logo_rich?: LogoRich
   nav?: Array<{ text: string; href: string }>
   nav_tree?: NavNode[]
@@ -95,8 +97,10 @@ function useCustomFontFaces(faces?: Array<{ family: string; srcUrl: string; form
 }
 const px = (v: string) => parseInt(String(v)) || 0
 
-// Renders the imported logo — inline SVG markup or an <img>.
+// Renders the logo — inline SVG markup or an <img>. On dark backgrounds (footer
+// mockup), prefer the uploaded white logo; else invert the main one.
 function LogoMark({ a, dark }: { a: BrandAssets; dark?: boolean }) {
+  if (dark && a.logo_white?.url) return <img className="bb-logo-img" src={a.logo_white.url} alt={a.logo_white.alt || ''} />
   const rich = a.logo_rich
   if (rich && rich.kind === 'svg') {
     return <span className="bb-logo-svg" style={{ filter: dark ? 'brightness(0) invert(1)' : undefined }} dangerouslySetInnerHTML={{ __html: rich.svg }} />
@@ -601,6 +605,19 @@ export default function Branding() {
     setT((cur) => cur ? { ...cur, [group]: { ...(cur as any)[group], [key]: value } } : cur)
   }
 
+  // Set/clear a logo. Uploading a header logo also clears any imported inline
+  // SVG so the uploaded one is the single source of truth.
+  function setLogo(key: 'logo' | 'logo_white', url: string) {
+    setT((cur) => {
+      if (!cur) return cur
+      const ba: any = { ...(cur.brand_assets || {}) }
+      ba[key] = url ? { url } : null
+      if (key === 'logo') ba.logo_rich = null
+      return { ...cur, brand_assets: ba }
+    })
+  }
+  const headerLogoVal = t?.brand_assets?.logo?.url || (t?.brand_assets?.logo_rich?.kind === 'img' ? t.brand_assets.logo_rich.url : '') || ''
+
   // Apply a vibe preset — bundles font pairing + shape (radius/border/shadow) +
   // type scale in one click. Colors are preserved (they're the brand identity).
   function applyVibe(slug: string) {
@@ -668,7 +685,21 @@ export default function Branding() {
       {/* Token editor — constrained cards so controls never stretch/clip. The
           brand book above is the live preview, so no separate preview column. */}
       <div className="brand-editor">
-        <div className="dash-h" style={{ marginTop: 4 }}>Vibe — one-click design system</div>
+        <div className="dash-h" style={{ marginTop: 4 }}>Logos</div>
+        <div className="brand-editor-grid" style={{ marginBottom: 6 }}>
+          <div className="ctl-group card">
+            <h3>Logo — header</h3>
+            <p className="muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 12 }}>Shown in the menu / header. Use a version that reads on a light background.</p>
+            <ImageUpload slug={slug} value={headerLogoVal} onChange={(url) => setLogo('logo', url)} />
+          </div>
+          <div className="ctl-group card">
+            <h3>Logo — white (footer)</h3>
+            <p className="muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 12 }}>A white / light version for the dark footer. If left empty, the header logo is auto-inverted to white.</p>
+            <ImageUpload slug={slug} dark value={t?.brand_assets?.logo_white?.url || ''} onChange={(url) => setLogo('logo_white', url)} />
+          </div>
+        </div>
+
+        <div className="dash-h" style={{ marginTop: 22 }}>Vibe — one-click design system</div>
         <div className="vibe-grid">
           {VIBES.map((v) => (
             <button key={v.slug} className={`vibe-card ${t.vibe === v.slug ? 'on' : ''}`} onClick={() => applyVibe(v.slug)}>

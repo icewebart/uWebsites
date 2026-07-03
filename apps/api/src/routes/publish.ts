@@ -134,7 +134,8 @@ main > section.uw-raw:first-child{padding-top:0}
 .site-footer .container{display:grid;grid-template-columns:1.4fr 1fr 1fr 1.4fr;gap:40px;align-items:start}
 .site-footer .brand-col{display:flex;flex-direction:column;gap:16px}
 .site-footer .brand-col .brand{font-family:'${t.font.heading}',sans-serif;font-weight:800;font-size:22px;color:var(--footer-fg);display:flex;align-items:center;gap:10px}
-.site-footer .brand-col .brand img{height:32px;width:auto;filter:brightness(1.4)}
+.site-footer .brand-col .brand img{height:36px;width:auto}
+.site-footer .brand-col .brand img.foot-logo-invert{filter:brightness(0) invert(1)}
 .site-footer .brand-col p{font-size:14px;opacity:.72;max-width:32ch;line-height:1.5}
 .site-footer h4{font-family:'${t.font.heading}',sans-serif;font-weight:700;font-size:15px;margin-bottom:14px;color:var(--footer-fg)}
 .site-footer .col a{display:block;color:var(--footer-fg);opacity:.72;padding:6px 0;font-size:14px;text-decoration:none;transition:opacity .15s}
@@ -348,10 +349,10 @@ export const HEADER_SCRIPT = `<script>(function(){
 // half 'Companie'. Legal-looking items (Termeni / Privacy / GDPR / Confidențialitate)
 // get hoisted to the bottom bar. This keeps the flat items[] data shape while
 // giving the render the multi-column structure the Kids.ro system uses.
-export function renderFooter(ws: any, footer: MenuTree | undefined, tagline?: string | null, logoUrl?: string | null): string {
+export function renderFooter(ws: any, footer: MenuTree | undefined, tagline?: string | null, logoUrl?: string | null, opts?: { invert?: boolean }): string {
   const linkFor = (i: MenuItem) => `<a href="${esc(i.href)}">${esc(i.label)}</a>`
   const brandLogo = logoUrl
-    ? `<div class="brand"><img src="${esc(logoUrl)}" alt="${esc(ws.name)}"></div>`
+    ? `<div class="brand"><img${opts?.invert ? ' class="foot-logo-invert"' : ''} src="${esc(logoUrl)}" alt="${esc(ws.name)}"></div>`
     : `<div class="brand">${esc(ws.name)}</div>`
   const brand = `<div class="brand-col">${brandLogo}${tagline ? `<p>${esc(tagline)}</p>` : ''}</div>`
   const nl = `<div class="col newsletter"><h4>Newsletter</h4><form onsubmit="event.preventDefault();alert('Îți mulțumim! (formularul de newsletter va fi conectat în curând)')"><input type="email" placeholder="emailul tău" aria-label="Email"><button type="submit">OK</button></form></div>`
@@ -396,12 +397,15 @@ const MOTION_CSS = `@media (prefers-reduced-motion:no-preference){
 const MOTION_SCRIPT = `<script>(function(){if(matchMedia('(prefers-reduced-motion:reduce)').matches)return;var els=[].slice.call(document.querySelectorAll('[data-anim]'));if(!('IntersectionObserver'in window)){els.forEach(function(e){e.classList.add('uw-in')});return;}var io=new IntersectionObserver(function(x){x.forEach(function(en){if(en.isIntersecting){en.target.classList.add('uw-in');io.unobserve(en.target)}})},{rootMargin:'0px 0px -8% 0px',threshold:.08});els.forEach(function(e){io.observe(e)})})();</script>`
 
 function renderPage(page: any, body: string, t: any, ws: any, base: string, opts?: { header?: MenuTree; footer?: MenuTree }) {
-  const logo = (t as any)?.brand_assets?.logo?.url || null
+  const ba = (t as any)?.brand_assets || {}
+  const logo = ba.logo?.url || null
+  const whiteLogo = ba.logo_white?.url || null
+  const footerLogo = whiteLogo || logo
   const motionOn = (t as any)?.motion !== 'off'
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(page.title)} — ${esc(ws.name)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">${fontsHead(t)}<style>${siteCss(t)}${motionOn ? MOTION_CSS : ''}</style></head><body>
 ${renderHeader(ws, base, opts?.header, logo)}
 <main>${body || ''}</main>
-${renderFooter(ws, opts?.footer, (t as any)?.brand_assets?.tagline, logo)}
+${renderFooter(ws, opts?.footer, ba.tagline, footerLogo, { invert: !whiteLogo && !!logo })}
 ${HEADER_SCRIPT}
 ${motionOn ? MOTION_SCRIPT : ''}
 </body></html>`

@@ -70,7 +70,9 @@ menusRouter.get('/:slug/menus/preview', requireAuth, async (req: AuthRequest, re
   // If the iframe URL has a #footer hash, jump straight to the footer on load
   // so the footer editor preview opens with the footer in view.
   const scrollScript = `<script>(function(){if(location.hash==='#footer'){var el=document.getElementById('footer');if(el)el.scrollIntoView({block:'start'})}})()</script>`
-  const footerHtml = renderFooter(ws, footer).replace('<footer class="site-footer">', '<footer id="footer" class="site-footer">')
+  const fWhite = t?.brand_assets?.logo_white?.url || null
+  const fLogo = fWhite || t?.brand_assets?.logo?.url || null
+  const footerHtml = renderFooter(ws, footer, t?.brand_assets?.tagline, fLogo, { invert: !fWhite && !!t?.brand_assets?.logo?.url }).replace('<footer class="site-footer">', '<footer id="footer" class="site-footer">')
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(ws.name)} — nav preview</title>${fontsHead(t)}<style>${siteCss(t)}body{background:#f3f5f7}main{min-height:240px;background:#fff}</style></head><body>
 ${renderHeader(ws, base, header, logo)}
 <main>${placeholder}</main>
