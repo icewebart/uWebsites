@@ -13,6 +13,7 @@ export type SectionKind =
   | 'testimonials-3' | 'pricing-3' | 'faq' | 'logo-cloud' | 'image-text' | 'stats-row' | 'stats-band'
   | 'article-hero' | 'article-body' | 'timeline' | 'gallery'
   | 'features-2col' | 'feature-alt' | 'split-hero' | 'bento-grid' | 'carousel-cards' | 'faq-accordion' | 'big-quote'
+  | 'cta-ref'
   | 'raw-html'
 
 export type SectionMeta = {
@@ -367,6 +368,13 @@ export const SECTIONS: SectionMeta[] = [
     category: 'social-proof',
     defaults: { quote: 'This is the single most persuasive thing a real customer said about you.', author: 'Full Name', role: 'Role, Company', image_url: '' },
   },
+  {
+    kind: 'cta-ref',
+    name: 'Smart CTA (from CTA library)',
+    description: 'A call-to-action banner whose text + link come from the workspace CTA library (Website → CTAs). Set cta_id to pin a specific CTA, or leave it "auto" to use the best CTA for this page by the rules. Editing the CTA once updates it everywhere.',
+    category: 'cta',
+    defaults: { cta_id: '', variant: 'gradient', heading: '', sub: '', cta_label: '', cta_href: '' },
+  },
 ]
 
 export const SECTION_META: Record<string, SectionMeta> = Object.fromEntries(SECTIONS.map((s) => [s.kind, s]))
@@ -405,6 +413,7 @@ export function sectionHasContent(b: any): boolean {
     case 'carousel-cards': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.image_url))
     case 'faq-accordion': return arrOk(p.items) && p.items.some((i: any) => has(i?.q) || has(i?.a))
     case 'big-quote': return has(p.quote)
+    case 'cta-ref': return true  // resolved from the CTA library at render time
     case 'stats-row': return arrOk(p.items) && p.items.some((i: any) => has(i?.value) || has(i?.label))
     case 'raw-html': return has(p.html)
     default: return false
@@ -994,6 +1003,16 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
       const portrait = p.image_url ? `<img class="bq-portrait" src="${esc(p.image_url)}" alt="${esc(p.author || '')}" loading="lazy">` : ''
       const who = (p.author || p.role) ? `<div class="bq-who">${portrait}<div>${p.author ? `<b${f('author')}>${esc(p.author)}</b>` : ''}${p.role ? `<span${f('role')}>${esc(p.role)}</span>` : ''}</div></div>` : ''
       return `<section class="big-quote" data-anim="fade-up"><div class="container"><figure><blockquote${f('quote')}>${esc(p.quote)}</blockquote>${who ? `<figcaption>${who}</figcaption>` : ''}</figure></div></section>`
+    }
+    case 'cta-ref': {
+      // Resolution (publish.ts) fills heading/sub/cta_label/cta_href from the CTA
+      // library. Renders identically to a cta-banner. If unresolved + empty, show
+      // a subtle placeholder in edit mode so the author knows a CTA will appear.
+      if (!p.cta_label && !p.heading) {
+        return ed ? `<section class="cta-banner"><div class="container"><div class="box"><div class="cta-inner"><h2>Smart CTA</h2><p class="sub">Pulls from your CTA library (Website → CTAs) when published.</p></div></div></div></section>` : ''
+      }
+      const solid = p.variant === 'solid' ? ' v-solid' : ''
+      return `<section class="cta-banner${solid}"><div class="container"><div class="box"><span class="cta-orb cta-orb-1"></span><span class="cta-orb cta-orb-2"></span><div class="cta-inner">${p.heading ? `<h2>${esc(p.heading)}</h2>` : ''}${p.sub ? `<p class="sub">${esc(p.sub)}</p>` : ''}${p.cta_label ? `<p><a class="btn" href="${esc(p.cta_href || '#')}">${esc(p.cta_label)}</a></p>` : ''}</div></div></div></section>`
     }
     case 'cta-banner': {
       const solid = p.variant === 'solid' ? ' v-solid' : ''

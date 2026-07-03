@@ -567,7 +567,9 @@ ${brief ? '\nSITE CONTEXT (for the CTA only):\n' + brief : ''}`,
         ],
       } },
     ]
-    if (out.cta_label) blocks.push({ type: 'cta-banner', props: { heading: out.heading || row.title, sub: '', cta_label: out.cta_label, cta_href: out.cta_href || '/contact/' } })
+    // Bottom CTA pulls from the workspace CTA library (consistent, not an
+    // AI-mangled per-article label). Renders nothing if no CTAs are defined yet.
+    blocks.push({ type: 'cta-ref', props: { cta_id: '', variant: 'gradient' } })
     const seo = { ...((row.seo as any) || {}), schemaType: 'Article' }
     await db.update(pages).set({ blocks: blocks as any, seo: seo as any, updatedAt: new Date() }).where(eq(pages.id, row.id))
     await logAiJob(row.wsId, 'article', 'done', { source: 'normalise-article', pageId: row.id }, 2, row.id)

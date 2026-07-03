@@ -172,3 +172,46 @@ menusRouter.put('/:slug/menus', requireAuth, async (req: AuthRequest, res) => {
   if (footer !== undefined) await upsertMenu(ws.id, 'footer', clean(footer, 20))
   res.json({ ok: true, data: await getMenusFor(ws.id) })
 })
+
+// ---- CTA library (Website → CTAs) — stored on brandingTokens.tokens.ctas ----
+// A reusable set of call-to-action banners with situational rules. A page's
+// 'cta-ref' section resolves to one at render time (see publish.resolveCta).
+function cleanCtas(input: any): any[] {
+  if (!Array.isArray(input)) return []
+  return input.slice(0, 40).map((c: any, i: number) => ({
+    id: String(c?.id || `cta-${i}-${Math.abs((String(c?.name || c?.cta_label || i)).split('').reduce((a: number, ch: string) => a + ch.charCodeAt(0), 0))}`),
+    name: String(c?.name || '').slice(0, 80),
+    heading: String(c?.heading || '').slice(0, 200),
+    sub: String(c?.sub || '').slice(0, 400),
+    cta_label: String(c?.cta_label || '').slice(0, 80),
+    cta_href: String(c?.cta_href || '').slice(0, 400),
+    variant: c?.variant === 'solid' ? 'solid' : 'gradient',
+    isDefault: !!c?.isDefault,
+    pageTypes: Array.isArray(c?.pageTypes) ? c.pageTypes.filter((x: any) => typeof x === 'string').slice(0, 20) : [],
+    slugContains: String(c?.slugContains || '').slice(0, 80),
+  }))
+}
+
+menusRouter.get('/:slug/ctas', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  res.json({ ok: true, data: { ctas: ((tok?.tokens as any)?.ctas) || [] } })
+})
+
+menusRouter.put('/:slug/ctas', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const ctas = cleanCtas(req.body?.ctas)
+  // Ensure at most one default.
+  let seenDefault = false
+  for (const c of ctas) { if (c.isDefault && !seenDefault) seenDefault = true; else c.isDefault = false }
+  const [existing] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  if (existing) {
+    const merged = { ...(existing.tokens as any), ctas }
+    await db.update(brandingTokens).set({ tokens: merged }).where(eq(brandingTokens.id, existing.id))
+  } else {
+    await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: { ...DEFAULT_TOKENS, ctas } as any })
+  }
+  res.json({ ok: true, data: { ctas } })
+})

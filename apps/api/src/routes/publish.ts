@@ -225,6 +225,33 @@ function composeBody(blocks: any[], renderOne: (b: any, i: number) => string): s
   }).join('\n')
 }
 
+// ---- CTA library resolution ----
+// A workspace can define reusable CTAs (Website → CTAs). A 'cta-ref' section
+// resolves to one — either a pinned cta_id or the best situational match for
+// the page (slug/title keyword > page type > global default). Editing the CTA
+// once updates every page that references it.
+type Cta = { id: string; name?: string; heading?: string; sub?: string; cta_label?: string; cta_href?: string; variant?: string; isDefault?: boolean; pageTypes?: string[]; slugContains?: string }
+function resolveCta(ctas: Cta[], page: { slug?: string; title?: string; type?: string }, ctaId?: string): Cta | null {
+  if (!Array.isArray(ctas) || !ctas.length) return null
+  if (ctaId) { const found = ctas.find((c) => c.id === ctaId); if (found) return found }
+  const slug = String(page.slug || '').toLowerCase(), title = String(page.title || '').toLowerCase(), type = page.type
+  const bySlug = ctas.find((c) => c.slugContains && (slug.includes(c.slugContains.toLowerCase()) || title.includes(c.slugContains.toLowerCase())))
+  if (bySlug) return bySlug
+  const byType = ctas.find((c) => Array.isArray(c.pageTypes) && type && c.pageTypes.includes(type))
+  if (byType) return byType
+  return ctas.find((c) => c.isDefault) || ctas[0] || null
+}
+// Replace each cta-ref block's props with the resolved CTA's content so the
+// renderer (which mirrors cta-banner) shows real text.
+function resolveCtaRefs(blocks: any[], ctas: Cta[], page: { slug?: string; title?: string; type?: string }): any[] {
+  return blocks.map((b) => {
+    if (b?.type !== 'cta-ref') return b
+    const c = resolveCta(ctas, page, b.props?.cta_id)
+    if (!c) return b
+    return { ...b, props: { ...b.props, heading: c.heading || '', sub: c.sub || '', cta_label: c.cta_label || '', cta_href: c.cta_href || '#', variant: b.props?.variant || c.variant || 'gradient' } }
+  })
+}
+
 type MenuItem = { label: string; href: string; children?: MenuItem[] }
 type MenuTree = { items: MenuItem[]; cta?: { label: string; href: string } | null }
 
@@ -415,14 +442,15 @@ const EDIT_SCRIPT = `<style>
 // click/hover script so the editor can detect selection.
 export const renderPreview = async (id: string, accountId: string, opts?: { edit?: boolean; selectedIndex?: number | null }) => {
   const [row] = await db.select({
-    title: pages.title, blocks: pages.blocks, wsId: pages.workspaceId,
+    title: pages.title, slug: pages.slug, type: pages.type, blocks: pages.blocks, wsId: pages.workspaceId,
     wsName: workspaces.name, accId: workspaces.accountId,
   }).from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id))
     .where(eq(pages.id, id)).limit(1)
   if (!row || row.accId !== accountId) return null
   const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, row.wsId)).limit(1)
   const t = (tok?.tokens as any) ?? DEFAULT_TOKENS
-  const blocks = Array.isArray(row.blocks) ? (row.blocks as any[]) : []
+  const rawBlocks = Array.isArray(row.blocks) ? (row.blocks as any[]) : []
+  const blocks = resolveCtaRefs(rawBlocks, (t as any).ctas || [], { slug: row.slug, title: row.title, type: row.type })
   const body = opts?.edit
     ? blocks.map((b, i) => {
         const empty = !sectionHasContent(b)
@@ -456,7 +484,8 @@ publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) 
     const siteMenus = await getMenusFor(ws.id)
     let count = 0
     for (const p of publishable) {
-      const blocks = Array.isArray(p.blocks) ? (p.blocks as any[]) : []
+      const rawBlocks = Array.isArray(p.blocks) ? (p.blocks as any[]) : []
+      const blocks = resolveCtaRefs(rawBlocks, (t as any).ctas || [], { slug: p.slug, title: p.title, type: p.type })
       const html = renderPage(p, composeBody(blocks, (b) => renderBlock(b)), t, ws, base, siteMenus)
       const rel = p.slug === 'home' ? 'index.html' : path.join(p.slug, 'index.html')
       const file = path.join(outDir, rel)

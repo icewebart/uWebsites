@@ -14,6 +14,7 @@ const NAV: NavEntry[] = [
   { label: 'Website', Icon: IconWebsite },
   { label: 'Menu', Icon: IconMenu, sub: true },
   { label: 'Footer', Icon: IconFooter, sub: true },
+  { label: 'CTAs', Icon: IconFooter, sub: true },
   { label: 'Articles', Icon: IconArticles },
   { label: 'Branding', Icon: IconBranding },
   { label: 'Stats', Icon: IconStats },
@@ -59,6 +60,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               : label === 'Website' ? `/w/${current.slug}`
               : label === 'Menu' ? `/w/${current.slug}/menu`
               : label === 'Footer' ? `/w/${current.slug}/footer`
+              : label === 'CTAs' ? `/w/${current.slug}/cta`
               : label === 'Articles' ? `/w/${current.slug}/articles`
               : label === 'Branding' ? `/w/${current.slug}/branding`
               : undefined

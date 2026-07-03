@@ -794,7 +794,35 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
         <div className="field"><label>Role / company</label><input className="inp" value={p.role || ''} onChange={(e) => onChange({ role: e.target.value })} /></div>
         <div className="field" style={{ marginBottom: 0 }}><label>Portrait URL</label><input className="inp" value={p.image_url || ''} onChange={(e) => onChange({ image_url: e.target.value })} placeholder="(optional)" /></div>
       </>)
+    case 'cta-ref':
+      return <CtaRefForm block={block} onChange={onChange} />
     default:
       return <div className="muted" style={{ fontSize: 13 }}>No editor for "{block.type}" sections yet.</div>
   }
+}
+
+// Smart-CTA editor: pick a CTA from the workspace library (or Auto), or jump to
+// the CTAs page to create one. Loads the library on mount.
+function CtaRefForm({ block, onChange }: { block: Block; onChange: (partial: Record<string, any>) => void }) {
+  const { slug } = useParams<{ slug: string }>()
+  const [ctas, setCtas] = useState<Array<{ id: string; name: string; cta_label: string }>>([])
+  const p = block.props || {}
+  useEffect(() => { api<{ ctas: any[] }>(`/workspaces/${slug}/ctas`).then((d) => setCtas(d.ctas || [])).catch(() => {}) }, [slug])
+  return (<>
+    <div className="field"><label>Which CTA?</label>
+      <select className="inp" value={p.cta_id || ''} onChange={(e) => onChange({ cta_id: e.target.value })}>
+        <option value="">Auto — best CTA for this page (by rules)</option>
+        {ctas.map((c) => <option key={c.id} value={c.id}>{c.name || c.cta_label || c.id}</option>)}
+      </select>
+    </div>
+    <div className="field" style={{ marginBottom: 0 }}><label>Style override</label>
+      <select className="inp" value={p.variant || 'gradient'} onChange={(e) => onChange({ variant: e.target.value })}>
+        <option value="gradient">Gradient</option><option value="solid">Solid</option>
+      </select>
+    </div>
+    <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+      {ctas.length ? 'Content comes from your CTA library.' : 'No CTAs yet — '}
+      <a href={`/w/${slug}/cta`}>{ctas.length ? 'Manage CTAs →' : 'create one →'}</a>
+    </p>
+  </>)
 }
