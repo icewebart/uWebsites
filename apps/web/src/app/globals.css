@@ -641,9 +641,13 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .menu-row-child{padding:4px 0}
 .menu-row-child .menu-row-grip{color:color-mix(in srgb, var(--primary) 55%, var(--text-faint));cursor:default}
 .menu-item-add{margin:2px 0 0 26px}
-.btn-mini{background:transparent;border:1px dashed var(--border);color:var(--text-muted);font-size:12px;font-weight:600;padding:5px 10px;border-radius:8px;cursor:pointer}
+.btn-mini{background:transparent;border:1px dashed var(--border);color:var(--text-muted);font-size:12px;font-weight:600;padding:5px 10px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center}
 .btn-mini:hover:not(:disabled){border-color:var(--primary);color:var(--primary)}
 .btn-mini:disabled{opacity:.45;cursor:not-allowed}
+.btn-mini.danger:hover:not(:disabled){border-color:#e5484d;color:#e5484d}
+.status-pill{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:var(--r-md)}
+.status-pill.draft{background:var(--bg-subtle);color:var(--text-faint)}
+.status-pill.live{background:var(--lime-light);color:var(--forest)}
 @media(max-width:760px){.menu-row{grid-template-columns:1fr}}
 .ev-actions-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 
@@ -670,6 +674,8 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .rebuild-head-text p{font-size:13px;color:var(--text-muted)}
 .rebuild-body{padding:18px 22px 22px}
 .rebuild-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin:0 0 10px}
+.rebuild-advanced-toggle{margin-top:12px;background:none;border:0;padding:4px 0;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer}
+.rebuild-advanced-toggle:hover{color:var(--forest)}
 .direction-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:18px}
 .direction{text-align:left;font-family:inherit;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px;cursor:pointer;transition:.12s}
 .direction:hover{border-color:var(--border-strong)}

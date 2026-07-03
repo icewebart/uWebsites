@@ -26,6 +26,8 @@ type Tokens = {
   font: { heading: string; body: string; scale: number; lineHeight: number }
   shape: { buttonRadius: string; cardRadius: string; borderWidth: string; shadow?: string }
   vibe?: string
+  tagline?: string
+  voice?: string
   space: { sectionGap: string; sectionPaddingY: string; container: string }
   brand_assets?: BrandAssets
 }
@@ -676,6 +678,22 @@ export default function Branding() {
           ))}
         </div>
         <VibeFontLoader />
+
+        <div className="dash-h" style={{ marginTop: 22 }}>Brand voice &amp; tagline</div>
+        <div className="ctl-group card" style={{ marginBottom: 4 }}>
+          <p className="muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 12 }}>
+            The AI uses these whenever it writes or rebuilds a page — so every page sounds like <em>you</em>, not a template. Visual identity (colors, fonts, shape) is already set above; this is about words &amp; tone.
+          </p>
+          <div className="field">
+            <label>Tagline</label>
+            <input value={t.tagline || ''} placeholder='e.g. "German for kids, through play"' onChange={(e) => setT((c) => c ? { ...c, tagline: e.target.value } : c)} />
+          </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Brand voice / personality</label>
+            <textarea className="inp" rows={3} value={t.voice || ''} placeholder='Describe how your brand should sound. e.g. "Warm and encouraging, speaks directly to parents, concrete outcomes over hype, one light joke is fine, never corporate."' onChange={(e) => setT((c) => c ? { ...c, voice: e.target.value } : c)} />
+            <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>Leave blank to use the auto-detected voice for your industry.</p>
+          </div>
+        </div>
 
         <div className="dash-h" style={{ marginTop: 22 }}>Edit tokens</div>
         <div className="brand-editor-grid">

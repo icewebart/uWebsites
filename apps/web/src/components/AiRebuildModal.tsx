@@ -2,21 +2,19 @@
 import { useState } from 'react'
 import { api } from '@/lib/api'
 
-type Direction = { id: string; label: string; tone?: string; desc: string }
-
-// `auto` is the default — the API auto-picks a named aesthetic from the
-// imported brand (nav industry + brand colors). The named slugs map 1:1 to
-// the aesthetics defined in apps/api/src/lib/aesthetics.ts.
-const DIRECTIONS: Direction[] = [
-  { id: 'auto',     label: 'Auto from brand',     desc: 'Pick the right aesthetic from your imported colors, fonts and nav industry. (Recommended)' },
-  { id: 'lyric',    label: 'Lyric',               desc: 'Warm + playful — family, learning, wellness, lifestyle.' },
-  { id: 'apex',     label: 'Apex',                desc: 'Navy + serif — law, finance, consulting, professional services.' },
-  { id: 'paymark',  label: 'Paymark',             desc: 'Dark fintech / B2B SaaS — confident, numbers-first.' },
-  { id: 'maison',   label: 'Maison',              desc: 'Editorial warm — hospitality, design, premium home brands.' },
-  { id: 'aquafix',  label: 'Aquafix',             desc: 'Trades + transparent pricing — plumbing, HVAC, repair, local services.' },
-  { id: 'launchpad',label: 'Launchpad',           desc: 'Pre-launch waitlist with urgency and live counter energy.' },
-  { id: 'stark',    label: 'Stark',               desc: 'Brutalist mono — agency, studio, portfolio. Black, white, one accent.' },
-  { id: 'obsidian', label: 'Obsidian',            desc: 'Dark cinematic luxury — jewelry, private clubs, high-end.' },
+// Optional voice override — used ONLY when the user opens "Advanced". By
+// default rebuild derives everything (visuals + voice) from the workspace's
+// Branding. These map 1:1 to the aesthetics in apps/api/src/lib/aesthetics.ts,
+// but they now only steer copy voice + section roster (NOT the palette).
+const VOICES: { id: string; label: string; desc: string }[] = [
+  { id: 'auto',     label: 'From my brand',  desc: 'Use my Branding — colors, fonts, tagline and voice. (Recommended)' },
+  { id: 'lyric',    label: 'Warm & playful', desc: 'Family, learning, wellness, lifestyle.' },
+  { id: 'apex',     label: 'Authoritative',  desc: 'Law, finance, consulting — measured, precise.' },
+  { id: 'paymark',  label: 'Numbers-first',  desc: 'B2B / SaaS — confident, metric-led.' },
+  { id: 'maison',   label: 'Editorial',      desc: 'Hospitality, design, premium — quietly confident.' },
+  { id: 'aquafix',  label: 'Direct/local',   desc: 'Trades & services — plain, reassuring, action-first.' },
+  { id: 'stark',    label: 'Terse/bold',     desc: 'Agency / portfolio — blunt, fragments OK.' },
+  { id: 'obsidian', label: 'Luxury/minimal', desc: 'High-end — minimal, names materials & makers.' },
 ]
 
 export function AiRebuildModal({ open, pageId, pageTitle, snapshotUrl, onClose, onDone }: {
@@ -27,7 +25,8 @@ export function AiRebuildModal({ open, pageId, pageTitle, snapshotUrl, onClose, 
   onClose: () => void
   onDone: (data: { title: string; blocks: any[] }) => void
 }) {
-  const [dir, setDir] = useState<Direction>(DIRECTIONS[0])
+  const [voice, setVoice] = useState('auto')
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [extra, setExtra] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -38,7 +37,7 @@ export function AiRebuildModal({ open, pageId, pageTitle, snapshotUrl, onClose, 
     if (!extra.trim()) { setErr('Tell me what to change. AI Rebuild is a destructive op — empty instruction = no change.'); return }
     setErr(''); setBusy(true)
     const payload: any = { pageId, tone: extra.trim() }
-    if (dir.id !== 'auto') payload.aesthetic = dir.id
+    if (voice !== 'auto') payload.aesthetic = voice
     try {
       const r = await api<{ title: string; blocks: any[] }>('/ai/rebuild-page', {
         method: 'POST', body: JSON.stringify(payload),
@@ -56,23 +55,32 @@ export function AiRebuildModal({ open, pageId, pageTitle, snapshotUrl, onClose, 
             : <div className="rebuild-thumb" />}
           <div className="rebuild-head-text">
             <h2>Rebuild "{pageTitle || 'this page'}" with AI</h2>
-            <p>AI keeps your real content and images, then restructures the page in a named aesthetic — typography, palette, section roster and copy voice all chosen together.</p>
+            <p>AI keeps your real content and images, then restructures the page — using your <b>Branding</b> (colors, fonts, tagline and voice) so it comes out on-brand.</p>
           </div>
         </div>
 
         <div className="rebuild-body">
-          <p className="rebuild-label">Aesthetic</p>
-          <div className="direction-grid">
-            {DIRECTIONS.map((d) => (
-              <button key={d.id} className={`direction ${dir.id === d.id ? 'sel' : ''}`} onClick={() => setDir(d)}>
-                <b>{d.label}</b>
-                <span>{d.desc}</span>
-              </button>
-            ))}
-          </div>
           <p className="rebuild-label">What should I change? <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text-faint)' }}>(required — AI only does what you ask)</span></p>
           <textarea className="inp" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder='e.g. "Add a testimonials section near the top" or "Replace the hero with a shorter, sharper headline" or "Drop the pricing section"' />
-          <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>To polish copy on a single section without changing layout, close this and use <b>✦ AI rewrite copy</b> in the section panel instead.</p>
+
+          <button className="rebuild-advanced-toggle" onClick={() => setShowAdvanced((v) => !v)}>
+            {showAdvanced ? '▾' : '▸'} Advanced — override the writing voice
+          </button>
+          {showAdvanced && (
+            <>
+              <p className="muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>By default the voice comes from your Branding page. Pick a different one just for this rebuild:</p>
+              <div className="direction-grid">
+                {VOICES.map((d) => (
+                  <button key={d.id} className={`direction ${voice === d.id ? 'sel' : ''}`} onClick={() => setVoice(d.id)}>
+                    <b>{d.label}</b>
+                    <span>{d.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>To polish copy on a single section without changing layout, close this and use <b>✦ AI rewrite copy</b> in the section panel instead. To set your permanent voice, edit <b>Branding → Brand voice</b>.</p>
           {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
         </div>
 

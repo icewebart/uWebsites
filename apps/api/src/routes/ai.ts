@@ -4,7 +4,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { db, workspaces, pages, brandingTokens, aiJobs } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { SECTIONS, SECTION_META } from '../lib/sections.js'
-import { pickAesthetic, aestheticPrompt, COPY_RULES, AESTHETICS } from '../lib/aesthetics.js'
+import { pickAesthetic, brandVoicePrompt, COPY_RULES, AESTHETICS } from '../lib/aesthetics.js'
 import { generateImage, generateImageResult, photoPrompt, imageGenEnabled, reasonMessage } from '../lib/imagegen.js'
 import { upsertMenu } from './menus.js'
 
@@ -130,6 +130,31 @@ async function resolveAesthetic(workspaceId: string, override?: string | null) {
   } catch {
     return pickAesthetic({})
   }
+}
+
+// Pull the brand identity a generation needs: real colors/fonts/shape/vibe plus
+// the editable tagline + brand voice. Fed to brandVoicePrompt() so the AI
+// designs INSIDE the brand instead of imposing a named aesthetic's palette.
+async function resolveBrand(workspaceId: string): Promise<{
+  colors?: any; fonts?: any; shape?: any; vibe?: string | null; tagline?: string | null; voice?: string | null
+}> {
+  try {
+    const [row] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, workspaceId)).limit(1)
+    const t: any = row?.tokens || {}
+    return {
+      colors: t.color || {}, fonts: t.font || {}, shape: t.shape || {}, vibe: t.vibe || null,
+      tagline: t.tagline || t.brand_assets?.tagline || null,
+      voice: t.voice || t.brand_voice || null,
+    }
+  } catch { return {} }
+}
+
+// Convenience: aesthetic (for composition + section roster) merged with the
+// real brand (for all visuals + voice). Use this everywhere we used to inject
+// aestheticPrompt() in a generation/rebuild flow.
+async function brandPrompt(workspaceId: string, override?: string | null): Promise<string> {
+  const [aesthetic, brand] = await Promise.all([resolveAesthetic(workspaceId, override), resolveBrand(workspaceId)])
+  return brandVoicePrompt(aesthetic, brand)
 }
 
 async function ownedWs(slug: string, accountId: string) {
@@ -390,6 +415,88 @@ aiRouter.post('/critique-page', requireAuth, async (req: AuthRequest, res) => {
   }
 })
 
+// POST /ai/normalise-article — reshape ANY article page into the canonical
+// structure: [hero] → [article-body with sidebar + auto TOC] → [cta-banner].
+// Keeps the article's real words + images verbatim; only the structure and
+// markup are cleaned. This is what "normalising" an imported/legacy article
+// means — every article ends up with the same reading layout + SEO scaffold.
+aiRouter.post('/normalise-article', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured.' })
+  const { pageId } = req.body ?? {}
+  if (!pageId) return res.status(400).json({ ok: false, error: 'pageId required' })
+  const [row] = await db.select({
+    id: pages.id, title: pages.title, blocks: pages.blocks, seo: pages.seo, wsId: pages.workspaceId, accId: workspaces.accountId,
+  }).from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id)).where(eq(pages.id, String(pageId))).limit(1)
+  if (!row || row.accId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'page not found' })
+
+  // Gather every scrap of text + image from all block kinds (same harvesting as
+  // rebuild), so a raw-html or already-typed article both work.
+  const cur = (Array.isArray(row.blocks) ? row.blocks : []) as any[]
+  const cleanRaw = (h: string) => String(h || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '').replace(/\sstyle=("[^"]*"|'[^']*')/gi, '').slice(0, 40000)
+  const parts: string[] = []
+  const images: string[] = []
+  for (const b of cur) {
+    const p = b?.props || {}
+    if (typeof p.html === 'string') { parts.push(cleanRaw(p.html)); for (const m of p.html.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) images.push(m[1]) }
+    if (p.heading) parts.push(`<h2>${p.heading}</h2>`)
+    if (p.sub) parts.push(`<p>${p.sub}</p>`)
+    if ((p.image_url) && /^https?:|^\//.test(p.image_url)) images.push(p.image_url)
+  }
+  const bodyHtml = parts.join('\n\n').slice(0, 60000)
+  const uniqImages = [...new Set(images)].slice(0, 30)
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, row.wsId)).limit(1)
+  const t: any = tok?.tokens || {}
+  const brief = await siteBrief(row.wsId, row.title)
+
+  const NORMALISE_SCHEMA = {
+    type: 'object', properties: {
+      heading: { type: 'string', description: 'The article H1 — use the existing title/headline verbatim if there is one.' },
+      deck: { type: 'string', description: 'One-sentence standfirst/deck under the title. Reuse an existing intro line if present; otherwise leave empty.' },
+      body_html: { type: 'string', description: 'The full article body as clean semantic HTML: <p>, <h2>, <h3>, <ul>/<ol>/<li>, <strong>, <em>, <a href>, <blockquote>, <img src>. Keep ALL original words verbatim. Keep every image (as <img>) using the EXACT src given. Use <h2>/<h3> for the real section breaks so a Table of Contents can be built.' },
+      cta_label: { type: 'string', description: 'A specific CTA button label relevant to the article (e.g. "Book a free trial lesson").' },
+      cta_href: { type: 'string', description: 'A path for the CTA — "/contact/" if unsure.' },
+    }, required: ['heading', 'body_html'],
+  }
+  try {
+    const r = await a.messages.create({
+      model: MODEL, max_tokens: 8000,
+      system: `You normalise a web article into a clean reading layout. TEXT IS SACRED: keep every original word verbatim — do NOT rewrite, translate, shorten or embellish. Your job is ONLY to (1) pull the real title + intro out, (2) re-emit the body as clean semantic HTML with proper <h2>/<h3> section headings so a table of contents can be generated, (3) keep every image inline using its EXACT src. Drop navigation, footers, cookie banners, share widgets and other chrome — keep only the article itself.
+
+You MUST keep these images, each as an <img> with this EXACT src:
+${uniqImages.map((s) => `- ${s}`).join('\n') || '(none)'}
+${brief ? '\nSITE CONTEXT (for the CTA only):\n' + brief : ''}`,
+      tools: [{ name: 'article', description: 'The normalised article.', input_schema: NORMALISE_SCHEMA as any }],
+      tool_choice: { type: 'tool', name: 'article' },
+      messages: [{ role: 'user', content: `Title: ${row.title}\n\n--- CURRENT ARTICLE CONTENT (messy HTML) ---\n${bodyHtml}` }],
+    })
+    const tu = r.content.find((x: any) => x.type === 'tool_use') as any
+    const out = tu?.input || {}
+    const body = stripPageChrome(String(out.body_html || ''))
+    if (body.length < 60) return res.status(502).json({ ok: false, error: 'Could not extract an article body.' })
+    const blocks: any[] = [
+      { type: 'hero', props: { heading: out.heading || row.title, sub: out.deck || '', eyebrow: '' } },
+      { type: 'article-body', props: {
+        html: body, toc: true, author: '', publishedAt: '', readMins: Math.max(2, Math.round(body.replace(/<[^>]*>/g, ' ').split(/\s+/).length / 200)),
+        sidebar: [
+          { kind: 'toc', title: 'On this page' },
+          ...(out.cta_label ? [{ kind: 'cta', title: 'Next step', text: '', cta_label: out.cta_label, cta_href: out.cta_href || '/contact/' }] : []),
+          { kind: 'related', title: 'Related reading' },
+        ],
+      } },
+    ]
+    if (out.cta_label) blocks.push({ type: 'cta-banner', props: { heading: out.heading || row.title, sub: '', cta_label: out.cta_label, cta_href: out.cta_href || '/contact/' } })
+    const seo = { ...((row.seo as any) || {}), schemaType: 'Article' }
+    await db.update(pages).set({ blocks: blocks as any, seo: seo as any, updatedAt: new Date() }).where(eq(pages.id, row.id))
+    await logAiJob(row.wsId, 'article', 'done', { source: 'normalise-article', pageId: row.id }, 2, row.id)
+    res.json({ ok: true, data: { sections: blocks.length } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Normalise failed: ' + (e?.message || 'unknown') })
+  }
+})
+
 // POST /ai/critique-section — polish a SINGLE raw-html section. Same content
 // guarantee as critique-page (keeps every img src + link href verbatim).
 aiRouter.post('/critique-section', requireAuth, async (req: AuthRequest, res) => {
@@ -609,15 +716,15 @@ aiRouter.post('/generate-page', requireAuth, async (req: AuthRequest, res) => {
   const ws = await ownedWs(String(slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
   const brief = await siteBrief(ws.id, ws.name)
-  const aesthetic = await resolveAesthetic(ws.id, aestheticOverride)
+  const brandBrief_ = await brandPrompt(ws.id, aestheticOverride)
 
   try {
     const r = await a.messages.create({
       model: MODEL,
       max_tokens: 5000,
-      system: `You generate uWebsites pages from the section catalog: ${SECTION_KINDS_LIST.join(', ')}. The page must feel like a real, opinionated site — not a generic template. THINK in two steps before emitting: (1) sketch the section order using the aesthetic's preferred roster, (2) write the copy IN THE AESTHETIC'S VOICE.
+      system: `You generate uWebsites pages from the section catalog: ${SECTION_KINDS_LIST.join(', ')}. The page must feel like a real, opinionated site — not a generic template. THINK in two steps before emitting: (1) sketch the section order using the preferred roster, (2) write the copy IN THE BRAND'S VOICE.
 
-${aestheticPrompt(aesthetic)}
+${brandBrief_}
 
 ${COPY_RULES}
 
@@ -746,7 +853,7 @@ aiRouter.post('/page-chat', requireAuth, async (req: AuthRequest, res) => {
   const catalogSummary = SECTIONS.map((s) => `${s.kind}: ${s.description}`).join('\n')
   const sectionList = blocks.map((b, i) => `${i}: ${b.type}`).join('\n')
   const brief = await siteBrief(ws.id, ws.name)
-  const aesthetic = await resolveAesthetic(ws.id)
+  const brandBrief_ = await brandPrompt(ws.id)
 
   // Simple tool-use loop (max 3 hops to keep cost predictable).
   let convo: any[] = messages
@@ -766,7 +873,7 @@ Whenever there are natural next steps (or you'd otherwise ask a yes/no question)
 OPTIONS: Short action A | Short action B | Short action C
 Give 2–4 options, each phrased as a direct instruction the user could click (e.g. "Move it to the top", "Leave it where it is", "Add a matching image"). Do NOT ask the question in prose too — the options ARE the question. Omit the line only when there's genuinely nothing to offer.
 
-${aestheticPrompt(aesthetic)}\n\n${COPY_RULES}\n\nSection catalog:\n${catalogSummary}\n\nCurrent page sections (0-indexed):\n${sectionList || '(empty)'}${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
+${brandBrief_}\n\n${COPY_RULES}\n\nSection catalog:\n${catalogSummary}\n\nCurrent page sections (0-indexed):\n${sectionList || '(empty)'}${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
       messages: convo,
     })
     const toolUses = r.content.filter((c: any) => c.type === 'tool_use') as any[]
@@ -978,7 +1085,7 @@ aiRouter.post('/rebuild-page', requireAuth, async (req: AuthRequest, res) => {
   // but not the name — fetch it cheaply.
   const [wsRow] = await db.select({ name: workspaces.name }).from(workspaces).where(eq(workspaces.id, row.wsId)).limit(1)
   const brief = await siteBrief(row.wsId, wsRow?.name || 'this site')
-  const aesthetic = await resolveAesthetic(row.wsId, aestheticOverride)
+  const brandBrief_ = await brandPrompt(row.wsId, aestheticOverride)
 
   try {
     const r = await a.messages.create({
@@ -997,7 +1104,7 @@ GUARD RAILS:
 
 Section catalog (use these kinds when adding or replacing sections): ${SECTION_KINDS_LIST.join(', ')}
 
-${aestheticPrompt(aesthetic)}
+${brandBrief_}
 
 NOTE: the copy rules below apply ONLY to NEW text you are explicitly asked to write. They are NOT a license to rewrite existing text.
 ${COPY_RULES}
@@ -1213,7 +1320,7 @@ aiRouter.post('/rewrite-section-html', requireAuth, async (req: AuthRequest, res
   if (!target || target.type !== 'raw-html') return res.status(400).json({ ok: false, error: 'target section is not raw-html' })
 
   const brief = await siteBrief(row.wsId, row.name)
-  const aesthetic = await resolveAesthetic(row.wsId)
+  const brandBrief_ = await brandPrompt(row.wsId)
 
   try {
     const r = await a.messages.create({
@@ -1224,10 +1331,10 @@ aiRouter.post('/rewrite-section-html', requireAuth, async (req: AuthRequest, res
 - Only change the TEXT NODES — the words a visitor reads.
 - Do NOT add or remove any tags.
 - Do NOT change href URLs unless the instruction explicitly says to.
-- If the instruction is vague ("punch it up", "shorter") apply our aesthetic + copy rules below. If specific ("change the hero headline to X"), follow it precisely.
+- If the instruction is vague ("punch it up", "shorter") apply our brand voice + copy rules below. If specific ("change the hero headline to X"), follow it precisely.
 - Output ONLY the modified HTML fragment — no commentary, no markdown fences.
 
-${aestheticPrompt(aesthetic)}
+${brandBrief_}
 
 ${COPY_RULES}${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
       messages: [{ role: 'user', content: `Instruction: ${instruction || 'Polish the copy per the aesthetic and copy rules. Make every claim specific. Avoid filler.'}\n\nHTML fragment:\n${target.props?.html || ''}` }],

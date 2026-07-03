@@ -59,6 +59,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               : label === 'Website' ? `/w/${current.slug}`
               : label === 'Menu' ? `/w/${current.slug}/menu`
               : label === 'Footer' ? `/w/${current.slug}/footer`
+              : label === 'Articles' ? `/w/${current.slug}/articles`
               : label === 'Branding' ? `/w/${current.slug}/branding`
               : undefined
             const cls = `sidebar-link${label === active ? ' active' : ''}${sub ? ' sidebar-sub' : ''}`

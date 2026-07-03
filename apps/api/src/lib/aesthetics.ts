@@ -158,6 +158,46 @@ Preferred section roster (use these kinds first, in roughly this order): ${a.pre
 Motion vocabulary (for context only, renderer is static): ${a.motion}`
 }
 
+// The BRAND is the visual authority. This prompt states the workspace's real
+// colors/fonts/shape/voice, and reframes the named aesthetic as COMPOSITION +
+// COPY guidance only — so the aesthetic never fights the brand. Use this in the
+// generation/rebuild flows instead of aestheticPrompt() alone.
+export function brandVoicePrompt(a: Aesthetic, brand: {
+  colors?: { primary?: string; accent?: string; accent2?: string; surface?: string; text?: string }
+  fonts?: { heading?: string; body?: string }
+  shape?: { buttonRadius?: string; cardRadius?: string; shadow?: string }
+  vibe?: string | null
+  tagline?: string | null
+  voice?: string | null
+}): string {
+  const c = brand.colors || {}, f = brand.fonts || {}, s = brand.shape || {}
+  const shapeWord = ((): string => {
+    const r = parseInt(String(s.cardRadius || '').replace(/[^0-9]/g, '') || '0', 10)
+    if (r >= 20) return 'soft, very rounded corners'
+    if (r >= 10) return 'gently rounded corners'
+    if (r <= 3) return 'sharp, square corners'
+    return 'lightly rounded corners'
+  })()
+  const brandLines = [
+    `BRAND — THIS IS THE VISUAL AUTHORITY. Everything you design must sit inside this identity; never invent a different palette or typeface.`,
+    (c.primary || c.accent) ? `• Colors: primary ${c.primary || '?'}, accent ${c.accent || '?'}${c.accent2 ? `, accent-2 ${c.accent2}` : ''}, surface ${c.surface || '#fff'}, text ${c.text || '#111'}. Use the primary for emphasis + CTAs, the accent for highlights.` : '',
+    (f.heading || f.body) ? `• Type: headings in "${f.heading || '?'}", body in "${f.body || '?'}".` : '',
+    `• Shape language: ${shapeWord}${s.shadow && s.shadow !== 'none' ? `, ${s.shadow} shadows` : ', minimal shadows'}.`,
+    brand.vibe ? `• Overall vibe token: ${brand.vibe}.` : '',
+    brand.tagline ? `• Tagline (weave the spirit of this in, don't repeat it verbatim everywhere): "${brand.tagline}".` : '',
+  ].filter(Boolean).join('\n')
+  const voice = (brand.voice && brand.voice.trim())
+    ? `BRAND VOICE (overrides the aesthetic's default voice): ${brand.voice.trim()}`
+    : `COPY VOICE: ${a.copyVoice}`
+  return `${brandLines}
+
+COMPOSITION & COPY GUIDANCE (frame: ${a.name} — ${a.tagline}). Take LAYOUT, SPACING, IMAGERY and RHYTHM cues from this; IGNORE any specific colors or fonts it names — the BRAND block above wins on all visuals.
+Layout & imagery cues: ${a.vibe}
+${voice}
+Avoid: ${a.forbid}
+Preferred section roster (reach for these first, roughly in order): ${a.preferredSections.join(' → ')}.`
+}
+
 // The mandatory copy quality rules — appended to every generation prompt.
 // Concrete examples beat abstract rules; we provide both.
 export const COPY_RULES = `COPY RULES (mandatory — output will be rejected if violated):
