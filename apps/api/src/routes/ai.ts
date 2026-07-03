@@ -351,26 +351,39 @@ aiRouter.post('/critique-page', requireAuth, async (req: AuthRequest, res) => {
     type: 'object', properties: { html: { type: 'string', description: 'The redesigned section HTML (<section> markup only).' } }, required: ['html'],
   } as any }]
 
+  const imgSrcs = (h: string) => [...String(h).matchAll(/<img[^>]+src=["']([^"']+)["']/gi)].map((m) => m[1])
+  const hrefs = (h: string) => [...String(h).matchAll(/<a[^>]+href=["']([^"']+)["']/gi)].map((m) => m[1])
   try {
     // Redesign each raw-html block in parallel — total time ≈ the slowest block.
     const results = await Promise.all(targets.map(async ({ b, i }: any) => {
+      const orig = String(b.props.html)
+      const oImgs = imgSrcs(orig), oHrefs = [...new Set(hrefs(orig))]
+      // Tell the model exactly which assets MUST survive — big compliance boost.
+      const assets = [
+        oImgs.length ? `You MUST keep every one of these images, each as an <img> with this EXACT src:\n${oImgs.map((s) => `- ${s}`).join('\n')}` : '',
+        oHrefs.length ? `You MUST keep every one of these links, each as an <a> with this EXACT href:\n${oHrefs.map((s) => `- ${s}`).join('\n')}` : '',
+      ].filter(Boolean).join('\n\n')
       try {
         const r = await a.messages.create({
           model: MODEL, max_tokens: 8000, system,
           tools, tool_choice: { type: 'tool', name: 'section' },
-          messages: [{ role: 'user', content: String(b.props.html).slice(0, 24000) }],
+          messages: [{ role: 'user', content: `Redesign this section.\n\n${assets ? assets + '\n\n' : ''}--- CURRENT SECTION HTML ---\n${orig.slice(0, 24000)}` }],
         })
         const tu = r.content.find((x: any) => x.type === 'tool_use') as any
         const html = tu?.input?.html ? stripPageChrome(tu.input.html) : ''
-        return { i, html: html.length > 40 ? html : null }
-      } catch { return { i, html: null } }
+        if (html.length < 40) return { i, ok: false }
+        // HARD GUARANTEE: the redesign must contain every original image src and
+        // link href. If it dropped any, reject it and keep the original block.
+        const keepsAll = oImgs.every((s) => html.includes(s)) && oHrefs.every((s) => html.includes(s))
+        return { i, ok: keepsAll, html: keepsAll ? html : null }
+      } catch { return { i, ok: false } }
     }))
-    let changed = 0
-    for (const { i, html } of results) { if (html) { blocks[i].props.html = html; changed++ } }
-    if (!changed) return res.status(502).json({ ok: false, error: 'Design polish produced no changes — please try again.' })
+    let changed = 0, kept = 0
+    for (const r of results) { if (r.ok && r.html) { blocks[r.i].props.html = r.html; changed++ } else { kept++ } }
+    if (!changed) return res.status(502).json({ ok: false, error: 'Polish could not redesign any section without dropping content — please try again.' })
     await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
-    await logAiJob(ws.id, 'edit', 'done', { source: 'critique', pageId: page.id, sections: changed }, changed * 2, page.id)
-    res.json({ ok: true, data: { redesigned: changed } })
+    await logAiJob(ws.id, 'edit', 'done', { source: 'critique', pageId: page.id, sections: changed, keptOriginal: kept }, changed * 2, page.id)
+    res.json({ ok: true, data: { redesigned: changed, keptOriginal: kept } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'Design polish failed: ' + (e?.message || 'unknown') })
   }
