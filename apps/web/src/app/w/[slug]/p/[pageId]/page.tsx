@@ -206,29 +206,33 @@ export default function PageEditor() {
       onChatMutate={(newBlocks) => { setBlocks(newBlocks); setPreviewKey((k) => k + 1); setSavedAt(new Date().toLocaleTimeString()) }}
     >
       <div className="editor-bar2">
-        <a className="back" href={`/w/${slug}`}>← {page?.wsName}</a>
-        <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Page title" />
-        <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="draft">Draft</option><option value="published">Published</option></select>
-        {savedAt && <span className="muted" style={{ fontSize: 12 }}>Saved {savedAt}</span>}
-        <a className="btn btn-ghost" href={`${API_URL}/pages/${pageId}/preview`} target="_blank" rel="noreferrer" title="Open in a new tab (without editor UI)">↗ Preview</a>
-        <button className="btn btn-secondary" onClick={fillImages} disabled={fillingImg} title="Generate photos with AI for every empty image slot on this page">
-          {fillingImg ? 'Generating images… (~30s)' : '✨ Generate images'}
-        </button>
-        {blocks.some((b) => b.type === 'raw-html' && b.props?.html) && (
-          <button className="btn btn-secondary" onClick={polishDesign} disabled={polishing} title="AI design pass — critique + improve the layout, keeping your copy verbatim">
-            {polishing ? 'Polishing… (~60s)' : '✦ Polish design'}
+        <div className="eb-left">
+          <a className="back" href={`/w/${slug}`}>← {page?.wsName}</a>
+          <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Page title" />
+          <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="draft">Draft</option><option value="published">Published</option></select>
+          {savedAt && <span className="muted eb-saved" style={{ fontSize: 12 }}>Saved {savedAt}</span>}
+          <a className="btn btn-ghost" href={`${API_URL}/pages/${pageId}/preview`} target="_blank" rel="noreferrer" title="Open in a new tab (without editor UI)">↗ Preview</a>
+        </div>
+        <div className="eb-right">
+          <button className="btn btn-secondary" onClick={fillImages} disabled={fillingImg} title="Generate photos with AI for every empty image slot on this page">
+            {fillingImg ? 'Generating…' : '✨ Generate images'}
           </button>
-        )}
-        {page?.seo?.import_source && (
-          <>
-            <button className="btn btn-secondary" onClick={sectionizeFromSource} disabled={sectionizing} title="Pixel-faithful import — recopy the source page's layout, swap colors/fonts to your brand, mirror images locally.">
-              {sectionizing ? 'Importing…' : '⌕ Re-import from source'}
+          {blocks.some((b) => b.type === 'raw-html' && b.props?.html) && (
+            <button className="btn btn-secondary" onClick={polishDesign} disabled={polishing} title="AI design pass — redesigns every section, keeping your copy, links and images">
+              {polishing ? 'Polishing…' : '✦ Polish design'}
             </button>
-            <button className="btn btn-secondary" onClick={() => setRebuildOpen(true)} title="Restructure into a designed layout using the section catalog">✦ AI rebuild</button>
-          </>
-        )}
-        <button className="btn btn-ghost" onClick={() => setSideCollapsed((v) => !v)} title={sideCollapsed ? 'Show the sections panel' : 'Hide the sections panel for a wider preview'}>{sideCollapsed ? '⊞ Sections' : '⊟ Hide panel'}</button>
-        <button className="btn btn-primary" onClick={save} disabled={saving || polishing || fillingImg} title={polishing || fillingImg ? 'Wait for the AI edit to finish — it saves automatically' : ''}>{saving ? 'Saving…' : 'Save'}</button>
+          )}
+          {page?.seo?.import_source && (
+            <>
+              <button className="btn btn-secondary" onClick={sectionizeFromSource} disabled={sectionizing} title="Pixel-faithful import — recopy the source page's layout, swap colors/fonts to your brand, mirror images locally.">
+                {sectionizing ? 'Importing…' : '⌕ Re-import'}
+              </button>
+              <button className="btn btn-secondary" onClick={() => setRebuildOpen(true)} title="Restructure into a designed layout using the section catalog">✦ AI rebuild</button>
+            </>
+          )}
+          <button className="btn btn-ghost" onClick={() => setSideCollapsed((v) => !v)} title={sideCollapsed ? 'Show the sections panel' : 'Hide the sections panel for a wider preview'}>{sideCollapsed ? '⊞ Sections' : '⊟ Hide panel'}</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving || polishing || fillingImg} title={polishing || fillingImg ? 'Wait for the AI edit to finish — it saves automatically' : ''}>{saving ? 'Saving…' : 'Save'}</button>
+        </div>
       </div>
       {err && <div className="err" style={{ marginBottom: 10 }}>{err}</div>}
 
@@ -268,6 +272,7 @@ export default function PageEditor() {
                   <div key={i} className={`sec-row ${selected === i ? 'active' : ''}`} onClick={() => setSelected(i)}>
                     <div className="lbl"><span className="num">{i + 1}</span><span>{meta?.name || b.type}</span></div>
                     <span className="kind">{b.type}</span>
+                    <button className="sec-del" title="Delete this section" onClick={(e) => { e.stopPropagation(); if (window.confirm('Delete this section?')) remove(i) }}>✕</button>
                   </div>
                 )
               })}

@@ -328,8 +328,10 @@ export const SECTION_CSS = `
 .testimonials-3 .head{text-align:center;margin-bottom:38px}
 .testimonials-3 .head .eyebrow{font-weight:700;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
 .testimonials-3 .head h2{font-size:calc(1.7rem * var(--scale, 1.2));margin-bottom:8px}
-.testimonials-3 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
-.testimonials-3 .card{background:var(--surface);border:var(--bw) solid color-mix(in srgb, var(--primary) 12%, transparent);border-radius:var(--card-r);padding:26px;box-shadow:var(--shadow, 0 6px 24px -14px rgba(30,10,50,.18))}
+/* horizontal slider — cards scroll/swipe in a row with snap; scrollbar hidden */
+.testimonials-3 .grid{display:flex;gap:20px;overflow-x:auto;scroll-snap-type:x mandatory;padding:4px 4px 14px;scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-padding-left:4px}
+.testimonials-3 .grid::-webkit-scrollbar{display:none}
+.testimonials-3 .card{flex:0 0 clamp(280px, 33%, 380px);scroll-snap-align:start;background:var(--surface);border:var(--bw) solid color-mix(in srgb, var(--primary) 12%, transparent);border-radius:var(--card-r);padding:26px;box-shadow:var(--shadow, 0 6px 24px -14px rgba(30,10,50,.18))}
 .testimonials-3 .stars{color:#f5b301;font-size:.9rem;letter-spacing:2px;margin-bottom:12px}
 .testimonials-3 .quote{font-size:1.02rem;line-height:1.6;margin-bottom:18px;color:var(--text)}
 .testimonials-3 .who{display:flex;align-items:center;gap:11px;font-size:.85rem}

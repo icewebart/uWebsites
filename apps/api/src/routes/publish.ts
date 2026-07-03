@@ -70,7 +70,11 @@ section + section{padding-top:0}
 .hero{padding-bottom:calc(var(--pad))}
 .hero h1{font-size:calc(2.1rem * ${t.font.scale});margin-bottom:14px;max-width:18ch}
 .hero .sub{font-size:1.1rem;opacity:.78;max-width:60ch;margin-bottom:24px}
-.btn{display:inline-block;background:var(--primary);color:#fff;border-radius:var(--btn-r);padding:12px 22px;text-decoration:none;font-weight:600;font-family:'${t.font.heading}',sans-serif}
+.btn{display:inline-block;background:var(--primary);color:#fff;border-radius:var(--btn-r);padding:12px 22px;text-decoration:none;font-weight:600;font-family:'${t.font.heading}',sans-serif;transition:filter .15s ease, transform .15s ease, box-shadow .15s ease}
+.btn:hover{filter:brightness(1.08);transform:translateY(-1px);box-shadow:0 8px 20px -8px color-mix(in srgb, var(--primary) 50%, transparent)}
+/* every button/link-button gets a hover, including imported (raw-html) ones */
+.uw-raw a[class*="btn"],.uw-raw a[class*="button"],.uw-raw button,.uw-raw [role="button"]{transition:filter .15s ease, transform .15s ease}
+.uw-raw a[class*="btn"]:hover,.uw-raw a[class*="button"]:hover,.uw-raw button:hover,.uw-raw [role="button"]:hover{filter:brightness(1.06);transform:translateY(-1px)}
 .rt{font-size:1rem}
 .rt :where(p,ul,ol){margin-bottom:1em}
 .rt img{max-width:100%;height:auto;border-radius:var(--card-r)}
@@ -104,9 +108,9 @@ main > section.uw-raw:first-child{padding-top:0}
 /* minimal — no bar, brand + nav sit directly on the hero */
 .site-header.style-minimal .container{background:transparent;border:0;box-shadow:none;padding:8px 4px}
 .site-header .brand{font-family:'${t.font.heading}',sans-serif;font-weight:700;font-size:18px;color:var(--primary);text-decoration:none;display:flex;align-items:center;gap:10px;flex:0 0 auto}
-.site-header .brand img{height:32px;width:auto;display:block}
-.site-header .nav{flex:1;display:flex;justify-content:center;gap:26px;align-items:center;flex-wrap:wrap}
-.site-header .nav a{color:var(--text);opacity:.85;font-size:14px;font-weight:600;text-decoration:none;padding:6px 4px}
+.site-header .brand img{height:42px;width:auto;display:block}
+.site-header .nav{flex:1;display:flex;justify-content:center;gap:26px;align-items:center;flex-wrap:wrap;font-family:'${t.font.heading}',sans-serif}
+.site-header .nav a{color:var(--text);opacity:.85;font-size:15px;font-weight:600;text-decoration:none;padding:6px 4px;font-family:'${t.font.heading}',sans-serif}
 .site-header .nav a:hover{opacity:1;color:var(--primary)}
 .site-header .header-cta{background:var(--primary);color:#fff;border-radius:999px;padding:10px 22px;font-weight:700;font-size:14px;text-decoration:none;flex:0 0 auto;font-family:'${t.font.heading}',sans-serif}
 .site-header .header-cta:hover{filter:brightness(1.08)}
@@ -298,6 +302,8 @@ const EDIT_SCRIPT = `<style>
 <script>(function(){
   function send(o){ try{ parent.postMessage(Object.assign({source:'uw-preview'}, o), '*'); }catch(e){} }
   var hov=null;
+  // Scroll the selected section into view so the user SEES it in the design.
+  try{ var selEl=document.querySelector('[data-selected]'); if(selEl){ setTimeout(function(){ selEl.scrollIntoView({block:'center',behavior:'smooth'}); }, 60); } }catch(e){}
   // Section selection — click on the section background (not text fields)
   document.addEventListener('click', function(e){
     if(e.target.closest('[data-field]')) return;        // text edit handles its own clicks
@@ -356,9 +362,10 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
   const body = opts?.edit
     ? blocks.map((b, i) => {
         const empty = !sectionHasContent(b)
-        const sel = i === opts.selectedIndex ? 'outline:2px solid #1D9E75;outline-offset:-2px;' : ''
+        const isSel = i === opts.selectedIndex
+        const sel = isSel ? 'outline:3px solid #1D9E75;outline-offset:-3px;' : ''
         const emptyAttr = empty ? ' data-empty="true"' : ''
-        return `<div data-section-index="${i}" data-section-kind="${esc(b.type)}"${emptyAttr} style="${sel}">${empty ? '' : renderSection(b, { edit: true })}</div>`
+        return `<div data-section-index="${i}" data-section-kind="${esc(b.type)}"${emptyAttr}${isSel ? ' data-selected="1"' : ''} style="${sel}">${empty ? '' : renderSection(b, { edit: true })}</div>`
       }).join('\n') + EDIT_SCRIPT
     : composeBody(blocks, (b) => renderBlock(b))
   const menus = await getMenusFor(row.wsId)
