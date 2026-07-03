@@ -392,7 +392,10 @@ export const SECTION_CSS = `
    CSS variables which the sectionizer already swapped in. */
 .uw-raw{padding:0;overflow:hidden}
 .uw-raw > *:first-child{margin-top:0}
-.uw-raw img{max-width:100%;height:auto;display:block}
+/* imported photos get the brand's card radius (unless they're already round,
+   e.g. avatars, or explicitly styled) so they match the boxes on the page */
+.uw-raw img{max-width:100%;height:auto;display:block;border-radius:var(--card-r)}
+.uw-raw img[style*="border-radius"]{border-radius:revert}
 /* Hide images that fail to load so we don't show a broken-icon box. The site
    renders them with onerror; the CSS rule below is the SSR-time fallback. */
 .uw-raw img[data-broken="1"]{display:none}

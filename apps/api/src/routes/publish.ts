@@ -86,8 +86,9 @@ section + section{padding-top:0}
 .site-header .brand,.site-header .nav .nav-link,.site-header .caret{color:var(--text)}
 main > section:first-child{padding-top:calc(var(--pad) + 76px)}
 
-/* glass — frosted, translucent, subtle border; overlays + blurs the hero */
-.site-header.style-glass .container{background:color-mix(in srgb, var(--surface) 55%, transparent);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border:1px solid color-mix(in srgb, var(--text) 10%, transparent);box-shadow:0 8px 30px -12px rgba(20,10,40,.14)}
+/* glass — barely-there frost so the hero shows through and the bar reads as
+   PART of the hero, not a white pill. Just blur + a hairline, no solid fill. */
+.site-header.style-glass .container{background:color-mix(in srgb, var(--surface) 22%, transparent);backdrop-filter:saturate(1.3) blur(12px);-webkit-backdrop-filter:saturate(1.3) blur(12px);border:1px solid color-mix(in srgb, var(--text) 6%, transparent);box-shadow:none}
 /* solid — opaque surface bar */
 .site-header.style-solid .container{background:var(--surface);border:1px solid color-mix(in srgb, var(--text) 8%, transparent);box-shadow:0 8px 30px -14px rgba(20,10,40,.16)}
 /* minimal — no bar, brand + nav sit directly on the hero */
