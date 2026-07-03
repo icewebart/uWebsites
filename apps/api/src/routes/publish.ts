@@ -147,7 +147,7 @@ main > section.uw-raw:first-child{padding-top:0}
 .site-footer .container{display:grid;grid-template-columns:1.4fr 1fr 1fr 1.4fr;gap:40px;align-items:start}
 .site-footer .brand-col{display:flex;flex-direction:column;gap:16px}
 .site-footer .brand-col .brand{font-family:'${t.font.heading}',sans-serif;font-weight:800;font-size:22px;color:var(--footer-fg);display:flex;align-items:center;gap:10px}
-.site-footer .brand-col .brand img{height:36px;width:auto}
+.site-footer .brand-col .brand img{height:44px;width:auto}
 .site-footer .brand-col .brand img.foot-logo-invert{filter:brightness(0) invert(1)}
 .site-footer .brand-col p{font-size:14px;opacity:.72;max-width:32ch;line-height:1.5}
 .site-footer h4{font-family:'${t.font.heading}',sans-serif;font-weight:700;font-size:15px;margin-bottom:14px;color:var(--footer-fg)}

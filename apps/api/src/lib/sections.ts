@@ -584,10 +584,11 @@ main > section.article-hero:first-child{padding-top:120px}
 .article-hero.ah-minimal{padding-bottom:20px}
 .article-hero.ah-minimal h1{font-size:clamp(1.6rem,4vw,calc(2.1rem * var(--scale,1.2)));max-width:26ch}
 /* Cover (image) + Gradient share the full-bleed overlay layout */
-.article-hero.ah-cover{color:#fff;background-size:cover;background-position:center;display:flex;align-items:flex-end;min-height:min(60vh,500px);padding:0}
+.article-hero.ah-cover{color:#fff;background-size:cover;background-position:center;display:flex;align-items:flex-end;min-height:min(72vh,620px);padding:0}
 main > section.article-hero.ah-cover:first-child{padding-top:0}
-.article-hero.ah-cover .container{padding-top:128px;padding-bottom:52px}
-.article-hero.ah-cover .ah-inner{max-width:860px}
+.article-hero.ah-cover .container{padding-top:140px;padding-bottom:52px}
+.article-hero.ah-cover .ah-inner{max-width:860px;text-align:left}
+.article-hero.ah-cover .ah-meta{justify-content:flex-start}
 .article-hero.ah-cover h1{color:#fff;max-width:none}
 .article-hero.ah-cover .ah-deck{color:rgba(255,255,255,.9);max-width:60ch}
 .article-hero.ah-cover .ah-meta{color:rgba(255,255,255,.82)}
@@ -895,7 +896,10 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
         if (variant === 'gradient') {
           bg = ` style="background-image:linear-gradient(135deg, ${brandVar(p.grad_from || 'primary')}, ${brandVar(p.grad_to || 'accent')})"`
         } else if (p.image_url) {
-          bg = ` style="background-image:linear-gradient(180deg,rgba(0,0,0,.15),rgba(0,0,0,.62)),url('${esc(p.image_url)}')"`
+          // Layered overlay: light wash at the TOP (contrast for the logo/menu),
+          // and a stronger dark gradient toward the BOTTOM-LEFT (where the title
+          // sits) — ~20% darker than before for legible left-aligned text.
+          bg = ` style="background-image:linear-gradient(to bottom, rgba(255,255,255,.5), rgba(255,255,255,0) 16%),linear-gradient(to top right, rgba(0,0,0,.82), rgba(0,0,0,.38) 46%, rgba(0,0,0,.06) 74%),url('${esc(p.image_url)}')"`
         }
         const noimg = variant === 'cover' && !p.image_url ? ' ah-cover-noimg' : ''
         return `<section class="article-hero ah-cover${noimg}"${bg}><div class="container"><div class="ah-inner">${inner}</div></div></section>`
