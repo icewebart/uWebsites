@@ -257,11 +257,9 @@ export default function PageEditor() {
           <button className="btn btn-secondary" onClick={fillImages} disabled={fillingImg} title="Generate photos with AI for every empty image slot on this page">
             {fillingImg ? 'Generating…' : '✨ Generate images'}
           </button>
-          {blocks.some((b) => b.type === 'raw-html' && b.props?.html) && (
-            <button className="btn btn-secondary" onClick={polishDesign} disabled={polishing} title="AI design pass — redesigns every section, keeping your copy, links and images">
-              {polishing ? 'Polishing…' : '✦ Polish design'}
-            </button>
-          )}
+          <button className="btn btn-secondary" onClick={polishDesign} disabled={polishing} title="AI design pass — redesigns imported sections, or sharpens the copy on typed pages; keeps your links + images">
+            {polishing ? 'Polishing…' : '✦ Polish design'}
+          </button>
           <button className="btn btn-secondary" onClick={healImages} disabled={healing} title="Copy any missing image files from sibling workspaces (fixes broken images without a full re-import)">
             {healing ? 'Healing…' : '⚕ Fix images'}
           </button>

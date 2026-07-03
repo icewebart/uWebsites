@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { and, eq, sql } from 'drizzle-orm'
 import { db, workspaces, pages, brandingTokens, aiJobs } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
-import { SECTIONS, SECTION_META } from '../lib/sections.js'
+import { SECTIONS, SECTION_META, sectionHasContent } from '../lib/sections.js'
 import { pickAesthetic, brandVoicePrompt, COPY_RULES, AESTHETICS } from '../lib/aesthetics.js'
 import { generateImage, generateImageResult, photoPrompt, imageGenEnabled, reasonMessage } from '../lib/imagegen.js'
 import { upsertMenu } from './menus.js'
@@ -354,6 +354,22 @@ HARD RULES (content is sacred — you REDESIGN, you do NOT rewrite):
 // page (imported or free-form), one by one (in parallel), keeps its text/links/
 // images and redesigns the layout into real page design. Structured sections
 // are left untouched.
+// Merge AI-polished copy back over the original props: only overlay safe text
+// keys; never touch urls/hrefs/images/numbers/layout flags; keep array lengths.
+const UNSAFE_PROP_KEY = /url|href|image|icon|src|rating|price|period|value|variant|layout|side|featured|width|height|scale/i
+function mergePolishedProps(orig: any, pol: any): any {
+  if (Array.isArray(orig)) return Array.isArray(pol) ? orig.map((o, i) => i < pol.length ? mergePolishedProps(o, pol[i]) : o) : orig
+  if (orig && typeof orig === 'object') {
+    const out: any = { ...orig }
+    if (pol && typeof pol === 'object') for (const k of Object.keys(orig)) {
+      if (UNSAFE_PROP_KEY.test(k) || !(k in pol)) continue
+      out[k] = mergePolishedProps(orig[k], pol[k])
+    }
+    return out
+  }
+  return typeof orig === 'string' ? (typeof pol === 'string' ? pol : orig) : orig
+}
+
 aiRouter.post('/critique-page', requireAuth, async (req: AuthRequest, res) => {
   const a = ai()
   if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
@@ -370,11 +386,66 @@ aiRouter.post('/critique-page', requireAuth, async (req: AuthRequest, res) => {
     .map((b: any, i: number) => ({ b, i }))
     .filter((x: any) => x.b?.type === 'raw-html' && typeof x.b?.props?.html === 'string' && x.b.props.html.length > 120)
     .slice(0, MAX_BLOCKS)
-  if (!targets.length) return res.status(400).json({ ok: false, error: 'Design polish works on imported / full-custom (raw-html) pages. This page is built from editable sections instead.' })
 
   const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
   const t: any = tok?.tokens || {}
   const system = critiqueSystemPrompt(t.color || {}, t.font || {})
+
+  // ── Typed-page path ────────────────────────────────────────────────────
+  // Pages built from catalog sections have no raw-html to redesign — their
+  // design is already token-driven. "Polish" there means a COPY pass: make
+  // every heading / sub / label specific and on-brand, keeping structure,
+  // images, links and counts. This is what makes Polish useful on secondary
+  // (template / AI-generated) pages.
+  if (!targets.length) {
+    const brandBrief_ = await brandPrompt(ws.id)
+    const typed = blocks.map((b: any, i: number) => ({ b, i })).filter((x: any) => x.b?.type && x.b.type !== 'raw-html' && x.b.type !== 'article-body' && x.b.props && sectionHasContent(x.b))
+    if (!typed.length) return res.status(400).json({ ok: false, error: 'This page has no editable copy to polish yet — add some sections first.' })
+    try {
+      const results = await Promise.all(typed.slice(0, MAX_BLOCKS).map(async ({ b, i }: any) => {
+        const propsJson = JSON.stringify(b.props)
+        try {
+          const r = await a.messages.create({
+            model: MODEL, max_tokens: 2000,
+            system: `You improve the COPY of one website section. You are given its props as JSON. Return the SAME JSON object with only the human-readable TEXT values rewritten to be sharper, specific and on-brand.
+ABSOLUTE RULES:
+- Keep EVERY key. Keep array lengths identical. Keep object shape identical.
+- NEVER change any value whose key contains url, href, image, icon, src, rating, price, period, value, variant, layout, side, featured — copy those verbatim.
+- Only rewrite visible prose: heading, sub, eyebrow, title, desc, quote, q, a, label, cta_label, name, caption, marker, badge, text.
+- Preserve concrete facts (numbers, names, dates). Do not invent testimonials or fake stats.
+- If a value is already strong, leave it. Do not pad. Return ONLY the JSON via the tool.
+
+${brandBrief_}
+
+${COPY_RULES}`,
+            tools: [{ name: 'props', description: 'The section props with improved copy.', input_schema: { type: 'object', properties: { props: { type: 'object', description: 'The full props object, same shape, improved text.' } }, required: ['props'] } as any }],
+            tool_choice: { type: 'tool', name: 'props' },
+            messages: [{ role: 'user', content: `Section kind: ${b.type}\nprops:\n${propsJson.slice(0, 12000)}` }],
+          })
+          const tu = r.content.find((x: any) => x.type === 'tool_use') as any
+          const np = tu?.input?.props
+          if (np && typeof np === 'object') return { i, props: np }
+          return { i, props: null }
+        } catch { return { i, props: null } }
+      }))
+      let changed = 0
+      for (const r of results) {
+        if (!r.props) continue
+        // Merge: start from the original props (authoritative for urls/counts),
+        // overlay only the safe text keys the model returned.
+        const orig = blocks[r.i].props
+        blocks[r.i].props = mergePolishedProps(orig, r.props)
+        changed++
+      }
+      if (!changed) return res.status(502).json({ ok: false, error: 'Polish could not improve any section — please try again.' })
+      await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
+      await logAiJob(ws.id, 'edit', 'done', { source: 'critique-typed', pageId: page.id, sections: changed }, changed, page.id)
+      return res.json({ ok: true, data: { redesigned: changed, keptOriginal: 0, mode: 'copy' } })
+    } catch (e: any) {
+      return res.status(502).json({ ok: false, error: 'Design polish failed: ' + (e?.message || 'unknown') })
+    }
+  }
+  // ── Raw-html path (below) ──────────────────────────────────────────────
   const tools = [{ name: 'section', description: 'The redesigned section.', input_schema: {
     type: 'object', properties: { html: { type: 'string', description: 'The redesigned section HTML (<section> markup only).' } }, required: ['html'],
   } as any }]
