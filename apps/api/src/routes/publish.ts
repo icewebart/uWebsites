@@ -325,13 +325,32 @@ export function renderFooter(ws: any, footer: MenuTree | undefined, tagline?: st
   return `<footer class="site-footer"><div class="container">${brand}${colHtml('Programe', mainItems.slice(0, mid))}${colHtml('Companie', mainItems.slice(mid))}${nl}${bottomBar(bottomItems.map(linkFor).join(' · '))}</div></footer>`
 }
 
+// Lightweight scroll-reveal motion (no library — an IntersectionObserver + CSS
+// transitions). Sections opt in via data-anim="fade-up|stagger". Fully disabled
+// for users with prefers-reduced-motion, and only emitted when the brand's
+// motion setting is on. Kept dependency-free so published pages stay fast.
+const MOTION_CSS = `@media (prefers-reduced-motion:no-preference){
+[data-anim]{opacity:0;transform:translateY(20px);transition:opacity .7s cubic-bezier(.22,1,.36,1),transform .7s cubic-bezier(.22,1,.36,1)}
+[data-anim].uw-in{opacity:1;transform:none}
+[data-anim="stagger"]{opacity:1;transform:none}
+[data-anim="stagger"] .f2-col,[data-anim="stagger"] .bento-tile{opacity:0;transform:translateY(18px);transition:opacity .6s cubic-bezier(.22,1,.36,1),transform .6s cubic-bezier(.22,1,.36,1)}
+[data-anim="stagger"].uw-in .f2-col,[data-anim="stagger"].uw-in .bento-tile{opacity:1;transform:none}
+[data-anim="stagger"].uw-in .f2-col:nth-child(2),[data-anim="stagger"].uw-in .bento-tile:nth-child(2){transition-delay:.08s}
+[data-anim="stagger"].uw-in .bento-tile:nth-child(3){transition-delay:.16s}
+[data-anim="stagger"].uw-in .bento-tile:nth-child(4){transition-delay:.24s}
+[data-anim="stagger"].uw-in .bento-tile:nth-child(n+5){transition-delay:.32s}
+}`
+const MOTION_SCRIPT = `<script>(function(){if(matchMedia('(prefers-reduced-motion:reduce)').matches)return;var els=[].slice.call(document.querySelectorAll('[data-anim]'));if(!('IntersectionObserver'in window)){els.forEach(function(e){e.classList.add('uw-in')});return;}var io=new IntersectionObserver(function(x){x.forEach(function(en){if(en.isIntersecting){en.target.classList.add('uw-in');io.unobserve(en.target)}})},{rootMargin:'0px 0px -8% 0px',threshold:.08});els.forEach(function(e){io.observe(e)})})();</script>`
+
 function renderPage(page: any, body: string, t: any, ws: any, base: string, opts?: { header?: MenuTree; footer?: MenuTree }) {
   const logo = (t as any)?.brand_assets?.logo?.url || null
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(page.title)} — ${esc(ws.name)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">${fontsHead(t)}<style>${siteCss(t)}</style></head><body>
+  const motionOn = (t as any)?.motion !== 'off'
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(page.title)} — ${esc(ws.name)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">${fontsHead(t)}<style>${siteCss(t)}${motionOn ? MOTION_CSS : ''}</style></head><body>
 ${renderHeader(ws, base, opts?.header, logo)}
 <main>${body || ''}</main>
 ${renderFooter(ws, opts?.footer, (t as any)?.brand_assets?.tagline, logo)}
 ${HEADER_SCRIPT}
+${motionOn ? MOTION_SCRIPT : ''}
 </body></html>`
 }
 

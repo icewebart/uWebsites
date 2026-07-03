@@ -689,6 +689,111 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
         ))}
       </>)
     }
+    case 'features-2col':
+      return (<>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        {(p.items || []).slice(0, 2).map((it: any, j: number) => (
+          <div className="field" key={j}>
+            <label>Column {j + 1}</label>
+            <input className="inp" placeholder="Icon (emoji)" value={it.icon || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, icon: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Title" value={it.title || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, title: e.target.value } : x))} />
+            <textarea className="inp" style={{ marginTop: 6 }} placeholder="Description" value={it.desc || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, desc: e.target.value } : x))} />
+          </div>
+        ))}
+      </>)
+    case 'feature-alt':
+      return (<>
+        <div className="field"><label>Section heading (optional)</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        {(p.items || []).map((it: any, j: number) => (
+          <div className="field" key={j} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+            <label>Row {j + 1}</label>
+            <input className="inp" placeholder="Title" value={it.title || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, title: e.target.value } : x))} />
+            <textarea className="inp" style={{ marginTop: 6 }} placeholder="Description" value={it.desc || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, desc: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Image URL" value={it.image_url || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, image_url: e.target.value } : x))} />
+          </div>
+        ))}
+        <div className="ev-actions" style={{ marginTop: 4 }}>
+          <button onClick={() => setItems([...(p.items || []), { title: '', desc: '', image_url: '' }])} disabled={(p.items || []).length >= 5}>＋ Add row</button>
+          {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
+        </div>
+      </>)
+    case 'split-hero':
+      return (<>
+        <div className="field"><label>Kicker</label><input className="inp" value={p.eyebrow || ''} onChange={(e) => onChange({ eyebrow: e.target.value })} /></div>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        <div className="field"><label>Subheading</label><textarea className="inp" value={p.sub || ''} onChange={(e) => onChange({ sub: e.target.value })} /></div>
+        <div className="field"><label>Button label</label><input className="inp" value={p.cta_label || ''} onChange={(e) => onChange({ cta_label: e.target.value })} /></div>
+        <div className="field"><label>Button link</label><input className="inp" value={p.cta_href || ''} onChange={(e) => onChange({ cta_href: e.target.value })} /></div>
+        <div className="field" style={{ marginBottom: 0 }}><label>Image URL</label><input className="inp" value={p.image_url || ''} onChange={(e) => onChange({ image_url: e.target.value })} /></div>
+      </>)
+    case 'bento-grid':
+      return (<>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        {(p.items || []).map((it: any, j: number) => (
+          <div className="field" key={j} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+            <label>Tile {j + 1}</label>
+            <select className="inp" value={it.kind || 'text'} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, kind: e.target.value } : x))}>
+              <option value="stat">Stat</option><option value="text">Text</option><option value="image">Image</option>
+            </select>
+            {it.kind === 'stat' ? (<>
+              <input className="inp" style={{ marginTop: 6 }} placeholder="Value (e.g. 4.9★)" value={it.value || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, value: e.target.value } : x))} />
+              <input className="inp" style={{ marginTop: 6 }} placeholder="Label" value={it.label || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, label: e.target.value } : x))} />
+            </>) : it.kind === 'image' ? (
+              <input className="inp" style={{ marginTop: 6 }} placeholder="Image URL" value={it.image_url || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, image_url: e.target.value } : x))} />
+            ) : (<>
+              <input className="inp" style={{ marginTop: 6 }} placeholder="Title" value={it.title || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, title: e.target.value } : x))} />
+              <textarea className="inp" style={{ marginTop: 6 }} placeholder="Description" value={it.desc || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, desc: e.target.value } : x))} />
+            </>)}
+          </div>
+        ))}
+        <div className="ev-actions" style={{ marginTop: 4 }}>
+          <button onClick={() => setItems([...(p.items || []), { kind: 'text', title: '', desc: '' }])} disabled={(p.items || []).length >= 7}>＋ Add tile</button>
+          {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
+        </div>
+      </>)
+    case 'carousel-cards':
+      return (<>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        <div className="field"><label>Cards visible at once</label>
+          <select className="inp" value={p.visible || 3} onChange={(e) => onChange({ visible: Number(e.target.value) })}>
+            <option value={1}>1</option><option value={2}>2</option><option value={3}>3</option><option value={4}>4</option>
+          </select>
+        </div>
+        {(p.items || []).map((it: any, j: number) => (
+          <div className="field" key={j} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+            <label>Card {j + 1}</label>
+            <input className="inp" placeholder="Title" value={it.title || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, title: e.target.value } : x))} />
+            <textarea className="inp" style={{ marginTop: 6 }} placeholder="Description" value={it.desc || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, desc: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Image URL" value={it.image_url || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, image_url: e.target.value } : x))} />
+          </div>
+        ))}
+        <div className="ev-actions" style={{ marginTop: 4 }}>
+          <button onClick={() => setItems([...(p.items || []), { title: '', desc: '', image_url: '' }])} disabled={(p.items || []).length >= 20}>＋ Add card</button>
+          {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
+        </div>
+      </>)
+    case 'faq-accordion':
+      return (<>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        {(p.items || []).map((it: any, j: number) => (
+          <div className="field" key={j}>
+            <label>Q{j + 1}</label>
+            <input className="inp" placeholder="Question" value={it.q || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, q: e.target.value } : x))} />
+            <textarea className="inp" style={{ marginTop: 6 }} placeholder="Answer" value={it.a || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, a: e.target.value } : x))} />
+          </div>
+        ))}
+        <div className="ev-actions" style={{ marginTop: 4 }}>
+          <button onClick={() => setItems([...(p.items || []), { q: '', a: '' }])} disabled={(p.items || []).length >= 20}>＋ Add question</button>
+          {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
+        </div>
+      </>)
+    case 'big-quote':
+      return (<>
+        <div className="field"><label>Quote</label><textarea className="inp" style={{ minHeight: 90 }} value={p.quote || ''} onChange={(e) => onChange({ quote: e.target.value })} /></div>
+        <div className="field"><label>Author</label><input className="inp" value={p.author || ''} onChange={(e) => onChange({ author: e.target.value })} /></div>
+        <div className="field"><label>Role / company</label><input className="inp" value={p.role || ''} onChange={(e) => onChange({ role: e.target.value })} /></div>
+        <div className="field" style={{ marginBottom: 0 }}><label>Portrait URL</label><input className="inp" value={p.image_url || ''} onChange={(e) => onChange({ image_url: e.target.value })} placeholder="(optional)" /></div>
+      </>)
     default:
       return <div className="muted" style={{ fontSize: 13 }}>No editor for "{block.type}" sections yet.</div>
   }

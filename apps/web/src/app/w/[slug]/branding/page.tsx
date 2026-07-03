@@ -28,6 +28,7 @@ type Tokens = {
   vibe?: string
   tagline?: string
   voice?: string
+  motion?: string   // 'on' (default) | 'off' — scroll-reveal animations on published pages
   space: { sectionGap: string; sectionPaddingY: string; container: string }
   brand_assets?: BrandAssets
 }
@@ -693,6 +694,15 @@ export default function Branding() {
             <textarea className="inp" rows={3} value={t.voice || ''} placeholder='Describe how your brand should sound. e.g. "Warm and encouraging, speaks directly to parents, concrete outcomes over hype, one light joke is fine, never corporate."' onChange={(e) => setT((c) => c ? { ...c, voice: e.target.value } : c)} />
             <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>Leave blank to use the auto-detected voice for your industry.</p>
           </div>
+        </div>
+
+        <div className="dash-h" style={{ marginTop: 22 }}>Motion</div>
+        <div className="ctl-group card" style={{ marginBottom: 4 }}>
+          <label style={{ display: 'flex', gap: 10, alignItems: 'center', cursor: 'pointer' }}>
+            <input type="checkbox" checked={t.motion !== 'off'} onChange={(e) => setT((c) => c ? { ...c, motion: e.target.checked ? 'on' : 'off' } : c)} style={{ width: 'auto' }} />
+            <span><b>Scroll animations</b> — sections gently fade/rise into view as visitors scroll.</span>
+          </label>
+          <p className="muted" style={{ fontSize: 11, marginTop: 8, marginBottom: 0 }}>Automatically disabled for visitors who prefer reduced motion. Lightweight — no effect on page speed.</p>
         </div>
 
         <div className="dash-h" style={{ marginTop: 22 }}>Edit tokens</div>

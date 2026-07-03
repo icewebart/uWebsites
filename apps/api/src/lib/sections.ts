@@ -12,6 +12,7 @@ export type SectionKind =
   | 'features-3' | 'program-cards' | 'cta-banner' | 'steps'
   | 'testimonials-3' | 'pricing-3' | 'faq' | 'logo-cloud' | 'image-text' | 'stats-row' | 'stats-band'
   | 'article-hero' | 'article-body' | 'timeline' | 'gallery'
+  | 'features-2col' | 'feature-alt' | 'split-hero' | 'bento-grid' | 'carousel-cards' | 'faq-accordion' | 'big-quote'
   | 'raw-html'
 
 export type SectionMeta = {
@@ -280,6 +281,92 @@ export const SECTIONS: SectionMeta[] = [
       ],
     },
   },
+  {
+    kind: 'features-2col',
+    name: 'Features — 2 columns',
+    description: 'A centered heading, then two wide feature columns side-by-side, each with an icon (emoji), a title and a paragraph. Roomier than the 3-up grid — good for two big differentiators.',
+    category: 'features',
+    defaults: {
+      eyebrow: '', heading: 'Two reasons it works',
+      items: [
+        { icon: '✳️', title: 'First big benefit', desc: 'A full sentence or two explaining the concrete value the reader gets.' },
+        { icon: '◆', title: 'Second big benefit', desc: 'Another specific, benefit-led explanation — no filler.' },
+      ],
+    },
+  },
+  {
+    kind: 'feature-alt',
+    name: 'Feature rows — alternating',
+    description: 'A stack of image+text rows that alternate sides (zig-zag). Each row has a title, a paragraph and an image. Ideal for walking through 2–4 features/benefits with a screenshot or photo each.',
+    category: 'features',
+    defaults: {
+      eyebrow: '', heading: '',
+      items: [
+        { title: 'A clear benefit', desc: 'Explain it in a couple of concrete sentences.', image_url: '' },
+        { title: 'Another benefit', desc: 'Pair each point with a supporting visual.', image_url: '' },
+      ],
+    },
+  },
+  {
+    kind: 'split-hero',
+    name: 'Split hero',
+    description: 'A bold hero split in two: a colored text panel (eyebrow, big heading, sub, buttons) beside a full-bleed image panel. High-impact top-of-page.',
+    category: 'hero',
+    defaults: { eyebrow: '', heading: 'A headline that earns attention', sub: 'One supporting line that names the audience and the outcome.', cta_label: 'Get started', cta_href: '#', cta2_label: '', cta2_href: '', image_url: '', image_alt: '' },
+  },
+  {
+    kind: 'bento-grid',
+    name: 'Bento grid',
+    description: 'An editorial grid of mixed-size tiles — each tile can be a stat, a short text card, or an image. Modern, magazine-like way to summarise highlights.',
+    category: 'features',
+    defaults: {
+      eyebrow: '', heading: 'The highlights',
+      items: [
+        { kind: 'stat', value: '1.200+', label: 'Happy families' },
+        { kind: 'text', title: 'Why parents choose us', desc: 'A concrete, specific reason in one line.' },
+        { kind: 'image', image_url: '', caption: '' },
+        { kind: 'stat', value: '4.9★', label: 'Average rating' },
+        { kind: 'text', title: 'What you get', desc: 'Another crisp, specific promise.' },
+      ],
+    },
+  },
+  {
+    kind: 'carousel-cards',
+    name: 'Carousel — horizontal slider',
+    description: 'A horizontal slider showing a few cards at once (set how many are visible), with more that scroll into view via arrows / swipe. Each card has an image, title, description and optional button. Great for programs, testimonials, products.',
+    category: 'features',
+    defaults: {
+      eyebrow: '', heading: 'Browse our programs', visible: 3,
+      items: [
+        { title: 'Card one', desc: 'A short description of this item.', image_url: '', cta_label: '', cta_href: '' },
+        { title: 'Card two', desc: 'A short description of this item.', image_url: '', cta_label: '', cta_href: '' },
+        { title: 'Card three', desc: 'A short description of this item.', image_url: '', cta_label: '', cta_href: '' },
+        { title: 'Card four', desc: 'A short description of this item.', image_url: '', cta_label: '', cta_href: '' },
+        { title: 'Card five', desc: 'A short description of this item.', image_url: '', cta_label: '', cta_href: '' },
+      ],
+    },
+  },
+  {
+    kind: 'faq-accordion',
+    name: 'FAQ — accordion',
+    description: 'A list of question/answer pairs that expand on click (native <details>). Emits FAQ Schema.org markup for rich results. Better than the flat FAQ for long lists.',
+    category: 'content',
+    defaults: {
+      eyebrow: '', heading: 'Frequently asked questions',
+      items: [
+        { q: 'How do I get started?', a: 'A clear, complete answer in 1–2 sentences.' },
+        { q: 'What does it cost?', a: 'Be specific and transparent.' },
+        { q: 'Can I change later?', a: 'Reassure with a concrete answer.' },
+      ],
+    },
+  },
+  {
+    kind: 'big-quote',
+    name: 'Big quote',
+    description: 'One oversized testimonial or pull-quote with an author, role and optional portrait. Far more persuasive than a row of small cards for your best quote.',
+    category: 'social-proof',
+    defaults: { quote: 'This is the single most persuasive thing a real customer said about you.', author: 'Full Name', role: 'Role, Company', image_url: '' },
+  },
 ]
 
 export const SECTION_META: Record<string, SectionMeta> = Object.fromEntries(SECTIONS.map((s) => [s.kind, s]))
@@ -311,6 +398,13 @@ export function sectionHasContent(b: any): boolean {
     case 'image-text': return has(p.heading) || has(p.html) || has(p.image_url)
     case 'timeline': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.desc))
     case 'gallery': return arrOk(p.items) && p.items.some((i: any) => has(i?.image_url))
+    case 'features-2col': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.desc))
+    case 'feature-alt': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.desc))
+    case 'split-hero': return has(p.heading)
+    case 'bento-grid': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.value) || has(i?.image_url))
+    case 'carousel-cards': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.image_url))
+    case 'faq-accordion': return arrOk(p.items) && p.items.some((i: any) => has(i?.q) || has(i?.a))
+    case 'big-quote': return has(p.quote)
     case 'stats-row': return arrOk(p.items) && p.items.some((i: any) => has(i?.value) || has(i?.label))
     case 'raw-html': return has(p.html)
     default: return false
@@ -598,6 +692,95 @@ main > section.article-hero:first-child{padding-top:calc(var(--pad) + 112px)}
   .gallery.is-bento .g-tile{grid-column:auto!important;grid-row:auto!important;aspect-ratio:4/3}
   .timeline .tl-item{padding-left:38px}
 }
+
+/* features-2col */
+.features-2col .head{text-align:center;max-width:640px;margin:0 auto 40px}
+.features-2col .f2-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px}
+.features-2col .f2-col{background:var(--surface);border:1px solid color-mix(in srgb,var(--text) 8%,transparent);border-radius:var(--card-r);padding:32px;box-shadow:var(--shadow)}
+.features-2col .f2-icon{font-size:2rem;margin-bottom:14px}
+.features-2col .f2-col h3{font-size:calc(1.35rem * var(--scale,1.2));margin:0 0 10px;letter-spacing:-.01em}
+.features-2col .f2-col p{margin:0;color:color-mix(in srgb,var(--text) 78%,transparent);line-height:1.65}
+@media(max-width:720px){.features-2col .f2-grid{grid-template-columns:1fr}.features-2col .f2-col{padding:24px}}
+
+/* feature-alt — alternating image/text rows */
+.feature-alt .head{text-align:center;max-width:640px;margin:0 auto 44px}
+.feature-alt .fa-rows{display:flex;flex-direction:column;gap:64px}
+.feature-alt .fa-row{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center}
+.feature-alt .fa-row.rev .fa-txt{order:2}
+.feature-alt .fa-txt h3{font-size:calc(1.7rem * var(--scale,1.2));margin:0 0 12px;letter-spacing:-.015em}
+.feature-alt .fa-txt p{margin:0 0 16px;color:color-mix(in srgb,var(--text) 78%,transparent);line-height:1.7;font-size:1.05rem}
+.feature-alt .fa-media img{width:100%;height:auto;border-radius:calc(var(--card-r) + 2px);box-shadow:var(--shadow)}
+.feature-alt .fa-media.fa-ph{aspect-ratio:4/3;border-radius:calc(var(--card-r) + 2px);background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--primary) 8%,transparent) 0 14px,transparent 14px 28px)}
+.btn-ghost-link{display:inline-block;color:var(--primary);font-weight:600;text-decoration:none}
+.btn-ghost-link:hover{text-decoration:underline}
+@media(max-width:760px){.feature-alt .fa-row,.feature-alt .fa-row.rev{grid-template-columns:1fr;gap:24px}.feature-alt .fa-row.rev .fa-txt{order:0}.feature-alt .fa-rows{gap:44px}}
+
+/* split-hero */
+.split-hero{padding:0}
+.split-hero .sh-grid{display:grid;grid-template-columns:1fr 1fr;min-height:min(78vh,640px)}
+.split-hero .sh-txt{background:var(--primary);color:#fff;display:flex;align-items:center;padding:64px}
+.split-hero .sh-txt-inner{max-width:520px;margin-left:auto}
+.split-hero .sh-txt .eyebrow{color:#fff;opacity:.85}
+.split-hero .sh-txt h1{font-size:clamp(2rem,4.5vw,calc(3rem * var(--scale,1.2)));line-height:1.05;letter-spacing:-.02em;margin:0 0 18px;color:#fff}
+.split-hero .sh-txt .sub{font-size:1.15rem;line-height:1.55;opacity:.92;margin:0 0 26px}
+.split-hero .sh-txt .actions{display:flex;gap:12px;flex-wrap:wrap}
+.split-hero .sh-txt .btn{background:#fff;color:var(--primary)}
+.split-hero .sh-txt .btn-outline{background:transparent;color:#fff;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.6)}
+.split-hero .sh-media img,.split-hero .sh-media.sh-ph{width:100%;height:100%;object-fit:cover;min-height:320px}
+.split-hero .sh-media.sh-ph{background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--accent) 20%,var(--primary)) 0 20px,color-mix(in srgb,var(--primary) 80%,#000) 20px 40px)}
+@media(max-width:820px){.split-hero .sh-grid{grid-template-columns:1fr}.split-hero .sh-txt{padding:48px 24px;order:2}.split-hero .sh-txt-inner{margin:0}.split-hero .sh-media{min-height:260px}}
+
+/* bento-grid */
+.bento-grid .head{text-align:center;max-width:640px;margin:0 auto 34px}
+.bento-grid .bento{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:minmax(150px,auto);gap:16px}
+.bento-grid .bento-tile{border-radius:var(--card-r);padding:24px;display:flex;flex-direction:column;justify-content:center;border:1px solid color-mix(in srgb,var(--text) 8%,transparent);overflow:hidden}
+.bento-grid .bento-lg{grid-column:span 2;grid-row:span 2}
+.bento-grid .bento-stat{background:var(--primary);color:#fff;align-items:flex-start}
+.bento-grid .bento-val{font-size:2.4rem;font-weight:800;line-height:1;letter-spacing:-.02em}
+.bento-grid .bento-lbl{margin-top:8px;opacity:.9;font-size:.9rem}
+.bento-grid .bento-text{background:var(--surface)}
+.bento-grid .bento-text h3{margin:0 0 6px;font-size:1.15rem;letter-spacing:-.01em}
+.bento-grid .bento-text p{margin:0;color:color-mix(in srgb,var(--text) 76%,transparent);line-height:1.5;font-size:.95rem}
+.bento-grid .bento-img{background-size:cover;background-position:center;background-color:color-mix(in srgb,var(--text) 6%,transparent);position:relative;justify-content:flex-end}
+.bento-grid .bento-cap{color:#fff;font-size:.85rem;text-shadow:0 1px 6px rgba(0,0,0,.5)}
+@media(max-width:760px){.bento-grid .bento{grid-template-columns:repeat(2,1fr)}.bento-grid .bento-lg{grid-column:span 2;grid-row:auto}}
+@media(max-width:460px){.bento-grid .bento{grid-template-columns:1fr}.bento-grid .bento-lg{grid-column:auto}}
+
+/* carousel-cards — horizontal scroll-snap slider */
+.carousel-cards .car-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:24px}
+.carousel-cards .car-controls{display:flex;gap:8px;flex:0 0 auto}
+.carousel-cards .car-arrow{width:40px;height:40px;border-radius:50%;border:1px solid color-mix(in srgb,var(--text) 14%,transparent);background:var(--surface);color:var(--text);font-size:20px;line-height:1;cursor:pointer;transition:.15s}
+.carousel-cards .car-arrow:hover{background:var(--primary);color:#fff;border-color:var(--primary)}
+.carousel-cards .car-track{display:flex;gap:20px;overflow-x:auto;scroll-snap-type:x mandatory;padding:4px 4px 16px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.carousel-cards .car-track::-webkit-scrollbar{display:none}
+.carousel-cards .car-card{flex:0 0 calc((100% - (var(--car-visible) - 1) * 20px) / var(--car-visible));scroll-snap-align:start;background:var(--surface);border:1px solid color-mix(in srgb,var(--text) 8%,transparent);border-radius:var(--card-r);overflow:hidden;box-shadow:var(--shadow)}
+.carousel-cards .car-media img,.carousel-cards .car-media.car-ph{width:100%;aspect-ratio:16/10;object-fit:cover;display:block}
+.carousel-cards .car-media.car-ph{background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--primary) 8%,transparent) 0 12px,transparent 12px 24px)}
+.carousel-cards .car-body{padding:20px}
+.carousel-cards .car-body h3{margin:0 0 8px;font-size:1.2rem;letter-spacing:-.01em}
+.carousel-cards .car-body p{margin:0 0 12px;color:color-mix(in srgb,var(--text) 76%,transparent);line-height:1.55;font-size:.95rem}
+@media(max-width:900px){.carousel-cards .car-card{flex-basis:calc((100% - 20px) / 2)}}
+@media(max-width:560px){.carousel-cards .car-card{flex-basis:84%}.carousel-cards .car-controls{display:none}}
+
+/* faq-accordion */
+.faq-accordion .container{max-width:820px}
+.faq-accordion .head{text-align:center;margin-bottom:32px}
+.faq-accordion .faq-item{border:1px solid color-mix(in srgb,var(--text) 10%,transparent);border-radius:var(--card-r);margin-bottom:10px;background:var(--surface);overflow:hidden}
+.faq-accordion .faq-item summary{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 20px;cursor:pointer;font-weight:600;font-size:1.05rem;list-style:none}
+.faq-accordion .faq-item summary::-webkit-details-marker{display:none}
+.faq-accordion .faq-ico{flex:0 0 auto;font-size:1.2rem;color:var(--primary);transition:transform .2s}
+.faq-accordion .faq-item[open] .faq-ico{transform:rotate(45deg)}
+.faq-accordion .faq-a{padding:0 20px 20px;color:color-mix(in srgb,var(--text) 80%,transparent);line-height:1.65}
+.faq-accordion .faq-a p{margin:0}
+
+/* big-quote */
+.big-quote figure{max-width:900px;margin:0 auto;text-align:center}
+.big-quote blockquote{font-size:clamp(1.4rem,3.2vw,2.1rem);line-height:1.4;letter-spacing:-.01em;font-weight:500;margin:0 0 28px;color:var(--text);position:relative}
+.big-quote blockquote::before{content:"\\201C";display:block;font-size:4rem;line-height:.6;color:var(--primary);opacity:.4;margin-bottom:8px}
+.big-quote .bq-who{display:inline-flex;align-items:center;gap:14px;text-align:left}
+.big-quote .bq-portrait{width:52px;height:52px;border-radius:50%;object-fit:cover}
+.big-quote .bq-who b{display:block;font-size:1rem}
+.big-quote .bq-who span{display:block;font-size:.9rem;color:color-mix(in srgb,var(--text) 60%,transparent)}
 `
 
 // ---- per-kind static HTML renderer (used by publish.ts) ----
@@ -747,6 +930,70 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
       const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
       const head = (p.heading || eyebrow) ? `<div class="head">${eyebrow}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div>` : ''
       return `<section class="gallery${bento ? ' is-bento' : ''}"><div class="container">${head}<div class="g-grid">${tiles}</div></div></section>`
+    }
+    case 'features-2col': {
+      const items = (Array.isArray(p.items) ? p.items : []).slice(0, 2)
+      const cols = items.map((it: any) => `<div class="f2-col">${it.icon ? `<div class="f2-icon">${esc(it.icon)}</div>` : ''}<h3>${esc(it.title)}</h3>${it.desc ? `<p>${esc(it.desc)}</p>` : ''}</div>`).join('')
+      const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
+      const head = (p.heading || eyebrow) ? `<div class="head">${eyebrow}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div>` : ''
+      return `<section class="features-2col" data-anim="stagger"><div class="container">${head}<div class="f2-grid">${cols}</div></div></section>`
+    }
+    case 'feature-alt': {
+      const items = (Array.isArray(p.items) ? p.items : []).slice(0, 5)
+      const rows = items.map((it: any, i: number) => {
+        const media = it.image_url ? `<div class="fa-media"><img src="${esc(it.image_url)}" alt="${esc(it.image_alt || it.title || '')}" loading="lazy"></div>` : `<div class="fa-media fa-ph"></div>`
+        const txt = `<div class="fa-txt">${it.eyebrow ? `<div class="eyebrow">${esc(it.eyebrow)}</div>` : ''}<h3>${esc(it.title)}</h3>${it.desc ? `<p>${esc(it.desc)}</p>` : ''}${it.cta_label ? `<a class="btn btn-ghost-link" href="${esc(it.cta_href || '#')}">${esc(it.cta_label)} →</a>` : ''}</div>`
+        return `<div class="fa-row${i % 2 ? ' rev' : ''}" data-anim="fade-up">${txt}${media}</div>`
+      }).join('')
+      const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
+      const head = (p.heading || eyebrow) ? `<div class="head">${eyebrow}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}</div>` : ''
+      return `<section class="feature-alt"><div class="container">${head}<div class="fa-rows">${rows}</div></div></section>`
+    }
+    case 'split-hero': {
+      const ctas = [
+        p.cta_label ? `<a class="btn" href="${esc(p.cta_href || '#')}">${esc(p.cta_label)}</a>` : '',
+        p.cta2_label ? `<a class="btn btn-outline" href="${esc(p.cta2_href || '#')}">${esc(p.cta2_label)}</a>` : '',
+      ].filter(Boolean).join('')
+      const media = p.image_url ? `<div class="sh-media"><img src="${esc(p.image_url)}" alt="${esc(p.image_alt || '')}" loading="eager"></div>` : `<div class="sh-media sh-ph"></div>`
+      return `<section class="split-hero"><div class="sh-grid"><div class="sh-txt"><div class="sh-txt-inner">${p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''}<h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${ctas ? `<div class="actions">${ctas}</div>` : ''}</div></div>${media}</div></section>`
+    }
+    case 'bento-grid': {
+      const items = (Array.isArray(p.items) ? p.items : []).slice(0, 7)
+      const tiles = items.map((it: any, i: number) => {
+        const span = i === 0 ? ' bento-lg' : ''
+        if (it.kind === 'stat') return `<div class="bento-tile bento-stat${span}"><div class="bento-val">${esc(it.value)}</div><div class="bento-lbl">${esc(it.label)}</div></div>`
+        if (it.kind === 'image') return `<div class="bento-tile bento-img${span}"${it.image_url ? ` style="background-image:url('${esc(it.image_url)}')"` : ''}>${it.caption ? `<span class="bento-cap">${esc(it.caption)}</span>` : ''}</div>`
+        return `<div class="bento-tile bento-text${span}">${it.title ? `<h3>${esc(it.title)}</h3>` : ''}${it.desc ? `<p>${esc(it.desc)}</p>` : ''}</div>`
+      }).join('')
+      const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
+      const head = (p.heading || eyebrow) ? `<div class="head">${eyebrow}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}</div>` : ''
+      return `<section class="bento-grid" data-anim="stagger"><div class="container">${head}<div class="bento">${tiles}</div></div></section>`
+    }
+    case 'carousel-cards': {
+      const visible = Math.max(1, Math.min(4, Number(p.visible) || 3))
+      const items = (Array.isArray(p.items) ? p.items : []).slice(0, 20)
+      const cards = items.map((it: any) => {
+        const media = it.image_url ? `<div class="car-media"><img src="${esc(it.image_url)}" alt="${esc(it.title || '')}" loading="lazy"></div>` : `<div class="car-media car-ph"></div>`
+        const cta = it.cta_label ? `<a class="btn btn-ghost-link" href="${esc(it.cta_href || '#')}">${esc(it.cta_label)} →</a>` : ''
+        return `<div class="car-card">${media}<div class="car-body">${it.title ? `<h3>${esc(it.title)}</h3>` : ''}${it.desc ? `<p>${esc(it.desc)}</p>` : ''}${cta}</div></div>`
+      }).join('')
+      const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
+      const controls = `<div class="car-controls"><button type="button" class="car-arrow" aria-label="Previous" onclick="this.closest('.carousel-cards').querySelector('.car-track').scrollBy({left:-360,behavior:'smooth'})">‹</button><button type="button" class="car-arrow" aria-label="Next" onclick="this.closest('.carousel-cards').querySelector('.car-track').scrollBy({left:360,behavior:'smooth'})">›</button></div>`
+      const head = `<div class="head car-head">${(eyebrow || p.heading) ? `<div>${eyebrow}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}</div>` : '<div></div>'}${items.length > visible ? controls : ''}</div>`
+      return `<section class="carousel-cards" style="--car-visible:${visible}"><div class="container">${head}<div class="car-track">${cards}</div></div></section>`
+    }
+    case 'faq-accordion': {
+      const items = (Array.isArray(p.items) ? p.items : []).filter((it: any) => it && (it.q || it.a)).slice(0, 20)
+      const rows = items.map((it: any) => `<details class="faq-item"><summary>${esc(it.q)}<span class="faq-ico" aria-hidden="true">＋</span></summary><div class="faq-a"><p>${esc(it.a)}</p></div></details>`).join('')
+      const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
+      const head = (p.heading || eyebrow) ? `<div class="head">${eyebrow}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}</div>` : ''
+      const jsonLd = items.length ? `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: items.map((it: any) => ({ '@type': 'Question', name: String(it.q || ''), acceptedAnswer: { '@type': 'Answer', text: String(it.a || '') } })) }).replace(/</g, '\\u003c')}</script>` : ''
+      return `<section class="faq-accordion"><div class="container">${head}<div class="faq-list">${rows}</div>${jsonLd}</div></section>`
+    }
+    case 'big-quote': {
+      const portrait = p.image_url ? `<img class="bq-portrait" src="${esc(p.image_url)}" alt="${esc(p.author || '')}" loading="lazy">` : ''
+      const who = (p.author || p.role) ? `<div class="bq-who">${portrait}<div>${p.author ? `<b${f('author')}>${esc(p.author)}</b>` : ''}${p.role ? `<span${f('role')}>${esc(p.role)}</span>` : ''}</div></div>` : ''
+      return `<section class="big-quote" data-anim="fade-up"><div class="container"><figure><blockquote${f('quote')}>${esc(p.quote)}</blockquote>${who ? `<figcaption>${who}</figcaption>` : ''}</figure></div></section>`
     }
     case 'cta-banner': {
       const solid = p.variant === 'solid' ? ' v-solid' : ''
