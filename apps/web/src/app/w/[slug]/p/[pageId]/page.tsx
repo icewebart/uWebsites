@@ -101,6 +101,20 @@ export default function PageEditor() {
     try { await runLongEdit('/ai/critique-page', 'Design polished ✓ — saved') } finally { setPolishing(false) }
   }
 
+  const [healing, setHealing] = useState(false)
+  // Heal broken image references on this page — copy any missing files from a
+  // sibling workspace that has the same content-hashed filename, and rewrite
+  // any foreign-slug URLs to our workspace's slug.
+  async function healImages() {
+    setErr(''); setHealing(true)
+    try {
+      const r = await api<{ referenced: number; brokenBefore: number; copiedFromSibling: number; urlsRemapped: number; stillMissingCount: number }>('/import/heal-images', { method: 'POST', body: JSON.stringify({ pageId }) })
+      const p = await api<PageData>(`/pages/${pageId}`)
+      setBlocks(Array.isArray(p.blocks) ? p.blocks : []); setPreviewKey((k) => k + 1)
+      setSavedAt(`Healed ${r.copiedFromSibling} file(s), remapped ${r.urlsRemapped} url(s)${r.stillMissingCount ? `, ${r.stillMissingCount} still missing` : ''}`)
+    } catch (e: any) { setErr(e.message || 'Heal failed') } finally { setHealing(false) }
+  }
+
   async function fillImages() {
     setFillingImg(true)
     try { await runLongEdit('/ai/fill-images', 'Images generated ✓ — saved') } finally { setFillingImg(false) }
@@ -248,6 +262,9 @@ export default function PageEditor() {
               {polishing ? 'Polishing…' : '✦ Polish design'}
             </button>
           )}
+          <button className="btn btn-secondary" onClick={healImages} disabled={healing} title="Copy any missing image files from sibling workspaces (fixes broken images without a full re-import)">
+            {healing ? 'Healing…' : '⚕ Fix images'}
+          </button>
           {page?.seo?.import_source && (
             <>
               <button className="btn btn-secondary" onClick={sectionizeFromSource} disabled={sectionizing} title="Pixel-faithful import — recopy the source page's layout, swap colors/fonts to your brand, mirror images locally.">

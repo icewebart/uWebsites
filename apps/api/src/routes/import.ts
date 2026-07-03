@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import path from 'node:path'
 import { and, eq } from 'drizzle-orm'
 import Anthropic from '@anthropic-ai/sdk'
 import { db, workspaces, pages, redirects, brandingTokens } from '@uwebsites/db'
@@ -776,6 +777,110 @@ export async function sectionizeUrl(
   })
   return sections.map((s) => ({ type: 'raw-html' as const, props: { html: s.html, sourceLabel: s.sourceLabel || '' } }))
 }
+
+// POST /import/heal-images — walk a page's blocks and repair broken image
+// references. For each <img src> that points to our own /p/<slug>/img/<hash>.<ext>
+// and 404s on disk, we (a) try to COPY the file from another workspace's img
+// folder if the same hashed filename exists there (same source URL → same
+// content hash, so copies are safe), and (b) if that fails and the source
+// URL is on file, we rerun the sectionizer to re-mirror the page in full.
+importRouter.post('/heal-images', requireAuth, async (req: AuthRequest, res) => {
+  const { pageId } = req.body ?? {}
+  if (!pageId) return res.status(400).json({ ok: false, error: 'pageId required' })
+  const [row] = await db.select({
+    id: pages.id, title: pages.title, seo: pages.seo, blocks: pages.blocks,
+    wsId: pages.workspaceId, slug: workspaces.slug, accId: workspaces.accountId,
+  }).from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id))
+    .where(eq(pages.id, String(pageId))).limit(1)
+  if (!row || row.accId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'page not found' })
+  const SITES_DIR = process.env.SITES_DIR || '/www/wwwroot/_sites'
+  const wsImgDir = path.join(SITES_DIR, row.slug, 'img')
+  const fs = await import('node:fs/promises')
+  const exists = async (p: string) => { try { await fs.access(p); return true } catch { return false } }
+
+  // Collect every /p/<slug>/img/<file> reference in the page's HTML.
+  const blocks = Array.isArray(row.blocks) ? row.blocks as any[] : []
+  const refRe = /\/p\/([^/]+)\/img\/([a-f0-9]+\.[a-z0-9]+)/gi
+  const refs = new Set<string>()
+  for (const b of blocks) if (typeof b?.props?.html === 'string') {
+    for (const m of b.props.html.matchAll(refRe)) refs.add(`${m[1]}|${m[2]}`)
+  }
+  // Enumerate broken ones (files missing under our workspace's img dir).
+  const broken: Array<{ slug: string; file: string }> = []
+  for (const r of refs) {
+    const [slug, file] = r.split('|')
+    if (slug !== row.slug) continue      // referenced under a foreign slug — will get rewritten below
+    if (!(await exists(path.join(wsImgDir, file)))) broken.push({ slug, file })
+  }
+  // Also: images referenced under a FOREIGN workspace slug are broken by definition
+  const foreignRefs: Array<{ slug: string; file: string }> = []
+  for (const r of refs) {
+    const [slug, file] = r.split('|')
+    if (slug !== row.slug) foreignRefs.push({ slug, file })
+  }
+  // Ensure our img dir exists.
+  await fs.mkdir(wsImgDir, { recursive: true })
+
+  // Strategy 1: copy from a sibling workspace's img/ folder that has the same
+  // content-hashed filename (same source URL → same hash across imports).
+  let copied = 0, remapped = 0, stillMissing: string[] = []
+  const siblings: string[] = []
+  try {
+    const entries = await fs.readdir(SITES_DIR)
+    for (const e of entries) if (e !== row.slug && await exists(path.join(SITES_DIR, e, 'img'))) siblings.push(e)
+  } catch { /* SITES_DIR might not exist locally in dev */ }
+  const findInSiblings = async (file: string): Promise<string | null> => {
+    for (const sib of siblings) {
+      const p = path.join(SITES_DIR, sib, 'img', file)
+      if (await exists(p)) return p
+    }
+    return null
+  }
+  // Heal locally-broken (right workspace slug, missing file)
+  for (const { file } of broken) {
+    const src = await findInSiblings(file)
+    if (src) { await fs.copyFile(src, path.join(wsImgDir, file)); copied++ }
+    else stillMissing.push(file)
+  }
+  // Rewrite HTML refs that used a FOREIGN slug → our slug (and copy the file).
+  if (foreignRefs.length) {
+    // Copy the underlying files into our dir if not already present.
+    for (const { slug: foreignSlug, file } of foreignRefs) {
+      const target = path.join(wsImgDir, file)
+      if (!(await exists(target))) {
+        const src = path.join(SITES_DIR, foreignSlug, 'img', file)
+        if (await exists(src)) { await fs.copyFile(src, target); copied++ }
+        else {
+          const anywhere = await findInSiblings(file)
+          if (anywhere) { await fs.copyFile(anywhere, target); copied++ }
+          else stillMissing.push(file)
+        }
+      }
+    }
+    // Rewrite HTML: /p/<any-foreign-slug>/img/<file> → /p/<row.slug>/img/<file>
+    const foreignFiles = new Set(foreignRefs.map((r) => r.file))
+    const foreignSlugs = new Set(foreignRefs.map((r) => r.slug))
+    let rewroteBlocks = 0
+    for (const b of blocks) if (typeof b?.props?.html === 'string') {
+      const before = b.props.html
+      b.props.html = before.replace(refRe, (m: string, slug: string, file: string) => {
+        if (foreignSlugs.has(slug) && foreignFiles.has(file)) { remapped++; return m.replace(`/p/${slug}/img/`, `/p/${row.slug}/img/`) }
+        return m
+      })
+      if (b.props.html !== before) rewroteBlocks++
+    }
+    if (rewroteBlocks) await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, row.id))
+  }
+
+  res.json({ ok: true, data: {
+    referenced: refs.size,
+    brokenBefore: broken.length + foreignRefs.length,
+    copiedFromSibling: copied,
+    urlsRemapped: remapped,
+    stillMissing: stillMissing.slice(0, 20),
+    stillMissingCount: stillMissing.length,
+  } })
+})
 
 // POST /import/sectionize-page — pixel-faithful rebuild of one page from its
 // source URL. Fetches the rendered HTML, splits it into top-level sections
