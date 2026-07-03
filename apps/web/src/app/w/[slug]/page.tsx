@@ -110,6 +110,15 @@ export default function WorkspaceHome() {
       alert(`Made ${rel.totalFixed} external link(s) internal, and resolved ${r.totalFixed} placeholder link(s).${unresolved ? `\n${unresolved} placeholder link(s) could not be matched — edit them manually or create the target pages.` : ''}`)
     } catch (e: any) { alert(e.message || 'Fix links failed') } finally { setVerifying(false) }
   }
+  const [savingImages, setSavingImages] = useState(false)
+  async function saveImagesToVps() {
+    if (!window.confirm('Download every remote image on this site to your server? Do this before the original site goes offline. Free — no AI credits.')) return
+    setSavingImages(true)
+    try {
+      const r = await api<{ found: number; downloaded: number; failed: number }>('/import/mirror-images', { method: 'POST', body: JSON.stringify({ slug }) })
+      alert(`Found ${r.found} remote image(s): downloaded ${r.downloaded} to your server${r.failed ? `, ${r.failed} failed (source may be down)` : ''}.`)
+    } catch (e: any) { alert(e.message || 'Failed') } finally { setSavingImages(false) }
+  }
   const [structuringAll, setStructuringAll] = useState(false)
   async function structureAll() {
     const pgs = (data?.pages || []).filter((p) => p.type !== 'home')
@@ -232,8 +241,11 @@ export default function WorkspaceHome() {
             <button className="btn btn-secondary" onClick={polishAllPages} disabled={polishingAll} title="Run the AI design polish on every page (uses credits)">
               {polishingAll ? 'Polishing…' : '✦ Polish all'}
             </button>
-            <button className="btn btn-secondary" onClick={verifyLinks} disabled={verifying} title="Rewrite links to the original site into internal links, and resolve placeholder (#) links">
+            <button className="btn btn-secondary" onClick={verifyLinks} disabled={verifying} title="Rewrite links to the original site into internal links (incl. menu + footer), and resolve placeholder (#) links">
               {verifying ? 'Fixing…' : '🔗 Fix links'}
+            </button>
+            <button className="btn btn-secondary" onClick={saveImagesToVps} disabled={savingImages} title="Download all remote images to your server — do this before the original site goes offline">
+              {savingImages ? 'Saving…' : '💾 Save images'}
             </button>
             <button className="btn btn-primary" onClick={publish} disabled={publishing}>{publishing ? 'Publishing…' : '↗ Publish'}</button>
           </div>

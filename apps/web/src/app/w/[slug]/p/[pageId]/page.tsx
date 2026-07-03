@@ -134,6 +134,14 @@ export default function PageEditor() {
     try { await runLongEdit('/ai/critique-page', 'Design polished ✓ — saved') } finally { setPolishing(false) }
   }
 
+  const [delOpen, setDelOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  async function doDeletePage() {
+    setDeleting(true)
+    try { await api(`/pages/${pageId}`, { method: 'DELETE' }); router.push(`/w/${slug}`) }
+    catch (e: any) { setErr(e.message || 'Delete failed'); setDeleting(false); setDelOpen(false) }
+  }
+
   const [structuring, setStructuring] = useState(false)
   // Deterministic (no-AI) restructure: turn imported/messy content into a clean
   // hero-image + body + CTA. Fixes the ugly imported hero for free.
@@ -154,11 +162,14 @@ export default function PageEditor() {
   async function healImages() {
     setErr(''); setHealing(true); pushHistory()
     try {
-      const r = await api<{ referenced: number; brokenBefore: number; copiedFromSibling: number; urlsRemapped: number; stillMissingCount: number }>('/import/heal-images', { method: 'POST', body: JSON.stringify({ pageId }) })
+      // 1) download any still-remote images to the VPS (whole workspace).
+      const mir = await api<{ downloaded: number }>('/import/mirror-images', { method: 'POST', body: JSON.stringify({ slug }) }).catch(() => ({ downloaded: 0 }))
+      // 2) heal any broken local refs on this page from sibling workspaces.
+      const r = await api<{ copiedFromSibling: number; urlsRemapped: number; stillMissingCount: number }>('/import/heal-images', { method: 'POST', body: JSON.stringify({ pageId }) })
       const p = await api<PageData>(`/pages/${pageId}`)
       setBlocks(Array.isArray(p.blocks) ? p.blocks : []); setPreviewKey((k) => k + 1)
-      setSavedAt(`Healed ${r.copiedFromSibling} file(s), remapped ${r.urlsRemapped} url(s)${r.stillMissingCount ? `, ${r.stillMissingCount} still missing` : ''}`)
-    } catch (e: any) { setErr(e.message || 'Heal failed') } finally { setHealing(false) }
+      setSavedAt(`Downloaded ${mir.downloaded}, healed ${r.copiedFromSibling}, remapped ${r.urlsRemapped}${r.stillMissingCount ? `, ${r.stillMissingCount} still missing` : ''}`)
+    } catch (e: any) { setErr(e.message || 'Fix images failed') } finally { setHealing(false) }
   }
 
   const [imgMenuOpen, setImgMenuOpen] = useState(false)
@@ -304,6 +315,9 @@ export default function PageEditor() {
             {savedAt && <span className="muted eb-saved" style={{ fontSize: 12 }}>Saved {savedAt}</span>}
           </div>
           <div className="eb-right">
+            {page?.type !== 'home' && (
+              <button className="btn btn-ghost eb-del" onClick={() => setDelOpen(true)} title="Delete this page">🗑 Delete</button>
+            )}
             <button className="btn btn-ghost" onClick={undo} disabled={!history.length} title={history.length ? `Undo the last change (${history.length} step${history.length > 1 ? 's' : ''} available)` : 'Nothing to undo'}>↶ Undo</button>
             <a className="btn btn-ghost" href={`${API_URL}/pages/${pageId}/preview`} target="_blank" rel="noreferrer" title="Open in a new tab (without editor UI)">↗ Preview</a>
             <button className="btn btn-ghost" onClick={() => setSideCollapsed((v) => !v)} title={sideCollapsed ? 'Show the sections panel' : 'Hide the sections panel for a wider preview'}>{sideCollapsed ? '⊞ Sections' : '⊟ Hide panel'}</button>
@@ -452,6 +466,20 @@ export default function PageEditor() {
         onClose={() => setRebuildOpen(false)}
         onDone={applyRebuild}
       />
+      {delOpen && (
+        <div className="modal-veil" onClick={() => !deleting && setDelOpen(false)}>
+          <div className="modal" style={{ width: 'min(440px,92vw)' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>Delete this page?</h2><button onClick={() => setDelOpen(false)} disabled={deleting}>✕</button></div>
+            <div className="modal-body">
+              <p style={{ marginBottom: 18 }}>Are you sure you want to delete <b>{title || 'this page'}</b>? This permanently removes the page and cannot be undone.</p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button className="btn btn-ghost" onClick={() => setDelOpen(false)} disabled={deleting}>Cancel</button>
+                <button className="btn btn-danger" onClick={doDeletePage} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete page'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   )
 }

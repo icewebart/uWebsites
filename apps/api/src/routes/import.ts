@@ -854,6 +854,61 @@ export async function sectionizeUrl(
 // folder if the same hashed filename exists there (same source URL → same
 // content hash, so copies are safe), and (b) if that fails and the source
 // URL is on file, we rerun the sectionizer to re-mirror the page in full.
+// POST /import/mirror-images { slug } — download EVERY remote image referenced
+// on the workspace's pages to the VPS and rewrite the URLs to local. Essential
+// before the source site disappears. Handles <img src>, background-image, and
+// typed image props. Images already hosted locally are skipped.
+importRouter.post('/mirror-images', requireAuth, async (req: AuthRequest, res) => {
+  const { slug } = req.body ?? {}
+  const [ws] = await db.select().from(workspaces).where(and(eq(workspaces.slug, String(slug || '')), eq(workspaces.accountId, req.user!.accountId))).limit(1)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const mirror = createImageMirror(ws.slug)
+  const rows = await db.select().from(pages).where(eq(pages.workspaceId, ws.id))
+  const localRe = new RegExp(`/p/${ws.slug.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}/img/`)
+  const isExternal = (u: string) => /^https?:\/\//i.test(u) && !localRe.test(u) && !/^data:/i.test(u)
+
+  // 1) collect every external image URL across all pages (deduped).
+  const urls = new Set<string>()
+  const collectFromHtml = (html: string) => {
+    for (const m of html.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) if (isExternal(m[1])) urls.add(m[1])
+    for (const m of html.matchAll(/background(?:-image)?\s*:\s*url\(["']?([^"')]+)["']?\)/gi)) if (isExternal(m[1])) urls.add(m[1])
+    for (const m of html.matchAll(/srcset=["']([^"']+)["']/gi)) for (const part of m[1].split(',')) { const u = part.trim().split(/\s+/)[0]; if (u && isExternal(u)) urls.add(u) }
+  }
+  const collect = (props: any) => {
+    if (!props || typeof props !== 'object') return
+    for (const k of ['image_url', 'url', 'image']) if (typeof props[k] === 'string' && isExternal(props[k])) urls.add(props[k])
+    if (typeof props.html === 'string') collectFromHtml(props.html)
+    for (const key of ['items', 'tiers', 'sidebar']) if (Array.isArray(props[key])) for (const it of props[key]) collect(it)
+  }
+  for (const p of rows) for (const b of (Array.isArray(p.blocks) ? p.blocks as any[] : [])) collect(b?.props)
+
+  // 2) download each (bounded concurrency) → remap old→local.
+  const list = [...urls]
+  const remap = new Map<string, string>()
+  let downloaded = 0, failed = 0
+  const CONC = 6
+  for (let i = 0; i < list.length; i += CONC) {
+    const batch = list.slice(i, i + CONC)
+    await Promise.all(batch.map(async (u) => { const local = await mirror.mirror(u); if (local) { remap.set(u, local); downloaded++ } else failed++ }))
+  }
+
+  // 3) rewrite every reference in the blocks.
+  let pagesChanged = 0, refs = 0
+  const rewriteProps = (props: any) => {
+    if (!props || typeof props !== 'object') return
+    for (const k of ['image_url', 'url', 'image']) if (typeof props[k] === 'string' && remap.has(props[k])) { props[k] = remap.get(props[k]); refs++ }
+    if (typeof props.html === 'string') for (const [from, to] of remap) if (props.html.includes(from)) { props.html = props.html.split(from).join(to); refs++ }
+    for (const key of ['items', 'tiers', 'sidebar']) if (Array.isArray(props[key])) for (const it of props[key]) rewriteProps(it)
+  }
+  for (const p of rows) {
+    const blocks = Array.isArray(p.blocks) ? JSON.parse(JSON.stringify(p.blocks)) : []
+    const before = JSON.stringify(blocks)
+    for (const b of blocks) rewriteProps(b?.props)
+    if (JSON.stringify(blocks) !== before) { await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, p.id)); pagesChanged++ }
+  }
+  res.json({ ok: true, data: { found: urls.size, downloaded, failed, pagesChanged, refs } })
+})
+
 importRouter.post('/heal-images', requireAuth, async (req: AuthRequest, res) => {
   const { pageId } = req.body ?? {}
   if (!pageId) return res.status(400).json({ ok: false, error: 'pageId required' })

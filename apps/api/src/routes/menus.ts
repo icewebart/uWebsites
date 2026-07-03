@@ -223,7 +223,7 @@ export function articleTemplateOf(tokens: any) {
 // go-live. Matches by the page's import_source URL path, then by slug. Links to
 // the source domain that we DIDN'T import are left alone; so are real externals,
 // mailto:, tel:, and #anchors. Optional { pageId } scopes to one page.
-export async function relinkInternal(workspaceId: string, onlyId?: string | null): Promise<{ totalFixed: number; pages: number; importedPages: number }> {
+export async function relinkInternal(workspaceId: string, onlyId?: string | null): Promise<{ totalFixed: number; pages: number; importedPages: number; menusFixed?: number }> {
   const rows = await db.select({ id: pages.id, slug: pages.slug, type: pages.type, blocks: pages.blocks, seo: pages.seo }).from(pages).where(eq(pages.workspaceId, workspaceId))
 
   const norm = (path: string) => { try { return (decodeURIComponent(String(path || '')).toLowerCase().split('#')[0].split('?')[0].replace(/\/+$/, '')) || '/' } catch { return String(path || '').toLowerCase().replace(/\/+$/, '') || '/' } }
@@ -271,7 +271,22 @@ export async function relinkInternal(workspaceId: string, onlyId?: string | null
     if (fixed) await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, p.id))
     totalFixed += fixed
   }
-  return { totalFixed, pages: scope.length, importedPages: pathMap.size }
+
+  // Also relink the HEADER + FOOTER menus (stored separately) — so nav/footer
+  // links point to internal pages too. Skips when scoping to a single page.
+  let menusFixed = 0
+  if (!onlyId) {
+    const menuRows = await db.select().from(menus).where(eq(menus.workspaceId, workspaceId))
+    for (const mrow of menuRows) {
+      const tree: any = mrow.tree || {}
+      let mFixed = 0
+      const relinkItems = (items: any[]) => { for (const it of (items || [])) { if (typeof it?.href === 'string') { const r = rewrite(it.href); if (r) { it.href = r; mFixed++ } } if (Array.isArray(it?.children)) relinkItems(it.children) } }
+      relinkItems(tree.items)
+      if (tree.cta && typeof tree.cta.href === 'string') { const r = rewrite(tree.cta.href); if (r) { tree.cta.href = r; mFixed++ } }
+      if (mFixed) { await db.update(menus).set({ tree: tree as any }).where(eq(menus.id, mrow.id)); menusFixed += mFixed }
+    }
+  }
+  return { totalFixed: totalFixed + menusFixed, pages: scope.length, importedPages: pathMap.size, menusFixed }
 }
 
 menusRouter.post('/:slug/relink-internal', requireAuth, async (req: AuthRequest, res) => {

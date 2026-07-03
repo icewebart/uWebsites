@@ -600,7 +600,7 @@ main > section.article-hero.ah-cover:first-child{padding-top:0}
 /* article-body — main text + sticky sidebar, tuned for reading + SEO */
 .article-body{padding:var(--pad) 0}
 /* inline (top-of-article) collapsible Table of Contents */
-.article-body .ab-toc-inline{background:color-mix(in srgb,var(--text) 3.5%,transparent);border:1px solid color-mix(in srgb,var(--text) 8%,transparent);border-radius:var(--card-r);padding:14px 18px;margin:0 0 28px;max-width:70ch}
+.article-body .ab-toc-inline{background:color-mix(in srgb,var(--text) 3.5%,transparent);border:1px solid color-mix(in srgb,var(--text) 8%,transparent);border-radius:var(--card-r);padding:14px 18px;margin:0 0 28px;max-width:none}
 .article-body .ab-toc-inline summary{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:color-mix(in srgb,var(--text) 60%,transparent);cursor:pointer;list-style:none}
 .article-body .ab-toc-inline summary::-webkit-details-marker{display:none}
 .article-body .ab-toc-inline summary::after{content:"▾";float:right;font-size:11px;transition:transform .2s}
@@ -620,10 +620,11 @@ main > section.article-hero.ah-cover:first-child{padding-top:0}
 .article-body .ab-card-news input:focus{outline:2px solid color-mix(in srgb,var(--primary) 40%,transparent);outline-offset:1px;border-color:var(--primary)}
 .article-body .ab-card-news .btn{width:100%;text-align:center}
 @media(max-width:640px){.article-body .ab-toc-inline ul{columns:1}}
-.article-body .grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:50px;align-items:start}
+.article-body > .container{max-width:1060px}
+.article-body .grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:36px;align-items:start}
 .article-body .ab-main{min-width:0}
 .article-body .ab-meta{font-size:.85rem;color:color-mix(in srgb, var(--text) 55%, transparent);text-transform:uppercase;letter-spacing:.05em;margin-bottom:16px}
-.article-body .ab-content{font-size:1.05rem;line-height:1.75;color:var(--text);max-width:70ch}
+.article-body .ab-content{font-size:1.05rem;line-height:1.75;color:var(--text);max-width:none}
 .article-body .ab-content h2{font-size:calc(1.55rem * var(--scale, 1.2));margin:36px 0 12px;letter-spacing:-.01em;scroll-margin-top:120px}
 .article-body .ab-content h3{font-size:calc(1.2rem * var(--scale, 1.2));margin:26px 0 10px;scroll-margin-top:120px}
 .article-body .ab-content :where(p,ul,ol){margin-bottom:1.1em}
