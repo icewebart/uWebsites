@@ -35,12 +35,24 @@ export default function WorkspaceSettings() {
     }).catch(() => router.push('/login')).finally(() => setLoading(false))
   }, [slug])
 
+  const [delConfirm, setDelConfirm] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [delErr, setDelErr] = useState('')
+
   async function saveWs() {
     setWsErr(''); setSavingWs(true)
     try {
       await api(`/workspaces/${slug}`, { method: 'PUT', body: JSON.stringify({ name: wsName }) })
       setWsSavedAt(new Date().toLocaleTimeString())
     } catch (e: any) { setWsErr(e.message || 'Save failed') } finally { setSavingWs(false) }
+  }
+
+  async function deleteWs() {
+    setDelErr(''); setDeleting(true)
+    try {
+      await api(`/workspaces/${slug}`, { method: 'DELETE', body: JSON.stringify({ confirm: delConfirm }) })
+      router.push('/')
+    } catch (e: any) { setDelErr(e.message || 'Delete failed'); setDeleting(false) }
   }
 
   async function saveAccount() {
@@ -95,9 +107,19 @@ export default function WorkspaceSettings() {
           <a className="btn btn-secondary" href={`/w/${slug}/domains`}>Manage domains</a>
         </div>
 
-        <div className="ctl-group" style={{ marginTop: 32 }}>
+        <div className="ctl-group danger-zone" style={{ marginTop: 32 }}>
           <h3>Danger zone</h3>
-          <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>Workspace deletion is destructive and currently unsupported in the UI. Reach out at <a href="mailto:support@uwebsites.net">support@uwebsites.net</a> if you need to remove a workspace.</p>
+          <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
+            Permanently delete <strong>{ws?.name}</strong> — its pages, branding, menus, images and published site. This cannot be undone.
+            To confirm, type the workspace name below.
+          </p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input className="inp" style={{ maxWidth: 260 }} value={delConfirm} onChange={(e) => setDelConfirm(e.target.value)} placeholder={ws?.name || 'workspace name'} />
+            <button className="btn btn-danger" onClick={deleteWs} disabled={deleting || delConfirm.trim() !== (ws?.name || '')}>
+              {deleting ? 'Deleting…' : 'Delete this workspace'}
+            </button>
+          </div>
+          {delErr && <div className="err" style={{ marginTop: 10 }}>{delErr}</div>}
         </div>
       </div>
     </AppShell>

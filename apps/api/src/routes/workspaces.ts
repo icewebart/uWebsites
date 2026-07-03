@@ -1,6 +1,8 @@
 import { Router } from 'express'
+import { rm } from 'node:fs/promises'
+import path from 'node:path'
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
-import { db, workspaces, memberships, pages, brandingTokens, builds, domains, aiJobs } from '@uwebsites/db'
+import { db, workspaces, memberships, pages, brandingTokens, builds, domains, aiJobs, menus, collections, collectionItems, media, redirects } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 
 export const workspacesRouter = Router()
@@ -45,6 +47,34 @@ workspacesRouter.put('/:slug', requireAuth, async (req: AuthRequest, res) => {
   if (!name || !String(name).trim()) return res.status(400).json({ ok: false, error: 'name required' })
   const [updated] = await db.update(workspaces).set({ name: String(name).trim() }).where(eq(workspaces.id, ws.id)).returning()
   res.json({ ok: true, data: updated })
+})
+
+// DELETE /workspaces/:slug — permanently delete a workspace and everything under
+// it. The client must confirm by sending { confirm: "<workspace name>" }. FKs
+// aren't ON DELETE CASCADE, so children are removed first (in FK-safe order).
+const SITES_DIR = process.env.SITES_DIR || '/www/wwwroot/_sites'
+workspacesRouter.delete('/:slug', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWorkspace(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  if (String(req.body?.confirm || '').trim() !== ws.name) {
+    return res.status(400).json({ ok: false, error: `Type the workspace name exactly ("${ws.name}") to confirm deletion.` })
+  }
+  try {
+    // collection_items → collections first (they FK to collections, not the ws)
+    const cols = await db.select({ id: collections.id }).from(collections).where(eq(collections.workspaceId, ws.id))
+    if (cols.length) await db.delete(collectionItems).where(inArray(collectionItems.collectionId, cols.map((c) => c.id)))
+    await db.delete(collections).where(eq(collections.workspaceId, ws.id))
+    // everything else that FKs directly to the workspace
+    for (const tbl of [pages, menus, brandingTokens, domains, media, redirects, aiJobs, builds, memberships]) {
+      await db.delete(tbl as any).where(eq((tbl as any).workspaceId, ws.id))
+    }
+    await db.delete(workspaces).where(eq(workspaces.id, ws.id))
+    // published static files on disk (best-effort)
+    await rm(path.join(SITES_DIR, ws.slug), { recursive: true, force: true }).catch(() => {})
+    res.json({ ok: true, data: { deleted: ws.slug } })
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: 'Delete failed: ' + (e?.message || 'unknown') })
+  }
 })
 
 // Walk a block tree and count internal vs external hrefs. Internal = starts
