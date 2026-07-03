@@ -205,10 +205,13 @@ const DEFAULT_ARTICLE_TEMPLATE = {
     { kind: 'newsletter', title: 'Get our newsletter', text: 'Tips in your inbox, no spam.', cta_label: 'Subscribe', placeholder: 'you@email.com' },
   ],
 }
+const GRAD_KEYS = ['primary', 'accent', 'accent2', 'text']
 export function articleTemplateOf(tokens: any) {
   const at = tokens?.article_template
   return {
     heroVariant: ['classic', 'centered', 'boxed', 'cover', 'gradient', 'minimal'].includes(at?.heroVariant) ? at.heroVariant : 'classic',
+    grad_from: GRAD_KEYS.includes(at?.grad_from) ? at.grad_from : 'primary',
+    grad_to: GRAD_KEYS.includes(at?.grad_to) ? at.grad_to : 'accent',
     sidebar: Array.isArray(at?.sidebar) && at.sidebar.length ? at.sidebar : DEFAULT_ARTICLE_TEMPLATE.sidebar,
   }
 }
@@ -287,8 +290,10 @@ menusRouter.put('/:slug/article-template', requireAuth, async (req: AuthRequest,
   const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
   const heroVariant = ['classic', 'centered', 'boxed', 'cover', 'gradient', 'minimal'].includes(req.body?.heroVariant) ? req.body.heroVariant : 'classic'
+  const grad_from = GRAD_KEYS.includes(req.body?.grad_from) ? req.body.grad_from : 'primary'
+  const grad_to = GRAD_KEYS.includes(req.body?.grad_to) ? req.body.grad_to : 'accent'
   const sidebar = Array.isArray(req.body?.sidebar) ? req.body.sidebar.slice(0, 6) : DEFAULT_ARTICLE_TEMPLATE.sidebar
-  const article_template = { heroVariant, sidebar }
+  const article_template = { heroVariant, grad_from, grad_to, sidebar }
   const [existing] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
   if (existing) await db.update(brandingTokens).set({ tokens: { ...(existing.tokens as any), article_template } }).where(eq(brandingTokens.id, existing.id))
   else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: { ...DEFAULT_TOKENS, article_template } as any })
@@ -301,7 +306,7 @@ menusRouter.put('/:slug/article-template', requireAuth, async (req: AuthRequest,
       const blocks = Array.isArray(p.blocks) ? JSON.parse(JSON.stringify(p.blocks)) : []
       let changed = false
       for (const b of blocks) {
-        if (b?.type === 'article-hero') { b.props = { ...b.props, variant: heroVariant }; changed = true }
+        if (b?.type === 'article-hero') { b.props = { ...b.props, variant: heroVariant, grad_from, grad_to }; changed = true }
         if (b?.type === 'article-body') { b.props = { ...b.props, sidebar }; changed = true }
       }
       if (changed) { await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, p.id)); applied++ }

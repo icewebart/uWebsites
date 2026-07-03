@@ -198,7 +198,7 @@ const DEFAULT_ARTICLE_SIDEBAR = [
   { kind: 'cta', title: 'Ready to start?', text: 'A short line about the next step.', cta_label: 'Get in touch', cta_href: '/contact/' },
   { kind: 'newsletter', title: 'Get our newsletter', text: 'Tips in your inbox, no spam.', cta_label: 'Subscribe', placeholder: 'you@email.com' },
 ]
-export function articleBlocksFromImport(title: string, contentHtml: string, featuredImg?: { url: string; alt?: string }, tmpl?: { heroVariant: string; sidebar: any[] }) {
+export function articleBlocksFromImport(title: string, contentHtml: string, featuredImg?: { url: string; alt?: string }, tmpl?: { heroVariant: string; sidebar: any[]; grad_from?: string; grad_to?: string }) {
   const html = String(contentHtml || '')
   // Pull the first paragraph as the deck, and drop it from the body to avoid a
   // duplicate lead line.
@@ -209,7 +209,7 @@ export function articleBlocksFromImport(title: string, contentHtml: string, feat
   const heroVariant = tmpl?.heroVariant || 'classic'
   const sidebar = JSON.parse(JSON.stringify(tmpl?.sidebar?.length ? tmpl.sidebar : DEFAULT_ARTICLE_SIDEBAR))
   return [
-    { type: 'article-hero', props: { variant: heroVariant, eyebrow: '', heading: title || '', sub: deck, author: '', date: '', readMins, image_url: featuredImg?.url || '', image_alt: featuredImg?.alt || title || '' } },
+    { type: 'article-hero', props: { variant: heroVariant, grad_from: tmpl?.grad_from || 'primary', grad_to: tmpl?.grad_to || 'accent', eyebrow: '', heading: title || '', sub: deck, author: '', date: '', readMins, image_url: featuredImg?.url || '', image_alt: featuredImg?.alt || title || '' } },
     { type: 'article-body', props: { html: safeHtml(body), toc: true, headline: title || '', author: '', publishedAt: '', readMins, sidebar } },
     { type: 'cta-ref', props: { cta_id: '', variant: 'gradient' } },
   ]

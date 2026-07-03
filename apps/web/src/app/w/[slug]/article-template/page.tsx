@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
 type Card = { kind: string; title?: string; text?: string; cta_label?: string; cta_href?: string; placeholder?: string }
-type Tpl = { heroVariant: string; sidebar: Card[] }
+type Tpl = { heroVariant: string; grad_from?: string; grad_to?: string; sidebar: Card[] }
 
 const HEROES: { id: string; name: string; blurb: string }[] = [
   { id: 'classic', name: 'Classic', blurb: 'Left-aligned kicker, headline, deck + meta.' },
@@ -80,6 +80,22 @@ export default function ArticleTemplatePage() {
           </button>
         ))}
       </div>
+
+      {tpl.heroVariant === 'gradient' && (
+        <div className="ctl-group card" style={{ marginBottom: 22 }}>
+          <h3>Gradient colors</h3>
+          <p className="muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 12 }}>Picked from your brand — edit the colors themselves in <a href={`/w/${slug}/branding`}>Branding</a>. Applies to every article.</p>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <select className="inp" style={{ maxWidth: 160 }} value={tpl.grad_from || 'primary'} onChange={(e) => setTpl((t) => ({ ...t, grad_from: e.target.value }))}>
+              <option value="primary">Primary</option><option value="accent">Accent</option><option value="accent2">Accent 2</option><option value="text">Text</option>
+            </select>
+            <span style={{ color: 'var(--text-faint)' }}>→</span>
+            <select className="inp" style={{ maxWidth: 160 }} value={tpl.grad_to || 'accent'} onChange={(e) => setTpl((t) => ({ ...t, grad_to: e.target.value }))}>
+              <option value="primary">Primary</option><option value="accent">Accent</option><option value="accent2">Accent 2</option><option value="text">Text</option>
+            </select>
+          </div>
+        </div>
+      )}
 
       <div className="dash-h">Sidebar (CTA + newsletter)</div>
       <p className="muted" style={{ fontSize: 12, marginBottom: 12 }}>The Table of Contents shows inline at the top of articles; the sidebar is for conversion.</p>

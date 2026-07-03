@@ -93,7 +93,7 @@ pagesRouter.post('/', requireAuth, async (req: AuthRequest, res) => {
     const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
     const at = articleTemplateOf(tok?.tokens as any)
     for (const b of tplBlocks) {
-      if (b?.type === 'article-hero') b.props = { ...b.props, variant: at.heroVariant }
+      if (b?.type === 'article-hero') b.props = { ...b.props, variant: at.heroVariant, grad_from: at.grad_from, grad_to: at.grad_to }
       if (b?.type === 'article-body') b.props = { ...b.props, sidebar: at.sidebar }
     }
   }

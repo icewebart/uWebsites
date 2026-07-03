@@ -556,7 +556,7 @@ ${brief ? '\nSITE CONTEXT (for the CTA only):\n' + brief : ''}`,
     const readMins = Math.max(2, Math.round(body.replace(/<[^>]*>/g, ' ').split(/\s+/).length / 200))
     const at = articleTemplateOf(t)  // workspace Article Template (hero design + sidebar)
     const blocks: any[] = [
-      { type: 'article-hero', props: { variant: at.heroVariant, eyebrow: '', heading: out.heading || row.title, sub: out.deck || '', author: '', date: '', readMins } },
+      { type: 'article-hero', props: { variant: at.heroVariant, grad_from: at.grad_from, grad_to: at.grad_to, eyebrow: '', heading: out.heading || row.title, sub: out.deck || '', author: '', date: '', readMins } },
       { type: 'article-body', props: {
         html: body, toc: true, headline: out.heading || row.title, author: '', publishedAt: '', readMins,
         sidebar: JSON.parse(JSON.stringify(at.sidebar)),
