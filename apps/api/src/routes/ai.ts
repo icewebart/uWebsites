@@ -6,6 +6,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { SECTIONS, SECTION_META } from '../lib/sections.js'
 import { pickAesthetic, aestheticPrompt, COPY_RULES, AESTHETICS } from '../lib/aesthetics.js'
 import { generateImage, generateImageResult, photoPrompt, imageGenEnabled, reasonMessage } from '../lib/imagegen.js'
+import { upsertMenu } from './menus.js'
 
 // Strip document chrome the model must not emit — the platform wraps every page
 // with its OWN header (menu) + footer, so a <header>/<nav>/<footer> in the
@@ -387,6 +388,55 @@ aiRouter.post('/critique-page', requireAuth, async (req: AuthRequest, res) => {
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'Design polish failed: ' + (e?.message || 'unknown') })
   }
+})
+
+// POST /ai/extract-footer — sniff out the trailing footer sections of a page
+// (newsletter / copyright / footer nav, even when split across several raw-html
+// blocks), move their links + tagline into the SITE footer, and remove them
+// from the page body so the footer isn't rendered twice.
+aiRouter.post('/extract-footer', requireAuth, async (req: AuthRequest, res) => {
+  const { slug, pageId } = req.body ?? {}
+  if (!slug || !pageId) return res.status(400).json({ ok: false, error: 'slug and pageId required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const [page] = await db.select().from(pages).where(and(eq(pages.id, String(pageId)), eq(pages.workspaceId, ws.id))).limit(1)
+  if (!page) return res.status(404).json({ ok: false, error: 'page not found' })
+  const blocks = Array.isArray(page.blocks) ? JSON.parse(JSON.stringify(page.blocks)) : []
+  const text = (b: any) => String(b?.props?.html || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+
+  // The footer starts at the first trailing block that reads like a footer.
+  const startRe = /newsletter|abonează|aboneaz|fii la curent|©|toate drepturile|drepturile rezervate|all rights reserved|©\s*\d{4}/i
+  let start = -1
+  for (let i = Math.max(1, Math.floor(blocks.length * 0.4)); i < blocks.length; i++) {
+    if (blocks[i]?.type === 'raw-html' && startRe.test(text(blocks[i]))) { start = i; break }
+  }
+  if (start < 0) return res.status(400).json({ ok: false, error: 'Could not spot a footer region (newsletter / copyright) in the lower half of this page.' })
+
+  const footerBlocks = blocks.slice(start)
+  const footHtml = footerBlocks.map((b: any) => b?.props?.html || '').join('\n')
+  const legalRe = /(termen|privacy|gdpr|confiden|politica|cookie|©|copyright|drepturile)/i
+  const items: Array<{ label: string; href: string }> = []
+  const seen = new Set<string>()
+  for (const m of footHtml.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const href = m[1]
+    const label = m[2].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
+    if (label && label.length < 50 && !seen.has(label.toLowerCase()) && !legalRe.test(label)) { seen.add(label.toLowerCase()); items.push({ label, href }) }
+    if (items.length >= 20) break
+  }
+  const tagline = (footHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/i)?.[1] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, 200)
+
+  if (items.length) await upsertMenu(ws.id, 'footer', { items })
+  if (tagline) {
+    const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+    if (tok) {
+      const merged = { ...(tok.tokens as any), brand_assets: { ...((tok.tokens as any)?.brand_assets || {}), tagline } }
+      await db.update(brandingTokens).set({ tokens: merged as any }).where(eq(brandingTokens.id, tok.id))
+    }
+  }
+  const kept = blocks.slice(0, start)
+  await db.update(pages).set({ blocks: kept as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
+  await logAiJob(ws.id, 'edit', 'done', { source: 'extract-footer', pageId: page.id, removed: footerBlocks.length, links: items.length }, 1, page.id)
+  res.json({ ok: true, data: { removedSections: footerBlocks.length, footerLinks: items.length, tagline: !!tagline } })
 })
 
 // POST /ai/generate-page — Claude drafts a full page from a prompt, saves it.
