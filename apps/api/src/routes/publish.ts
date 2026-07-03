@@ -472,7 +472,24 @@ function renderPage(page: any, body: string, t: any, ws: any, base: string, opts
   const whiteLogo = ba.logo_white?.url || null
   const footerLogo = whiteLogo || logo
   const motionOn = (t as any)?.motion !== 'off'
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(page.title)} — ${esc(ws.name)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">${fontsHead(t)}<style>${siteCss(t)}${motionOn ? MOTION_CSS : ''}</style></head><body>
+  // SEO head — meta description, Open Graph / Twitter card, and the Search
+  // Console verification tag. Page-level values win over workspace defaults.
+  const seo = page.seo || {}
+  const tSeo = (t as any)?.seo || {}
+  const desc = String(seo.description || tSeo.description || ba.tagline || '').slice(0, 320)
+  const ogImg = seo.ogImage || logo || ''
+  const gsc = tSeo.gscVerification ? `<meta name="google-site-verification" content="${esc(tSeo.gscVerification)}">` : ''
+  const bing = tSeo.bingVerification ? `<meta name="msvalidate.01" content="${esc(tSeo.bingVerification)}">` : ''
+  const metaHead = [
+    desc ? `<meta name="description" content="${esc(desc)}">` : '',
+    gsc, bing,
+    `<meta property="og:title" content="${esc(page.title)}">`,
+    desc ? `<meta property="og:description" content="${esc(desc)}">` : '',
+    ogImg ? `<meta property="og:image" content="${esc(ogImg)}">` : '',
+    `<meta property="og:type" content="website"><meta property="og:site_name" content="${esc(ws.name)}">`,
+    `<meta name="twitter:card" content="${ogImg ? 'summary_large_image' : 'summary'}">`,
+  ].filter(Boolean).join('')
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(page.title)} — ${esc(ws.name)}</title>${metaHead}<link rel="icon" href="/favicon.svg" type="image/svg+xml">${fontsHead(t)}<style>${siteCss(t)}${motionOn ? MOTION_CSS : ''}</style></head><body>
 ${renderHeader(ws, base, opts?.header, logo)}
 <main>${body || ''}</main>
 ${renderFooter(ws, opts?.footer, ba.tagline, footerLogo, { invert: !whiteLogo && !!logo })}
@@ -611,8 +628,14 @@ publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) 
       count++
     }
     const urls = publishable.map((p) => (p.slug === 'home' ? `${base}/` : `${base}/${p.slug}/`))
+    const sitemapUrl = `${base}/sitemap.xml`
     await writeFile(path.join(outDir, 'sitemap.xml'),
       `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map((u) => `<url><loc>${esc(u)}</loc></url>`).join('')}</urlset>`)
+    // robots.txt with the Sitemap directive so Google/Bing auto-discover it.
+    await writeFile(path.join(outDir, 'robots.txt'), `User-agent: *\nAllow: /\nSitemap: ${sitemapUrl}\n`)
+    // Ping Bing to (re)crawl the sitemap. (Google deprecated its ping endpoint —
+    // it discovers via robots.txt / Search Console instead.)
+    fetch(`https://www.bing.com/ping?sitemap=${encodeURIComponent(sitemapUrl)}`).catch(() => {})
     // Default favicon — a small SVG in the brand's primary color. Workspaces
     // can override by setting branding tokens.color.primary; later we'll
     // accept a custom-uploaded icon via Branding.

@@ -31,6 +31,7 @@ type Tokens = {
   tagline?: string
   voice?: string
   motion?: string   // 'on' (default) | 'off' — scroll-reveal animations on published pages
+  seo?: { gscVerification?: string; bingVerification?: string; description?: string }
   space: { sectionGap: string; sectionPaddingY: string; container: string }
   brand_assets?: BrandAssets
 }
@@ -724,6 +725,19 @@ export default function Branding() {
             <label>Brand voice / personality</label>
             <textarea className="inp" rows={3} value={t.voice || ''} placeholder='Describe how your brand should sound. e.g. "Warm and encouraging, speaks directly to parents, concrete outcomes over hype, one light joke is fine, never corporate."' onChange={(e) => setT((c) => c ? { ...c, voice: e.target.value } : c)} />
             <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>Leave blank to use the auto-detected voice for your industry.</p>
+          </div>
+        </div>
+
+        <div className="dash-h" style={{ marginTop: 22 }}>SEO &amp; Search Console</div>
+        <div className="ctl-group card" style={{ marginBottom: 4 }}>
+          <div className="field">
+            <label>Default meta description</label>
+            <textarea className="inp" rows={2} value={t.seo?.description || ''} placeholder="One or two sentences describing the site — used when a page has no description of its own." onChange={(e) => setT((c) => c ? { ...c, seo: { ...c.seo, description: e.target.value } } : c)} />
+          </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Google Search Console verification</label>
+            <input value={t.seo?.gscVerification || ''} placeholder="paste the content value of the google-site-verification meta tag" onChange={(e) => setT((c) => c ? { ...c, seo: { ...c.seo, gscVerification: e.target.value.replace(/.*content=["']?([^"'>]+).*/i, '$1').trim() } } : c)} />
+            <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>In Search Console pick <b>HTML tag</b> verification and paste the tag (or just its code) here → Publish → click Verify. We also emit robots.txt + your sitemap automatically.</p>
           </div>
         </div>
 

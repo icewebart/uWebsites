@@ -106,6 +106,19 @@ export default function IntegrationsPage() {
         )}
       </div>
 
+      <div className="ctl-group card" style={{ maxWidth: 640, marginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: '#4285F4', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>GSC</div>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ margin: 0 }}>Google Search Console</h3>
+            <p className="muted" style={{ fontSize: 12, margin: 0 }}>Get your site indexed &amp; track search performance.</p>
+          </div>
+        </div>
+        <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
+          Verification is per-site: add your <b>google-site-verification</b> tag under each workspace's <b>Branding → SEO &amp; Search Console</b>, then Publish. Every published site also ships a <code>robots.txt</code> + <code>sitemap.xml</code> and pings Bing on publish. (Full search-performance dashboards via OAuth are on the roadmap.)
+        </p>
+      </div>
+
       {note && <div className="banner-ok" style={{ marginTop: 12, maxWidth: 640 }}>{note}</div>}
       {err && <div className="err" style={{ marginTop: 12, maxWidth: 640 }}>{err}</div>}
     </AppShell>
