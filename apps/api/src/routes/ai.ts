@@ -569,7 +569,7 @@ async function runRewrite(client: Anthropic, block: any, instruction: string) {
 aiRouter.post('/page-chat', requireAuth, async (req: AuthRequest, res) => {
   const a = ai()
   if (!a) return res.status(503).json({ ok: false, error: 'AI not configured.' })
-  const { slug, pageId, messages } = req.body ?? {}
+  const { slug, pageId, messages, blocks: clientBlocks } = req.body ?? {}
   if (!slug || !pageId || !Array.isArray(messages)) return res.status(400).json({ ok: false, error: 'slug, pageId, messages[] required' })
 
   const ws = await ownedWs(String(slug), req.user!.accountId)
@@ -577,7 +577,10 @@ aiRouter.post('/page-chat', requireAuth, async (req: AuthRequest, res) => {
   let [page] = await db.select().from(pages).where(and(eq(pages.id, String(pageId)), eq(pages.workspaceId, ws.id))).limit(1)
   if (!page) return res.status(404).json({ ok: false, error: 'page not found' })
 
-  let blocks: any[] = Array.isArray(page.blocks) ? (page.blocks as any[]) : []
+  // Operate on the EDITOR's live blocks when the client sends them (so unsaved
+  // edits / freshly generated images aren't reverted to the DB copy); fall back
+  // to the saved blocks otherwise.
+  let blocks: any[] = Array.isArray(clientBlocks) && clientBlocks.length ? clientBlocks : (Array.isArray(page.blocks) ? (page.blocks as any[]) : [])
   const mutations: { tool: string; ok: boolean; note?: string }[] = []
   const catalogSummary = SECTIONS.map((s) => `${s.kind}: ${s.description}`).join('\n')
   const sectionList = blocks.map((b, i) => `${i}: ${b.type}`).join('\n')
@@ -596,7 +599,13 @@ aiRouter.post('/page-chat', requireAuth, async (req: AuthRequest, res) => {
       model: MODEL,
       max_tokens: 1500,
       tools: PAGE_TOOLS,
-      system: `You are the uWebsites page-builder assistant for "${ws.name}" / page "${page.title}". Use tools to make changes the user asks for; reply briefly with what you did. Whenever you add or rewrite copy, follow the aesthetic and copy rules below — they apply to EVERY edit, no matter how small.\n\n${aestheticPrompt(aesthetic)}\n\n${COPY_RULES}\n\nSection catalog:\n${catalogSummary}\n\nCurrent page sections (0-indexed):\n${sectionList || '(empty)'}${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
+      system: `You are the uWebsites page-builder assistant for "${ws.name}" / page "${page.title}". Use tools to make changes the user asks for; reply briefly with what you did. Whenever you add or rewrite copy, follow the aesthetic and copy rules below — they apply to EVERY edit, no matter how small.
+
+Whenever there are natural next steps (or you'd otherwise ask a yes/no question), END your reply with ONE line exactly like:
+OPTIONS: Short action A | Short action B | Short action C
+Give 2–4 options, each phrased as a direct instruction the user could click (e.g. "Move it to the top", "Leave it where it is", "Add a matching image"). Do NOT ask the question in prose too — the options ARE the question. Omit the line only when there's genuinely nothing to offer.
+
+${aestheticPrompt(aesthetic)}\n\n${COPY_RULES}\n\nSection catalog:\n${catalogSummary}\n\nCurrent page sections (0-indexed):\n${sectionList || '(empty)'}${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
       messages: convo,
     })
     const toolUses = r.content.filter((c: any) => c.type === 'tool_use') as any[]
@@ -720,7 +729,11 @@ aiRouter.post('/chat', requireAuth, async (req: AuthRequest, res) => {
     const r = await a.messages.create({
       model: MODEL,
       max_tokens: 800,
-      system: `You are the uWebsites site-building assistant for workspace "${ws.name}". You help the operator plan, rewrite, and structure their website. Be concise (2–4 short paragraphs max). Suggest concrete next actions, but do not invent capabilities. When the user asks to change something, propose what you would do and ask them to confirm. ${ctx}${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
+      system: `You are the uWebsites site-building assistant for workspace "${ws.name}". You help the operator plan, rewrite, and structure their website. Be concise (2–4 short paragraphs max). Suggest concrete next actions, but do not invent capabilities. When the user asks to change something, propose what you would do and ask them to confirm.
+
+Whenever there are natural next steps, END your reply with ONE line exactly like:
+OPTIONS: Short action A | Short action B | Short action C
+Give 2–4 clickable options phrased as direct instructions; the options ARE the question (don't also ask it in prose). Omit only when there's nothing to offer. ${ctx}${brief ? '\n\nSITE CONTEXT:\n' + brief : ''}`,
       messages: messages
         .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
         .slice(-12)

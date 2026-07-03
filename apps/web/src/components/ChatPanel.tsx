@@ -2,9 +2,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 
-type Msg = { role: 'user' | 'assistant'; content: string }
-type Ctx = { type: string; title: string; blocks?: { type: string }[] } | undefined
+type Msg = { role: 'user' | 'assistant'; content: string; options?: string[] }
+type Ctx = { type: string; title: string; blocks?: any[] } | undefined
 type Block = { type: string; props: Record<string, any> }
+
+// The AI may end a reply with `OPTIONS: A | B | C` — pull those out so we can
+// render them as clickable quick-reply buttons instead of making the user type.
+function parseOptions(text: string): { text: string; options?: string[] } {
+  const m = text.match(/\n*\s*OPTIONS:\s*(.+?)\s*$/is)
+  if (!m) return { text }
+  const options = m[1].split('|').map((o) => o.trim()).filter(Boolean).slice(0, 4)
+  return { text: text.slice(0, m.index).trim(), options: options.length ? options : undefined }
+}
 
 const QUICK_WS = [
   'Rebuild this site from the imported content, on-brand',
@@ -52,20 +61,22 @@ export function ChatPanel({ slug, pageId, pageContext, onMutate }: { slug: strin
     setMessages(next); setInput(''); setBusy(true)
     try {
       if (pageId) {
-        // Tool-using page chat — AI can actually mutate the page
+        // Tool-using page chat — AI can actually mutate the page. Send the
+        // editor's live blocks so unsaved edits/images aren't reverted.
         const r = await api<{ reply: string; blocks: Block[]; mutations: { tool: string; ok: boolean }[] }>('/ai/page-chat', {
-          method: 'POST', body: JSON.stringify({ slug, pageId, messages: next }),
+          method: 'POST', body: JSON.stringify({ slug, pageId, messages: next, blocks: pageContext?.blocks }),
         })
-        const tail = r.mutations?.filter((m) => m.ok).length
-          ? `\n\n_Applied: ${r.mutations.filter((m) => m.ok).map((m) => m.tool).join(', ')}_`
-          : ''
-        setMessages((m) => [...m, { role: 'assistant', content: (r.reply || '(done)') + tail }])
+        const applied = (r.mutations || []).filter((m) => m.ok).map((m) => m.tool.replace(/_/g, ' '))
+        const tail = applied.length ? `\n\n✓ ${[...new Set(applied)].join(', ')}` : ''
+        const parsed = parseOptions(r.reply || '(done)')
+        setMessages((m) => [...m, { role: 'assistant', content: parsed.text + tail, options: parsed.options }])
         if (onMutate && Array.isArray(r.blocks)) onMutate(r.blocks)
       } else {
         const r = await api<{ reply: string }>('/ai/chat', {
           method: 'POST', body: JSON.stringify({ slug, messages: next, pageContext }),
         })
-        setMessages((m) => [...m, { role: 'assistant', content: r.reply || '(no reply)' }])
+        const parsed = parseOptions(r.reply || '(no reply)')
+        setMessages((m) => [...m, { role: 'assistant', content: parsed.text, options: parsed.options }])
       }
     } catch (e: any) {
       setMessages((m) => [...m, { role: 'assistant', content: 'Error: ' + (e?.message || 'request failed') }])
@@ -95,7 +106,14 @@ export function ChatPanel({ slug, pageId, pageContext, onMutate }: { slug: strin
             </div>
           )}
           {messages.map((m, i) => (
-            <div key={i} className={`chat-msg ${m.role === 'user' ? 'user' : 'ai'}`}>{m.content}</div>
+            <div key={i} className={m.role === 'user' ? 'chat-turn user' : 'chat-turn ai'}>
+              <div className={`chat-msg ${m.role === 'user' ? 'user' : 'ai'}`}>{m.content}</div>
+              {m.role === 'assistant' && m.options && !busy && i === messages.length - 1 && (
+                <div className="chat-options">
+                  {m.options.map((o) => <button key={o} onClick={() => send(o)}>{o}</button>)}
+                </div>
+              )}
+            </div>
           ))}
           {busy && <div className="chat-msg ai">Thinking…</div>}
         </div>

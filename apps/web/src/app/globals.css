@@ -709,6 +709,12 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .chat-quick{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px 0}
 .chat-quick button{font-size:12px;padding:6px 10px;border:1px solid var(--border);background:var(--surface);border-radius:var(--r-sm);color:var(--text-muted);cursor:pointer}
 .chat-quick button:hover{border-color:var(--forest);color:var(--forest)}
+/* clickable option buttons under an AI reply */
+.chat-turn{display:flex;flex-direction:column;gap:8px}
+.chat-turn.user{align-items:flex-end}
+.chat-options{display:flex;flex-direction:column;gap:6px;align-self:flex-start;max-width:90%}
+.chat-options button{text-align:left;font-family:inherit;font-size:13px;font-weight:500;padding:9px 12px;border:1px solid var(--border);background:var(--surface);border-radius:var(--r-md);color:var(--text);cursor:pointer;transition:.15s}
+.chat-options button:hover{border-color:var(--forest);background:var(--lime-light);color:var(--forest)}
 .chat-input{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--border)}
 .chat-input input{flex:1;font-family:inherit;font-size:13px;color:var(--text);background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px}
 .chat-input input:focus{outline:none;border-color:var(--forest);background:var(--surface)}
