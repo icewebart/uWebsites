@@ -30,8 +30,11 @@ async function cf(path: string, token: string, init?: RequestInit) {
 // ---------------- Integrations ----------------
 accountRouter.get('/integrations', requireAuth, async (req: AuthRequest, res) => {
   const s = await getSettings(req.user!.accountId)
-  const cf = s?.cloudflare
-  res.json({ ok: true, data: { cloudflare: { connected: !!cf?.apiToken, verified: !!cf?.verified, tokenHint: cf?.apiToken ? '••••••' + String(cf.apiToken).slice(-4) : null, verifiedAt: cf?.verifiedAt || null } } })
+  const cf = s?.cloudflare, mj = s?.mailjet
+  res.json({ ok: true, data: {
+    cloudflare: { connected: !!cf?.apiToken, verified: !!cf?.verified, tokenHint: cf?.apiToken ? '••••••' + String(cf.apiToken).slice(-4) : null, verifiedAt: cf?.verifiedAt || null },
+    mailjet: { connected: !!mj?.apiKey, tokenHint: mj?.apiKey ? '••••••' + String(mj.apiKey).slice(-4) : null, listId: mj?.listId || null, verifiedAt: mj?.verifiedAt || null },
+  } })
 })
 
 // PUT /account/integrations/cloudflare { apiToken } — verify against Cloudflare then store
@@ -50,6 +53,28 @@ accountRouter.put('/integrations/cloudflare', requireAuth, async (req: AuthReque
 accountRouter.delete('/integrations/cloudflare', requireAuth, async (req: AuthRequest, res) => {
   const s = await getSettings(req.user!.accountId)
   delete s.cloudflare
+  await saveSettings(req.user!.accountId, s)
+  res.json({ ok: true })
+})
+
+// Mailjet — for newsletter signups on published sites.
+accountRouter.put('/integrations/mailjet', requireAuth, async (req: AuthRequest, res) => {
+  const apiKey = String(req.body?.apiKey || '').trim()
+  const apiSecret = String(req.body?.apiSecret || '').trim()
+  const listId = String(req.body?.listId || '').trim()
+  if (!apiKey || !apiSecret) return res.status(400).json({ ok: false, error: 'API key and secret required' })
+  try {
+    const auth = 'Basic ' + Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')
+    const r = await fetch('https://api.mailjet.com/v3/REST/apikey', { headers: { Authorization: auth } })
+    if (r.status === 401) return res.status(400).json({ ok: false, error: 'Mailjet rejected these credentials.' })
+  } catch { return res.status(502).json({ ok: false, error: 'Could not reach Mailjet — try again.' }) }
+  const s = await getSettings(req.user!.accountId)
+  await saveSettings(req.user!.accountId, { ...s, mailjet: { apiKey, apiSecret, listId: listId || null, verified: true, verifiedAt: new Date().toISOString() } })
+  res.json({ ok: true, data: { connected: true } })
+})
+accountRouter.delete('/integrations/mailjet', requireAuth, async (req: AuthRequest, res) => {
+  const s = await getSettings(req.user!.accountId)
+  delete s.mailjet
   await saveSettings(req.user!.accountId, s)
   res.json({ ok: true })
 })

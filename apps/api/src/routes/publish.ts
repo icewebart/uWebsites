@@ -476,10 +476,17 @@ function renderPage(page: any, body: string, t: any, ws: any, base: string, opts
 ${renderHeader(ws, base, opts?.header, logo)}
 <main>${body || ''}</main>
 ${renderFooter(ws, opts?.footer, ba.tagline, footerLogo, { invert: !whiteLogo && !!logo })}
+<script>window.__UW_WS=${JSON.stringify(String(ws.slug || ''))};</script>
 ${HEADER_SCRIPT}
+${NEWSLETTER_SCRIPT}
 ${motionOn ? MOTION_SCRIPT : ''}
 </body></html>`
 }
+
+// Newsletter forms (footer + article sidebar) POST to the public subscribe
+// endpoint, which routes to the account's Mailjet integration.
+const PUBLIC_API_URL = process.env.PUBLIC_API_URL || 'https://api.uwebsites.net'
+const NEWSLETTER_SCRIPT = `<script>(function(){var api='${PUBLIC_API_URL}',ws=window.__UW_WS||'';document.querySelectorAll('.uw-newsletter').forEach(function(f){f.addEventListener('submit',function(e){e.preventDefault();var input=f.querySelector('input[type=email]'),email=input&&input.value.trim();var msg=f.parentNode.querySelector('.nl-msg');function show(t){if(msg){msg.hidden=false;msg.textContent=t;}}if(!email){show('Please enter your email.');return;}if(!ws){show('Thanks!');f.reset();return;}var btn=f.querySelector('button');if(btn)btn.disabled=true;fetch(api+'/newsletter/'+encodeURIComponent(ws),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})}).then(function(r){return r.json()}).then(function(){f.reset();show('Thanks — you are subscribed!');}).catch(function(){show('Something went wrong. Try again.');}).finally(function(){if(btn)btn.disabled=false;});});});})();</script>`
 
 // Tiny script injected into the editor preview: announces clicks + handles
 // inline text edits via contentEditable. NOT included in published output.

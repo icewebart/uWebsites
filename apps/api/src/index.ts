@@ -11,6 +11,7 @@ import { aiRouter } from './routes/ai.js'
 import { domainsRouter } from './routes/domains.js'
 import { menusRouter } from './routes/menus.js'
 import { accountRouter } from './routes/account.js'
+import { newsletterRouter } from './routes/newsletter.js'
 
 const app = express()
 app.set('trust proxy', 1) // Cloudflare is the first hop in prod
@@ -46,5 +47,7 @@ app.get('/sections', (_req, res) => res.json({ ok: true, data: __SECTIONS }))
 app.use('/workspaces', domainsRouter)
 app.use('/workspaces', menusRouter)
 app.use('/account', accountRouter)
+// Public newsletter subscribe — published sites POST here cross-origin.
+app.use('/newsletter', cors({ origin: true }), newsletterRouter)
 
 app.listen(PORT, () => console.log(`[uwebsites-api] listening on :${PORT}`))

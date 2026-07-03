@@ -932,8 +932,7 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
       const sidebar = (Array.isArray(p.sidebar) ? p.sidebar : []).map((c: any) => {
         if (c?.kind === 'toc') return ''  // TOC moved inline — ignore legacy toc cards
         if (c?.kind === 'newsletter') {
-          const action = c.action || '#'
-          return `<aside class="ab-card ab-card-news"><h4>${esc(c.title || 'Newsletter')}</h4>${c.text ? `<p>${esc(c.text)}</p>` : ''}<form class="ab-news-form" action="${esc(action)}" method="post"><input type="email" name="email" placeholder="${esc(c.placeholder || 'you@email.com')}" required aria-label="Email"><button type="submit" class="btn">${esc(c.cta_label || 'Subscribe')}</button></form></aside>`
+          return `<aside class="ab-card ab-card-news"><h4>${esc(c.title || 'Newsletter')}</h4>${c.text ? `<p>${esc(c.text)}</p>` : ''}<form class="ab-news-form uw-newsletter"><input type="email" name="email" placeholder="${esc(c.placeholder || 'you@email.com')}" required aria-label="Email"><button type="submit" class="btn">${esc(c.cta_label || 'Subscribe')}</button></form><p class="nl-msg" hidden></p></aside>`
         }
         if (c?.kind === 'related') return `<aside class="ab-card ab-card-related"><h4>${esc(c.title || 'Related')}</h4><ul>${(Array.isArray(c.items) ? c.items : []).map((it: any) => `<li><a href="${esc(it.href || '#')}">${esc(it.label || '')}</a></li>`).join('')}</ul></aside>`
         // generic / cta / author card

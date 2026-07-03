@@ -5,17 +5,31 @@ import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
 type CF = { connected: boolean; verified: boolean; tokenHint: string | null; verifiedAt: string | null }
+type MJ = { connected: boolean; tokenHint: string | null; listId: string | null; verifiedAt: string | null }
 
 export default function IntegrationsPage() {
   const router = useRouter()
   const [cf, setCf] = useState<CF | null>(null)
+  const [mj, setMj] = useState<MJ | null>(null)
   const [token, setToken] = useState('')
+  const [mjKey, setMjKey] = useState(''); const [mjSecret, setMjSecret] = useState(''); const [mjList, setMjList] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [note, setNote] = useState('')
 
-  function load() { return api<{ cloudflare: CF }>('/account/integrations').then((d) => setCf(d.cloudflare)) }
+  function load() { return api<{ cloudflare: CF; mailjet: MJ }>('/account/integrations').then((d) => { setCf(d.cloudflare); setMj(d.mailjet) }) }
   useEffect(() => { load().catch(() => router.push('/login')) }, [])
+
+  async function connectMj() {
+    if (!mjKey.trim() || !mjSecret.trim()) return
+    setErr(''); setNote(''); setBusy(true)
+    try { await api('/account/integrations/mailjet', { method: 'PUT', body: JSON.stringify({ apiKey: mjKey.trim(), apiSecret: mjSecret.trim(), listId: mjList.trim() }) }); setMjKey(''); setMjSecret(''); setMjList(''); setNote('Mailjet connected ✓'); await load() }
+    catch (e: any) { setErr(e.message || 'Could not connect Mailjet') } finally { setBusy(false) }
+  }
+  async function disconnectMj() {
+    if (!window.confirm('Disconnect Mailjet? Newsletter signups will stop being sent to it.')) return
+    setBusy(true); try { await api('/account/integrations/mailjet', { method: 'DELETE' }); await load() } finally { setBusy(false) }
+  }
 
   async function connect() {
     if (!token.trim()) return
@@ -63,9 +77,37 @@ export default function IntegrationsPage() {
             <button className="btn btn-primary" onClick={connect} disabled={busy || !token.trim()}>{busy ? 'Connecting…' : 'Connect Cloudflare'}</button>
           </>
         )}
-        {note && <div className="banner-ok" style={{ marginTop: 12 }}>{note}</div>}
-        {err && <div className="err" style={{ marginTop: 12 }}>{err}</div>}
       </div>
+
+      <div className="ctl-group card" style={{ maxWidth: 640, marginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: '#FEAB00', color: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>MJ</div>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ margin: 0 }}>Mailjet</h3>
+            <p className="muted" style={{ fontSize: 12, margin: 0 }}>Collect newsletter signups from your published sites.</p>
+          </div>
+          {mj?.connected && <span className="status-pill live">Connected</span>}
+        </div>
+        {mj?.connected ? (
+          <>
+            <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>Key {mj.tokenHint}{mj.listId ? ` · list ${mj.listId}` : ''}. Newsletter forms in your footers &amp; articles now send to Mailjet.</p>
+            <button className="btn btn-secondary" onClick={disconnectMj} disabled={busy}>Disconnect</button>
+          </>
+        ) : (
+          <>
+            <div className="field" style={{ display: 'flex', gap: 8 }}>
+              <div style={{ flex: 1 }}><label>API key</label><input className="inp" value={mjKey} onChange={(e) => setMjKey(e.target.value)} placeholder="Mailjet API key" /></div>
+              <div style={{ flex: 1 }}><label>Secret key</label><input className="inp" type="password" value={mjSecret} onChange={(e) => setMjSecret(e.target.value)} placeholder="Secret key" /></div>
+            </div>
+            <div className="field"><label>Contact list ID <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label><input className="inp" value={mjList} onChange={(e) => setMjList(e.target.value)} placeholder="e.g. 10001234" /></div>
+            <p className="muted" style={{ fontSize: 11, marginBottom: 12 }}>Find these in <b>Mailjet → Account settings → REST API / API Key Management</b>. The list ID (optional) adds each subscriber to that list.</p>
+            <button className="btn btn-primary" onClick={connectMj} disabled={busy || !mjKey.trim() || !mjSecret.trim()}>{busy ? 'Connecting…' : 'Connect Mailjet'}</button>
+          </>
+        )}
+      </div>
+
+      {note && <div className="banner-ok" style={{ marginTop: 12, maxWidth: 640 }}>{note}</div>}
+      {err && <div className="err" style={{ marginTop: 12, maxWidth: 640 }}>{err}</div>}
     </AppShell>
   )
 }
