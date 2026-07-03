@@ -86,9 +86,14 @@ section + section{padding-top:0}
 .site-header .brand,.site-header .nav .nav-link,.site-header .caret{color:var(--text)}
 main > section:first-child{padding-top:calc(var(--pad) + 76px)}
 
-/* glass — barely-there frost so the hero shows through and the bar reads as
-   PART of the hero, not a white pill. Just blur + a hairline, no solid fill. */
-.site-header.style-glass .container{background:color-mix(in srgb, var(--surface) 22%, transparent);backdrop-filter:saturate(1.3) blur(12px);-webkit-backdrop-filter:saturate(1.3) blur(12px);border:1px solid color-mix(in srgb, var(--text) 6%, transparent);box-shadow:none}
+/* glass — scroll-aware: at the top it's fully TRANSPARENT so the menu is part
+   of the hero (no white bar); once scrolled it becomes a frosted bar so the nav
+   stays legible over page content. Toggled by HEADER_SCRIPT (.scrolled). */
+.site-header.style-glass .container{background:transparent;border:1px solid transparent;box-shadow:none}
+.site-header.style-glass.scrolled .container{background:color-mix(in srgb, var(--surface) 80%, transparent);backdrop-filter:saturate(1.3) blur(14px);-webkit-backdrop-filter:saturate(1.3) blur(14px);border-color:color-mix(in srgb, var(--text) 8%, transparent);box-shadow:0 8px 30px -14px rgba(20,10,40,.16)}
+/* solid gets a shadow only once scrolled too */
+.site-header.style-solid .container{box-shadow:none}
+.site-header.style-solid.scrolled .container{box-shadow:0 8px 30px -14px rgba(20,10,40,.16)}
 /* solid — opaque surface bar */
 .site-header.style-solid .container{background:var(--surface);border:1px solid color-mix(in srgb, var(--text) 8%, transparent);box-shadow:0 8px 30px -14px rgba(20,10,40,.16)}
 /* minimal — no bar, brand + nav sit directly on the hero */
@@ -209,6 +214,9 @@ export function renderHeader(ws: any, base: string, header: MenuTree | undefined
 // screens the first tap on a dropdown trigger opens the panel instead of
 // navigating; desktop uses pure CSS :hover / :focus-within (no JS needed).
 export const HEADER_SCRIPT = `<script>(function(){
+  // Scroll state — transparent header at the top, frosted bar once scrolled.
+  var hdr=document.querySelector('.site-header');
+  if(hdr){var onScroll=function(){hdr.classList.toggle('scrolled', window.scrollY>16);};onScroll();window.addEventListener('scroll',onScroll,{passive:true});}
   var mq=window.matchMedia('(max-width:900px)');
   var triggers=document.querySelectorAll('.site-header .nav-item.has-children > .nav-trigger');
   triggers.forEach(function(t){
