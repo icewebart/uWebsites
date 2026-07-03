@@ -8,6 +8,17 @@ import { MenuTreeEditor, type Tree } from '@/components/MenuTreeEditor'
 type PageStub = { id: string; type: string; title: string }
 type PagesResp = { pages: PageStub[] }
 
+// Tiny CSS mocks for each footer layout preset.
+const bar = (w: string, c = '#c9cfd6', h = 4) => <span style={{ display: 'block', width: w, height: h, background: c, borderRadius: 2 }} />
+const col = () => <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>{bar('70%')}{bar('90%', '#dfe3e8')}{bar('80%', '#dfe3e8')}</span>
+const FOOTER_STYLES: { id: string; name: string; desc: string; mock: React.ReactNode }[] = [
+  { id: 'columns', name: 'Columns', desc: 'Brand + link columns + newsletter', mock: <span style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr', gap: 6, width: '100%' }}>{col()}{col()}{col()}</span> },
+  { id: 'mega', name: 'Mega', desc: 'Wider — 4 columns + newsletter', mock: <span style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr 1fr', gap: 4, width: '100%' }}>{col()}{col()}{col()}{col()}</span> },
+  { id: 'simple', name: 'Simple', desc: 'Centered logo + one row of links', mock: <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, width: '100%' }}>{bar('40%', '#9aa2ab', 6)}<span style={{ display: 'flex', gap: 8 }}>{bar('30px')}{bar('30px')}{bar('30px')}</span></span> },
+  { id: 'minimal', name: 'Minimal', desc: 'One line: logo + links', mock: <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>{bar('26%', '#9aa2ab', 6)}<span style={{ display: 'flex', gap: 6 }}>{bar('24px')}{bar('24px')}{bar('24px')}</span></span> },
+  { id: 'cta', name: 'CTA band', desc: 'Big call-to-action on top', mock: <span style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}><span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>{bar('45%', '#9aa2ab', 6)}<span style={{ width: 34, height: 12, background: 'var(--forest)', borderRadius: 6 }} /></span>{bar('100%', '#e6e9ec', 1)}<span style={{ display: 'flex', gap: 6 }}>{bar('24px')}{bar('24px')}</span></span> },
+]
+
 export default function FooterPage() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
@@ -30,7 +41,7 @@ export default function FooterPage() {
       api<PagesResp>(`/workspaces/${slug}/pages`),
     ])
       .then(([m, p]) => {
-        setFooter({ items: m.footer.items || [] })
+        setFooter({ ...(m.footer as any), items: m.footer.items || [] })
         const list = p.pages || []
         setPages(list)
         const home = list.find((x) => x.type === 'home') || list[0]
@@ -49,7 +60,7 @@ export default function FooterPage() {
         method: 'POST', body: JSON.stringify({ slug, pageId: extractPageId }),
       })
       const m = await api<{ footer: Tree }>(`/workspaces/${slug}/menus`)
-      setFooter({ items: m.footer.items || [] })
+      setFooter((f) => ({ ...(f as any), ...(m.footer as any), items: m.footer.items || [] }))
       setPreviewKey((k) => k + 1)
       setNote(`Extracted ${r.footerLinks} link(s) from ${r.removedSections} section(s) on that page.`)
     } catch (e: any) { setErr(e.message || 'Extract failed') } finally { setExtracting(false) }
@@ -61,7 +72,7 @@ export default function FooterPage() {
       const r = await api<{ items: Tree['items'] }>(`/ai/generate-nav`, {
         method: 'POST', body: JSON.stringify({ slug, location: 'footer' }),
       })
-      setFooter({ items: r.items || [] })
+      setFooter((f) => ({ ...(f as any), items: r.items || [] }))
       setNote('AI suggestion loaded — review and click Save when ready.')
     } catch (e: any) { setErr(e.message || 'AI generation failed') } finally { setGenerating(false) }
   }
@@ -79,8 +90,34 @@ export default function FooterPage() {
 
   return (
     <AppShell title="Footer" currentSlug={slug} active="Footer">
-      <div className="dash-sub" style={{ marginBottom: 22 }}>
-        Edit the footer links that appear on every published page. These are usually About, Contact, Legal, Resources, and category landing pages.
+      <div className="dash-sub" style={{ marginBottom: 16 }}>
+        The footer on every published page. Pick a layout, edit the links, and (for Columns/Mega) toggle the newsletter.
+      </div>
+
+      <div className="dash-h" style={{ marginTop: 0 }}>Footer design</div>
+      <div className="footer-style-grid">
+        {FOOTER_STYLES.map((s) => {
+          const cur = (footer as any).style || 'columns'
+          return (
+            <button key={s.id} className={`fstyle-card${cur === s.id ? ' on' : ''}`} onClick={() => setFooter((f) => ({ ...f, style: s.id } as any))}>
+              <div className="fstyle-mock">{s.mock}</div>
+              <b>{s.name}</b><span>{s.desc}</span>
+            </button>
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', margin: '12px 0 22px' }}>
+        {['columns', 'mega'].includes((footer as any).style || 'columns') && (
+          <label className="muted" style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+            <input type="checkbox" checked={(footer as any).newsletter !== false} onChange={(e) => setFooter((f) => ({ ...f, newsletter: e.target.checked } as any))} style={{ width: 'auto' }} /> Show newsletter signup
+          </label>
+        )}
+        {(footer as any).style === 'cta' && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input className="inp" style={{ maxWidth: 180 }} placeholder="CTA button label" value={(footer as any).cta?.label || ''} onChange={(e) => setFooter((f) => ({ ...f, cta: { ...(f as any).cta, label: e.target.value } } as any))} />
+            <input className="inp" style={{ maxWidth: 180 }} placeholder="CTA link (/contact/)" value={(footer as any).cta?.href || ''} onChange={(e) => setFooter((f) => ({ ...f, cta: { ...(f as any).cta, href: e.target.value } } as any))} />
+          </div>
+        )}
       </div>
 
       <div className="ev-actions-row">

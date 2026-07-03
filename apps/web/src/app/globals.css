@@ -435,6 +435,13 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 @media(max-width:760px){.bb-scale{grid-template-columns:repeat(3,1fr)}.bb-type-cards{grid-template-columns:1fr}.bb-neutrals{grid-template-columns:1fr}.bb-cols-2,.bb-form-demo{grid-template-columns:1fr}.bb-sec,.bb-hero{padding:26px 20px}}
 
 /* vibe presets — one-click design system */
+.footer-style-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:4px}
+.fstyle-card{text-align:left;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:12px;cursor:pointer;font-family:inherit;transition:.12s;display:flex;flex-direction:column;gap:4px}
+.fstyle-card:hover{border-color:var(--border-strong)}
+.fstyle-card.on{border-color:var(--forest);box-shadow:0 0 0 1px var(--forest)}
+.fstyle-mock{background:var(--bg-subtle);border-radius:6px;padding:12px 10px;margin-bottom:6px;min-height:52px;display:flex;align-items:center}
+.fstyle-card b{font-size:13px}
+.fstyle-card span{font-size:11px;color:var(--text-muted);line-height:1.35}
 .vibe-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
 .vibe-card{text-align:left;background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r-md);padding:16px 16px 14px;cursor:pointer;transition:border-color .15s,box-shadow .15s,transform .12s}
 .vibe-card:hover{border-color:color-mix(in srgb,var(--forest) 45%,var(--border));transform:translateY(-2px)}

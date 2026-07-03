@@ -144,8 +144,27 @@ main > section.uw-raw:first-child{padding-top:0}
 /* Kids.ro-style dark footer — rounded top, three-column info + brand block,
    cream text on the workspace's footer-bg (defaults to --text). */
 .site-footer{background:var(--footer-bg);color:var(--footer-fg);margin-top:0;padding:64px 0 32px;position:relative}
-.site-footer .container{display:grid;grid-template-columns:1.4fr 1fr 1fr 1.4fr;gap:40px;align-items:start}
+.site-footer.ft-columns .container,.site-footer.ft-mega .container{display:grid;grid-template-columns:1.4fr 1fr 1fr 1.4fr;gap:40px;align-items:start}
+.site-footer.ft-mega .container{grid-template-columns:1.6fr repeat(4,1fr) 1.4fr;gap:36px}
 .site-footer .brand-col{display:flex;flex-direction:column;gap:16px}
+/* --- simple: centered stack --- */
+.site-footer.ft-simple .container{text-align:center}
+.site-footer.ft-simple .ft-center{display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:22px}
+.site-footer.ft-simple .ft-tag{opacity:.72;font-size:14px;max-width:46ch;margin:0 auto}
+.site-footer .ft-links{display:flex;flex-wrap:wrap;gap:8px 26px;justify-content:center}
+.site-footer .ft-links a{color:var(--footer-fg);opacity:.8;font-size:14px;text-decoration:none;padding:4px 0}
+.site-footer .ft-links a:hover{opacity:1;text-decoration:underline}
+/* --- minimal: one row --- */
+.site-footer.ft-minimal{padding:36px 0 24px}
+.site-footer.ft-minimal .ft-row{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.site-footer.ft-minimal .ft-links{justify-content:flex-end}
+/* --- cta: band on top --- */
+.site-footer.ft-cta .ft-cta-band{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;padding:0 0 28px;margin-bottom:28px;border-bottom:1px solid rgba(255,255,255,.14)}
+.site-footer.ft-cta .ft-cta-band h3{font-size:clamp(1.4rem,3vw,1.9rem);margin:0;color:var(--footer-fg)}
+.site-footer.ft-cta .ft-row{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.site-footer.ft-cta .ft-links{justify-content:flex-end}
+.site-footer .nl-msg{font-size:13px;margin-top:8px;opacity:.85}
+@media(max-width:760px){.site-footer.ft-minimal .ft-row,.site-footer.ft-cta .ft-row{flex-direction:column;align-items:flex-start}.site-footer .ft-links{justify-content:flex-start!important}}
 .site-footer .brand-col .brand{font-family:'${t.font.heading}',sans-serif;font-weight:800;font-size:22px;color:var(--footer-fg);display:flex;align-items:center;gap:10px}
 .site-footer .brand-col .brand img{height:44px;width:auto}
 .site-footer .brand-col .brand img.foot-logo-invert{filter:brightness(0) invert(1)}
@@ -196,7 +215,7 @@ main > section.uw-raw:first-child{padding-top:0}
   main > section:first-child{padding-top:calc(var(--pad) + 90px)}
   main > section.uw-raw:first-child{padding-top:0}
   /* Footer stacks nicely */
-  .site-footer .container{grid-template-columns:1fr 1fr;gap:24px;padding:0 18px}
+  .site-footer.ft-columns .container,.site-footer.ft-mega .container{grid-template-columns:1fr 1fr;gap:24px;padding:0 18px}
   .site-footer{padding:48px 0 24px}
 }
 @media(max-width:560px){
@@ -204,7 +223,7 @@ main > section.uw-raw:first-child{padding-top:0}
   .hero h1{font-size:clamp(1.5rem, 9vw, 1.95rem);max-width:24ch}
   .hero .sub,.hero-image .sub,.hero-blob .sub{font-size:.98rem}
   .btn{padding:11px 20px;font-size:.95rem}
-  .site-footer .container{grid-template-columns:1fr}
+  .site-footer.ft-columns .container,.site-footer.ft-mega .container{grid-template-columns:1fr}
   .cta-banner .box{padding:36px 20px;border-radius:24px}
 }
 ${SECTION_CSS}`
@@ -384,34 +403,50 @@ export const HEADER_SCRIPT = `<script>(function(){
 // half 'Companie'. Legal-looking items (Termeni / Privacy / GDPR / Confidențialitate)
 // get hoisted to the bottom bar. This keeps the flat items[] data shape while
 // giving the render the multi-column structure the Kids.ro system uses.
-export function renderFooter(ws: any, footer: MenuTree | undefined, tagline?: string | null, logoUrl?: string | null, opts?: { invert?: boolean }): string {
+export const FOOTER_STYLES = ['columns', 'mega', 'simple', 'minimal', 'cta'] as const
+export function renderFooter(ws: any, footer: any, tagline?: string | null, logoUrl?: string | null, opts?: { invert?: boolean }): string {
+  const style = (FOOTER_STYLES as readonly string[]).includes(footer?.style) ? footer.style : 'columns'
+  const wantNl = footer?.newsletter !== false && (style === 'columns' || style === 'mega')
   const linkFor = (i: MenuItem) => `<a href="${esc(i.href)}">${esc(i.label)}</a>`
-  const brandLogo = logoUrl
-    ? `<div class="brand"><img${opts?.invert ? ' class="foot-logo-invert"' : ''} src="${esc(logoUrl)}" alt="${esc(ws.name)}"></div>`
-    : `<div class="brand">${esc(ws.name)}</div>`
+  const logoImg = logoUrl ? `<img${opts?.invert ? ' class="foot-logo-invert"' : ''} src="${esc(logoUrl)}" alt="${esc(ws.name)}">` : esc(ws.name)
+  const brandLogo = `<div class="brand">${logoImg}</div>`
   const brand = `<div class="brand-col">${brandLogo}${tagline ? `<p>${esc(tagline)}</p>` : ''}</div>`
-  const nl = `<div class="col newsletter"><h4>Newsletter</h4><form onsubmit="event.preventDefault();alert('Îți mulțumim! (formularul de newsletter va fi conectat în curând)')"><input type="email" placeholder="emailul tău" aria-label="Email"><button type="submit">OK</button></form></div>`
-  const bottomBar = (extra: string) => `<div class="bottom"><div>© ${new Date().getFullYear()} ${esc(ws.name)}</div><div>${extra || 'built with uWebsites'}</div></div>`
+  const nl = wantNl ? `<div class="col newsletter"><h4>Newsletter</h4><form class="uw-newsletter" data-ws="${esc(ws.slug || '')}"><input type="email" name="email" placeholder="your@email.com" aria-label="Email" required><button type="submit">Subscribe</button></form><p class="nl-msg" hidden></p></div>` : ''
+  const year = new Date().getFullYear()
 
-  const all = footer?.items || []
-  // Preferred: the footer menu carries COLUMN GROUPS (top-level item = column
-  // title, its children = links) — mirrors the imported/design-kit footer and
-  // is editable in the footer editor. Render each group as a column.
-  const groups = all.filter((i) => i.children && i.children.length)
-  if (groups.length) {
-    const colsHtml = groups.slice(0, 3).map((g) => `<div class="col"><h4>${esc(g.label)}</h4>${g.children!.slice(0, 8).map((c) => `<a href="${esc(c.href || '#')}">${esc(c.label)}</a>`).join('')}</div>`).join('')
-    return `<footer class="site-footer"><div class="container">${brand}${colsHtml}${nl}${bottomBar('')}</div></footer>`
-  }
-
-  // Fallback: split a flat footer menu into two columns + hoist legal links.
+  const all: MenuItem[] = footer?.items || []
   const legalRe = /(termen|privacy|gdpr|confiden|politica|cookie|legal)/i
   const bottomItems = all.filter((i) => legalRe.test(i.label))
   const mainItems = all.filter((i) => !legalRe.test(i.label))
-  const mid = Math.ceil(mainItems.length / 2)
-  const colHtml = (title: string, items: MenuItem[]) => items.length
-    ? `<div class="col"><h4>${esc(title)}</h4>${items.map(linkFor).join('')}</div>`
-    : '<div class="col"></div>'
-  return `<footer class="site-footer"><div class="container">${brand}${colHtml('Programe', mainItems.slice(0, mid))}${colHtml('Companie', mainItems.slice(mid))}${nl}${bottomBar(bottomItems.map(linkFor).join(' · '))}</div></footer>`
+  const bottomBar = (extra: string) => `<div class="bottom"><div>© ${year} ${esc(ws.name)}</div><div>${extra || ''}</div></div>`
+
+  // Columns: either explicit groups (item w/ children) or a flat list split in two.
+  const groups = all.filter((i) => i.children && i.children.length)
+  const columnsHtml = (max: number) => {
+    if (groups.length) return groups.slice(0, max).map((g) => `<div class="col"><h4>${esc(g.label)}</h4>${g.children!.slice(0, 8).map((c) => `<a href="${esc(c.href || '#')}">${esc(c.label)}</a>`).join('')}</div>`).join('')
+    const mid = Math.ceil(mainItems.length / 2)
+    const col = (title: string, items: MenuItem[]) => items.length ? `<div class="col"><h4>${esc(title)}</h4>${items.map(linkFor).join('')}</div>` : ''
+    return col('Site', mainItems.slice(0, mid)) + col('More', mainItems.slice(mid))
+  }
+  // Flat links (top-level + children) for the compact layouts.
+  const flat: MenuItem[] = []; for (const i of all) { flat.push(i); if (i.children) for (const c of i.children) flat.push(c) }
+  const flatLinks = flat.slice(0, 12).map(linkFor).join('')
+
+  switch (style) {
+    case 'simple':
+      return `<footer class="site-footer ft-simple"><div class="container"><div class="ft-center">${brandLogo}${tagline ? `<p class="ft-tag">${esc(tagline)}</p>` : ''}</div><nav class="ft-links">${flatLinks}</nav>${bottomBar(bottomItems.map(linkFor).join(' · '))}</div></footer>`
+    case 'minimal':
+      return `<footer class="site-footer ft-minimal"><div class="container"><div class="ft-row">${brandLogo}<nav class="ft-links">${flatLinks}</nav></div><div class="bottom"><div>© ${year} ${esc(ws.name)}</div><div>${bottomItems.map(linkFor).join(' · ')}</div></div></div></footer>`
+    case 'cta': {
+      const ctaLabel = footer?.cta?.label, ctaHref = footer?.cta?.href || '#'
+      const band = ctaLabel ? `<div class="ft-cta-band"><h3>${esc(tagline || 'Ready to get started?')}</h3><a class="btn" href="${esc(ctaHref)}">${esc(ctaLabel)}</a></div>` : ''
+      return `<footer class="site-footer ft-cta"><div class="container">${band}<div class="ft-row">${brandLogo}<nav class="ft-links">${flatLinks}</nav></div>${bottomBar(bottomItems.map(linkFor).join(' · '))}</div></footer>`
+    }
+    case 'mega':
+      return `<footer class="site-footer ft-mega"><div class="container">${brand}${columnsHtml(4)}${nl}${bottomBar(bottomItems.map(linkFor).join(' · '))}</div></footer>`
+    default: // columns
+      return `<footer class="site-footer ft-columns"><div class="container">${brand}${columnsHtml(3)}${nl}${bottomBar(bottomItems.map(linkFor).join(' · '))}</div></footer>`
+  }
 }
 
 // Lightweight scroll-reveal motion (no library — an IntersectionObserver + CSS

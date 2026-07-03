@@ -4,7 +4,7 @@ import { db, workspaces, menus, pages, brandingTokens } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { analyzeBranding, richBranding, articleBlocksFromImport } from './import.js'
 import { saveImageBytes } from '../lib/image-host.js'
-import { renderHeader, renderFooter, fontsHead, siteCss, DEFAULT_TOKENS, HEADER_SCRIPT } from './publish.js'
+import { renderHeader, renderFooter, fontsHead, siteCss, DEFAULT_TOKENS, HEADER_SCRIPT, FOOTER_STYLES } from './publish.js'
 
 // Workspace-level menus — header + footer — applied to every published page.
 // The data shape kept flat for v1: tree = { items: [{label, href}], cta? }.
@@ -72,7 +72,7 @@ menusRouter.get('/:slug/menus/preview', requireAuth, async (req: AuthRequest, re
   const scrollScript = `<script>(function(){if(location.hash==='#footer'){var el=document.getElementById('footer');if(el)el.scrollIntoView({block:'start'})}})()</script>`
   const fWhite = t?.brand_assets?.logo_white?.url || null
   const fLogo = fWhite || t?.brand_assets?.logo?.url || null
-  const footerHtml = renderFooter(ws, footer, t?.brand_assets?.tagline, fLogo, { invert: !fWhite && !!t?.brand_assets?.logo?.url }).replace('<footer class="site-footer">', '<footer id="footer" class="site-footer">')
+  const footerHtml = renderFooter(ws, footer, t?.brand_assets?.tagline, fLogo, { invert: !fWhite && !!t?.brand_assets?.logo?.url }).replace('<footer class="site-footer', '<footer id="footer" class="site-footer')
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(ws.name)} — nav preview</title>${fontsHead(t)}<style>${siteCss(t)}body{background:#f3f5f7}main{min-height:240px;background:#fff}</style></head><body>
 ${renderHeader(ws, base, header, logo)}
 <main>${placeholder}</main>
@@ -94,7 +94,7 @@ menusRouter.get('/:slug/menus', requireAuth, async (req: AuthRequest, res) => {
 
 // Sanitiser — keep items minimal {label, href, children?}, drop empties, cap
 // counts. One level of children is preserved (dropdown / mega-menu groups).
-function clean(tree: any, maxItems: number): MenuTree {
+function clean(tree: any, maxItems: number, validStyles: readonly string[] = HEADER_STYLES): any {
   if (!tree || typeof tree !== 'object') return { items: [] }
   const cleanChildren = (kids: any): MenuItem[] | undefined => {
     if (!Array.isArray(kids)) return undefined
@@ -118,8 +118,9 @@ function clean(tree: any, maxItems: number): MenuTree {
   const cta = tree.cta?.label
     ? { label: String(tree.cta.label).trim().slice(0, 40), href: String(tree.cta.href || '').trim().slice(0, 500) }
     : null
-  const style = HEADER_STYLES.includes(tree.style) ? tree.style as HeaderStyle : undefined
-  return { items, cta, ...(style ? { style } : {}) }
+  const style = validStyles.includes(tree.style) ? tree.style : undefined
+  const newsletter = typeof tree.newsletter === 'boolean' ? tree.newsletter : undefined
+  return { items, cta, ...(style ? { style } : {}), ...(newsletter !== undefined ? { newsletter } : {}) }
 }
 
 // POST /workspaces/:slug/menus/refresh — re-fetch the source site (using the

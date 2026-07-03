@@ -587,8 +587,9 @@ main > section.article-hero:first-child{padding-top:120px}
 .article-hero.ah-cover{color:#fff;background-size:cover;background-position:center;display:flex;align-items:flex-end;min-height:min(72vh,620px);padding:0}
 main > section.article-hero.ah-cover:first-child{padding-top:0}
 .article-hero.ah-cover .container{padding-top:140px;padding-bottom:52px}
-.article-hero.ah-cover .ah-inner{max-width:860px;text-align:left}
+.article-hero.ah-cover .ah-inner{max-width:860px;margin:0;text-align:left}
 .article-hero.ah-cover .ah-meta{justify-content:flex-start}
+.article-hero.ah-cover h1,.article-hero.ah-cover .ah-deck,.article-hero.ah-cover .ah-kicker{text-align:left}
 .article-hero.ah-cover h1{color:#fff;max-width:none}
 .article-hero.ah-cover .ah-deck{color:rgba(255,255,255,.9);max-width:60ch}
 .article-hero.ah-cover .ah-meta{color:rgba(255,255,255,.82)}
