@@ -494,6 +494,7 @@ ${renderHeader(ws, base, opts?.header, logo)}
 <main>${body || ''}</main>
 ${renderFooter(ws, opts?.footer, ba.tagline, footerLogo, { invert: !whiteLogo && !!logo })}
 <script>window.__UW_WS=${JSON.stringify(String(ws.slug || ''))};</script>
+${PREVIEW_LINK_SCRIPT}
 ${HEADER_SCRIPT}
 ${NEWSLETTER_SCRIPT}
 ${motionOn ? MOTION_SCRIPT : ''}
@@ -502,6 +503,11 @@ ${motionOn ? MOTION_SCRIPT : ''}
 
 // Newsletter forms (footer + article sidebar) POST to the public subscribe
 // endpoint, which routes to the account's Mailjet integration.
+// On the preview host the site is served under /p/<slug>/, so root-relative
+// internal links (/about/) would resolve to the domain root and 404. This
+// rewrites them to include the /p/<slug>/ base AT RUNTIME. On a real custom
+// domain (no /p/ prefix) it does nothing, so links stay correct there.
+const PREVIEW_LINK_SCRIPT = `<script>(function(){var m=location.pathname.match(/^(\\/p\\/[^\\/]+)/);if(!m)return;var base=m[1];[].forEach.call(document.querySelectorAll('a[href^="/"]'),function(a){var h=a.getAttribute('href');if(h&&h.charAt(1)!=='/'&&h.indexOf('/p/')!==0){a.setAttribute('href',base+h);}});})();</script>`
 const PUBLIC_API_URL = process.env.PUBLIC_API_URL || 'https://api.uwebsites.net'
 const NEWSLETTER_SCRIPT = `<script>(function(){var api='${PUBLIC_API_URL}',ws=window.__UW_WS||'';document.querySelectorAll('.uw-newsletter').forEach(function(f){f.addEventListener('submit',function(e){e.preventDefault();var input=f.querySelector('input[type=email]'),email=input&&input.value.trim();var msg=f.parentNode.querySelector('.nl-msg');function show(t){if(msg){msg.hidden=false;msg.textContent=t;}}if(!email){show('Please enter your email.');return;}if(!ws){show('Thanks!');f.reset();return;}var btn=f.querySelector('button');if(btn)btn.disabled=true;fetch(api+'/newsletter/'+encodeURIComponent(ws),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})}).then(function(r){return r.json()}).then(function(){f.reset();show('Thanks — you are subscribed!');}).catch(function(){show('Something went wrong. Try again.');}).finally(function(){if(btn)btn.disabled=false;});});});})();</script>`
 
@@ -610,8 +616,13 @@ publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) 
   const outDir = path.join(SITES_DIR, ws.slug)
   const base = `${SITES_URL}/${ws.slug}`
   try {
-    await rm(outDir, { recursive: true, force: true })
+    // Rebuild the output but PRESERVE the img/ folder — mirrored images live
+    // there and a full rm would wipe them on every publish (the recurring
+    // "images broke again" bug).
     await mkdir(outDir, { recursive: true })
+    const { readdir } = await import('node:fs/promises')
+    const existing = await readdir(outDir).catch(() => [] as string[])
+    for (const entry of existing) if (entry !== 'img') await rm(path.join(outDir, entry), { recursive: true, force: true })
     const siteMenus = await getMenusFor(ws.id)
     // Article cards for any blog index / post-list on the site.
     const articleCards = pageRows.filter((x) => ARTICLE_LIST_TYPES.has(x.type as string)).map(articleCard)
