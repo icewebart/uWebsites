@@ -193,6 +193,7 @@ aiRouter.post('/generate-image', requireAuth, async (req: AuthRequest, res) => {
 aiRouter.post('/fill-images', requireAuth, async (req: AuthRequest, res) => {
   if (!imageGenEnabled()) return res.status(503).json({ ok: false, error: 'Image generation not configured — set GEMINI_API_KEY on the server.' })
   const { slug, pageId } = req.body ?? {}
+  const mode = ['placeholders', 'featured', 'sections'].includes(req.body?.mode) ? req.body.mode : 'placeholders'
   if (!slug || !pageId) return res.status(400).json({ ok: false, error: 'slug and pageId required' })
   const ws = await ownedWs(String(slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
@@ -211,6 +212,39 @@ aiRouter.post('/fill-images', requireAuth, async (req: AuthRequest, res) => {
     navLabels.length ? `industry/topic inferred from: ${navLabels.join(', ')}` : '',
     vibe ? `${vibe} visual style` : '',
   ].filter(Boolean).join('. ')
+  const blocked = (reason: any) => res.status(reason === 'billing' ? 402 : 429).json({ ok: false, error: reasonMessage(reason) })
+
+  // ── Mode: featured — one hero-quality image → article hero + OG/social image
+  if (mode === 'featured') {
+    const hero = blocks.find((b: any) => b.type === 'article-hero') || blocks.find((b: any) => /hero/.test(b.type))
+    const cap = hero?.props?.heading || page.title || ''
+    const r = await generateImageResult(ws.slug, photoPrompt(cap, `${context}. Wide editorial hero banner, 16:9, room for a title overlay`), `${page.id}:featured`)
+    if (!r.url) return (r.reason === 'billing' || r.reason === 'rate-limit') ? blocked(r.reason) : res.status(502).json({ ok: false, error: 'Could not generate the featured image — try again.' })
+    if (hero) { hero.props.image_url = r.url; if (!hero.props.image_alt) hero.props.image_alt = cap }
+    const seo = { ...((page.seo as any) || {}), ogImage: r.url }
+    await db.update(pages).set({ blocks: blocks as any, seo: seo as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
+    await logAiJob(ws.id, 'image', 'done', { source: 'fill-featured', pageId: page.id }, 2, page.id)
+    return res.json({ ok: true, data: { filled: 1, mode } })
+  }
+
+  // ── Mode: sections — insert one image before each <h2> in the article body
+  if (mode === 'sections') {
+    const body = blocks.find((b: any) => b.type === 'article-body')
+    if (!body || typeof body.props?.html !== 'string') return res.json({ ok: true, data: { filled: 0, message: 'No article body to illustrate.' } })
+    const heads = [...body.props.html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi)].slice(0, 8)
+    if (!heads.length) return res.json({ ok: true, data: { filled: 0, message: 'No H2 headings to illustrate.' } })
+    const gens = await Promise.all(heads.map((m, i) => generateImageResult(ws.slug, photoPrompt(m[1].replace(/<[^>]*>/g, '').trim(), context), `${page.id}:sec:${i}`).then((r) => ({ url: r.url, reason: r.reason }))))
+    if (gens.every((g) => !g.url)) { const b = gens.find((g) => g.reason === 'billing') || gens.find((g) => g.reason === 'rate-limit'); if (b) return blocked(b.reason) }
+    let i = 0, filled = 0
+    body.props.html = body.props.html.replace(/<h2[^>]*>[\s\S]*?<\/h2>/gi, (m: string) => {
+      const g = gens[i++]
+      if (g?.url) { filled++; return `<figure class="ab-fig"><img src="${g.url}" alt="" loading="lazy"></figure>${m}` }
+      return m
+    })
+    await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
+    await logAiJob(ws.id, 'image', 'done', { source: 'fill-sections', pageId: page.id, filled }, filled * 2, page.id)
+    return res.json({ ok: true, data: { filled, mode } })
+  }
 
   const MAX = 8
   type Gap = { caption: string; apply: (url: string) => void }

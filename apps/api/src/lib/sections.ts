@@ -632,6 +632,8 @@ main > section.article-hero.ah-cover:first-child{padding-top:0}
 .article-body .ab-content :where(figure,p) img{margin:0}
 .article-body .ab-content figure{margin:18px 0}
 .article-body .ab-content figure img{width:100%}
+.article-body .ab-content .ab-fig{margin:24px 0 6px}
+.article-body .ab-content .ab-fig img{width:100%;height:auto;border-radius:var(--card-r);aspect-ratio:16/9;object-fit:cover}
 .article-body .ab-content blockquote{border-left:3px solid var(--primary);padding:2px 0 2px 18px;margin:20px 0;font-style:italic;color:color-mix(in srgb, var(--text) 82%, transparent)}
 .article-body .ab-side{position:sticky;top:96px;display:flex;flex-direction:column;gap:14px}
 .article-body .ab-card{background:var(--surface);border:1px solid color-mix(in srgb, var(--text) 8%, transparent);border-radius:var(--card-r);padding:18px}

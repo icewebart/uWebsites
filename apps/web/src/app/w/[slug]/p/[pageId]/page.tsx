@@ -100,12 +100,12 @@ export default function PageEditor() {
   // OLD blocks before the server has saved), we POLL the page until its blocks
   // actually change, then adopt them. This keeps the editor's in-memory copy in
   // sync with the server so a later Save can never clobber the new design.
-  async function runLongEdit(endpoint: string, successLabel: string): Promise<boolean> {
+  async function runLongEdit(endpoint: string, successLabel: string, extraBody?: Record<string, any>): Promise<boolean> {
     setErr(''); pushHistory()
     const beforeSig = JSON.stringify(blocks)
     const isTimeout = (m: string) => /gateway|timeout|network|fetch|504|502|aborted/i.test(m || '')
     let done = false, apiErr: any = null, resp: any = null
-    api(endpoint, { method: 'POST', body: JSON.stringify({ slug, pageId }) })
+    api(endpoint, { method: 'POST', body: JSON.stringify({ slug, pageId, ...(extraBody || {}) }) })
       .then((d) => { resp = d; done = true })
       .catch((e) => { apiErr = e; done = true })
     const started = Date.now()
@@ -148,9 +148,11 @@ export default function PageEditor() {
     } catch (e: any) { setErr(e.message || 'Heal failed') } finally { setHealing(false) }
   }
 
-  async function fillImages() {
-    setFillingImg(true)
-    try { await runLongEdit('/ai/fill-images', 'Images generated ✓ — saved') } finally { setFillingImg(false) }
+  const [imgMenuOpen, setImgMenuOpen] = useState(false)
+  async function fillImages(mode: 'placeholders' | 'featured' | 'sections' = 'placeholders') {
+    setImgMenuOpen(false); setFillingImg(true)
+    const label = mode === 'featured' ? 'Featured + social image ✓' : mode === 'sections' ? 'Section images added ✓' : 'Images generated ✓ — saved'
+    try { await runLongEdit('/ai/fill-images', label, { mode }) } finally { setFillingImg(false) }
   }
 
   async function rewriteRawHtml(idx: number) {
@@ -289,9 +291,18 @@ export default function PageEditor() {
           <a className="btn btn-ghost" href={`${API_URL}/pages/${pageId}/preview`} target="_blank" rel="noreferrer" title="Open in a new tab (without editor UI)">↗ Preview</a>
         </div>
         <div className="eb-right">
-          <button className="btn btn-secondary" onClick={fillImages} disabled={fillingImg} title="Generate photos with AI for every empty image slot on this page">
-            {fillingImg ? 'Generating…' : '✨ Generate images'}
-          </button>
+          <div className="img-gen-wrap" style={{ position: 'relative' }}>
+            <button className="btn btn-secondary" onClick={() => setImgMenuOpen((v) => !v)} disabled={fillingImg} title="Generate images with AI">
+              {fillingImg ? 'Generating…' : '✨ Generate images ▾'}
+            </button>
+            {imgMenuOpen && !fillingImg && (
+              <div className="img-gen-menu" onMouseLeave={() => setImgMenuOpen(false)}>
+                <button onClick={() => fillImages('placeholders')}><b>✨ Fill empty images</b><span>Every blank image slot on the page</span></button>
+                <button onClick={() => fillImages('featured')}><b>🖼 Featured + social image</b><span>Hero photo + OG/social share image</span></button>
+                <button onClick={() => fillImages('sections')}><b>📄 Illustrate sections</b><span>One image before each H2 heading</span></button>
+              </div>
+            )}
+          </div>
           <button className="btn btn-secondary" onClick={polishDesign} disabled={polishing} title="AI design pass — redesigns imported sections, or sharpens the copy on typed pages; keeps your links + images">
             {polishing ? 'Polishing…' : '✦ Polish design'}
           </button>
