@@ -693,6 +693,14 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .aside-block h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin-bottom:10px}
 .aside-block .row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;font-size:13px}
 .aside-block .row + .row{border-top:1px solid var(--border)}
+.pages-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.pages-head h3{margin:0}
+.page-row{gap:8px}
+.page-row .page-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);text-decoration:none}
+.page-row .page-title:hover{color:var(--forest)}
+.page-row .page-del{flex:0 0 auto;width:22px;height:22px;border:0;border-radius:6px;background:transparent;color:var(--text-faint);font-size:12px;cursor:pointer;opacity:0;transition:opacity .12s,background .12s,color .12s}
+.page-row:hover .page-del{opacity:1}
+.page-row .page-del:hover{background:#e5484d;color:#fff}
 
 /* ============ AI chat (port of uOutreach pattern, recoloured) ============ */
 .chat-fab{position:fixed;bottom:18px;right:18px;width:52px;height:52px;border-radius:var(--r-md);background:var(--forest);color:#fff;border:0;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-lg);font-size:22px;z-index:40}

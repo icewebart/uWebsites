@@ -5,6 +5,9 @@ import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 import { MenuTreeEditor, type Tree } from '@/components/MenuTreeEditor'
 
+type PageStub = { id: string; type: string; title: string }
+type PagesResp = { pages: PageStub[] }
+
 export default function FooterPage() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
@@ -17,13 +20,40 @@ export default function FooterPage() {
   const [note, setNote] = useState('')
   const [tab, setTab] = useState<'preview' | 'links'>('preview')
   const [previewKey, setPreviewKey] = useState(0)
+  const [pages, setPages] = useState<PageStub[]>([])
+  const [extractPageId, setExtractPageId] = useState('')
+  const [extracting, setExtracting] = useState(false)
 
   useEffect(() => {
-    api<{ header: Tree; footer: Tree }>(`/workspaces/${slug}/menus`)
-      .then((d) => setFooter({ items: d.footer.items || [] }))
+    Promise.all([
+      api<{ header: Tree; footer: Tree }>(`/workspaces/${slug}/menus`),
+      api<PagesResp>(`/workspaces/${slug}/pages`),
+    ])
+      .then(([m, p]) => {
+        setFooter({ items: m.footer.items || [] })
+        const list = p.pages || []
+        setPages(list)
+        const home = list.find((x) => x.type === 'home') || list[0]
+        if (home) setExtractPageId(home.id)
+      })
       .catch(() => router.push(`/w/${slug}`))
       .finally(() => setLoading(false))
   }, [slug])
+
+  async function extractFromPage() {
+    if (!extractPageId) return
+    if (!window.confirm('Detect the trailing footer sections (newsletter / copyright / footer links) of the selected page, move them into this site footer, and remove those blocks from the page body?')) return
+    setErr(''); setNote(''); setExtracting(true)
+    try {
+      const r = await api<{ removedSections: number; footerLinks: number }>('/ai/extract-footer', {
+        method: 'POST', body: JSON.stringify({ slug, pageId: extractPageId }),
+      })
+      const m = await api<{ footer: Tree }>(`/workspaces/${slug}/menus`)
+      setFooter({ items: m.footer.items || [] })
+      setPreviewKey((k) => k + 1)
+      setNote(`Extracted ${r.footerLinks} link(s) from ${r.removedSections} section(s) on that page.`)
+    } catch (e: any) { setErr(e.message || 'Extract failed') } finally { setExtracting(false) }
+  }
 
   async function generateWithAi() {
     setErr(''); setNote(''); setGenerating(true)
@@ -58,9 +88,21 @@ export default function FooterPage() {
           <button className={tab === 'preview' ? 'on' : ''} onClick={() => setTab('preview')}>Preview</button>
           <button className={tab === 'links' ? 'on' : ''} onClick={() => setTab('links')}>Links</button>
         </div>
-        <button className="btn btn-secondary" onClick={generateWithAi} disabled={generating}>
-          {generating ? 'Generating…' : '✦ Generate with AI'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {pages.length > 0 && (
+            <>
+              <select className="inp" style={{ maxWidth: 220 }} value={extractPageId} onChange={(e) => setExtractPageId(e.target.value)} title="Which page to extract the footer from">
+                {pages.map((p) => <option key={p.id} value={p.id}>{p.title || '(untitled)'} · {p.type}</option>)}
+              </select>
+              <button className="btn btn-secondary" onClick={extractFromPage} disabled={extracting || !extractPageId} title="Sniff out the trailing footer sections of the selected page and move them here">
+                {extracting ? 'Extracting…' : '⇩ Extract footer from page'}
+              </button>
+            </>
+          )}
+          <button className="btn btn-secondary" onClick={generateWithAi} disabled={generating}>
+            {generating ? 'Generating…' : '✦ Generate with AI'}
+          </button>
+        </div>
       </div>
       {note && <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>{note}</div>}
 

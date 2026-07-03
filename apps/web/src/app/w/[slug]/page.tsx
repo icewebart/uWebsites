@@ -69,6 +69,58 @@ export default function WorkspaceHome() {
       .finally(() => setLoading(false))
   }, [slug])
 
+  async function addPagePrompt() {
+    const title = window.prompt('New page title (e.g. "About us", "Contact"):', '')
+    if (!title || !title.trim()) return
+    // Offer a template — pick from ones the API returns; blank if declined.
+    let template = ''
+    try {
+      const tpls = await api<Array<{ key: string; label: string }>>('/pages/templates')
+      if (tpls.length) {
+        const list = tpls.map((t, i) => `${i + 1}. ${t.label}`).join('\n')
+        const pick = window.prompt(`Choose a template (or leave blank for an empty page):\n\n${list}\n\nEnter a number, or press Cancel/leave blank to skip:`, '1')
+        const n = parseInt(String(pick), 10)
+        if (Number.isFinite(n) && n >= 1 && n <= tpls.length) template = tpls[n - 1].key
+      }
+    } catch { /* templates optional */ }
+    try {
+      const r = await api<{ id: string }>('/pages', { method: 'POST', body: JSON.stringify({ slug, title: title.trim(), type: 'article', template: template || undefined }) })
+      router.push(`/w/${slug}/p/${r.id}`)
+    } catch (e: any) { alert(e.message || 'Could not create page') }
+  }
+
+  async function deletePage(p: Page) {
+    if (!window.confirm(`Delete "${p.title || p.slug}"? This cannot be undone.`)) return
+    try {
+      await api(`/pages/${p.id}`, { method: 'DELETE' })
+      setData((d) => d ? { ...d, pages: d.pages.filter((x) => x.id !== p.id) } : d)
+    } catch (e: any) { alert(e.message || 'Could not delete page') }
+  }
+
+  const [polishingAll, setPolishingAll] = useState(false)
+  const [verifying, setVerifying] = useState(false)
+  async function verifyLinks() {
+    setVerifying(true)
+    try {
+      const r = await api<{ totalFixed: number; pages: Array<{ title: string; fixed: number; stillEmpty: number }> }>('/ai/verify-links', { method: 'POST', body: JSON.stringify({ slug }) })
+      const unresolved = r.pages.reduce((s, p) => s + p.stillEmpty, 0)
+      alert(`Fixed ${r.totalFixed} link(s) across ${r.pages.length} page(s).${unresolved ? `\n${unresolved} placeholder link(s) could not be matched — edit them manually or create the target pages.` : ''}`)
+    } catch (e: any) { alert(e.message || 'Verify failed') } finally { setVerifying(false) }
+  }
+  async function polishAllPages() {
+    const pgs = data?.pages || []
+    if (!pgs.length) return
+    if (!window.confirm(`Run the AI design polish on all ${pgs.length} page(s)? This takes ~30–60s per page.`)) return
+    setPolishingAll(true)
+    try {
+      // Fire and poll — the request will likely exceed the proxy timeout, but
+      // the server keeps saving each page as it goes.
+      api('/ai/polish-site', { method: 'POST', body: JSON.stringify({ slug }) }).catch(() => {})
+      // Simple wait — user can reload / navigate to check progress.
+      alert(`Polish started for ${pgs.length} page(s). Each page saves as it finishes; reload in a couple of minutes to see the updated designs.`)
+    } finally { setTimeout(() => setPolishingAll(false), 5000) }
+  }
+
   async function importRest(url: string) {
     if (!window.confirm(`Import remaining pages from ${url}?`)) return
     try {
@@ -159,6 +211,12 @@ export default function WorkspaceHome() {
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <a className="btn btn-ghost" href={`/w/${slug}/p/${home?.id}`}>Edit homepage</a>
+                  <button className="btn btn-secondary" onClick={polishAllPages} disabled={polishingAll} title="Run the AI design polish on every page">
+                    {polishingAll ? 'Polishing…' : '✦ Polish all pages'}
+                  </button>
+                  <button className="btn btn-secondary" onClick={verifyLinks} disabled={verifying} title="Resolve placeholder (#) links to real pages by matching link text ↔ page title">
+                    {verifying ? 'Verifying…' : '🔗 Verify links'}
+                  </button>
                   <button className="btn btn-primary" onClick={publish} disabled={publishing}>{publishing ? 'Publishing…' : 'Publish'}</button>
                 </div>
               </div>
@@ -173,13 +231,19 @@ export default function WorkspaceHome() {
             </div>
           </div>
 
-          {/* aside — pages quick-list */}
+          {/* aside — pages quick-list with add/delete */}
           <div className="aside-block">
-            <h3>Pages ({pages.length})</h3>
+            <div className="pages-head">
+              <h3>Pages ({pages.length})</h3>
+              <button className="btn-mini" onClick={addPagePrompt} title="Create a new page">＋ New page</button>
+            </div>
             {(showAll ? pages : pages.slice(0, 8)).map((p) => (
-              <div className="row" key={p.id}>
-                <a href={`/w/${slug}/p/${p.id}`} style={{ fontWeight: 500 }}>{p.title || '(untitled)'}</a>
+              <div className="row page-row" key={p.id}>
+                <a href={`/w/${slug}/p/${p.id}`} className="page-title" style={{ fontWeight: 500 }}>{p.title || '(untitled)'}</a>
                 <span className="muted" style={{ fontSize: 11 }}>{p.type}</span>
+                {p.type !== 'home' && (
+                  <button className="page-del" title="Delete this page" onClick={() => deletePage(p)}>✕</button>
+                )}
               </div>
             ))}
             {pages.length > 8 && (

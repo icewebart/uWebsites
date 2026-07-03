@@ -390,6 +390,118 @@ aiRouter.post('/critique-page', requireAuth, async (req: AuthRequest, res) => {
   }
 })
 
+// POST /ai/verify-links — walk every page's blocks, find placeholder/dead links
+// (href of "#", empty, or missing) and match them to REAL pages by link-text ↔
+// page title. Fixes CTA cta_href and <a href> inside richtext/raw-html. Returns
+// per-page counts.
+aiRouter.post('/verify-links', requireAuth, async (req: AuthRequest, res) => {
+  const { slug } = req.body ?? {}
+  if (!slug) return res.status(400).json({ ok: false, error: 'slug required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const all = await db.select().from(pages).where(eq(pages.workspaceId, ws.id))
+  // Build a title → url map. Home = "/", others = "/<slug>/". Also stash a
+  // normalized version of the title so the matcher tolerates casing/diacritics.
+  const norm = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+  const index = all.map((p) => ({ id: p.id, title: p.title, type: p.type, slug: p.slug, url: p.type === 'home' ? '/' : `/${p.slug}/`, key: norm(p.title) }))
+  const resolve = (linkText: string): string | null => {
+    const k = norm(linkText)
+    if (!k) return null
+    const exact = index.find((p) => p.key === k)
+    if (exact) return exact.url
+    // partial (e.g. "About us" ↔ "About"), prefer shortest containing title
+    const partials = index.filter((p) => p.key && (k.includes(p.key) || p.key.includes(k))).sort((a, b) => a.key.length - b.key.length)
+    return partials[0]?.url || null
+  }
+  const isPlaceholder = (h: any) => typeof h !== 'string' || !h.trim() || h.trim() === '#' || h.trim().toLowerCase() === 'javascript:void(0)'
+  const perPage: Array<{ pageId: string; title: string; fixed: number; stillEmpty: number }> = []
+  for (const p of all) {
+    const blocks = Array.isArray(p.blocks) ? JSON.parse(JSON.stringify(p.blocks)) : []
+    let fixed = 0, stillEmpty = 0
+    const walkProps = (props: any) => {
+      if (!props || typeof props !== 'object') return
+      // typed section CTAs: cta_href with cta_label
+      if (props.cta_label && isPlaceholder(props.cta_href)) { const u = resolve(props.cta_label); if (u) { props.cta_href = u; fixed++ } else stillEmpty++ }
+      if (props.cta2_label && isPlaceholder(props.cta2_href)) { const u = resolve(props.cta2_label); if (u) { props.cta2_href = u; fixed++ } else stillEmpty++ }
+      // arrays of items
+      for (const key of ['items', 'tiers', 'logos']) if (Array.isArray(props[key])) for (const it of props[key]) walkProps(it)
+      // richtext/raw-html: fix <a href="#">Label</a>
+      if (typeof props.html === 'string') {
+        props.html = props.html.replace(/<a\s+([^>]*?)href=(["'])([^"']*)\2([^>]*)>([\s\S]*?)<\/a>/gi, (m: string, pre: string, q: string, href: string, post: string, txt: string) => {
+          if (!isPlaceholder(href)) return m
+          const clean = txt.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
+          const u = resolve(clean)
+          if (u) { fixed++; return `<a ${pre}href=${q}${u}${q}${post}>${txt}</a>` }
+          stillEmpty++; return m
+        })
+      }
+    }
+    for (const b of blocks) walkProps(b?.props)
+    if (fixed) await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, p.id))
+    perPage.push({ pageId: p.id, title: p.title, fixed, stillEmpty })
+  }
+  await logAiJob(ws.id, 'edit', 'done', { source: 'verify-links', pages: perPage.length }, 0)
+  res.json({ ok: true, data: { pages: perPage, totalFixed: perPage.reduce((s, x) => s + x.fixed, 0) } })
+})
+
+// POST /ai/polish-site — run the design polish on EVERY page in the workspace
+// (each page's raw-html sections get redesigned in parallel, then pages are
+// polished one after another to keep the API load sane). Returns per-page
+// results. Long-running; the client polls after firing.
+aiRouter.post('/polish-site', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured.' })
+  const { slug } = req.body ?? {}
+  if (!slug) return res.status(400).json({ ok: false, error: 'slug required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const rows = await db.select().from(pages).where(eq(pages.workspaceId, ws.id))
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const t: any = tok?.tokens || {}
+  const system = critiqueSystemPrompt(t.color || {}, t.font || {})
+  const tools = [{ name: 'section', description: 'The redesigned section.', input_schema: {
+    type: 'object', properties: { html: { type: 'string' } }, required: ['html'],
+  } as any }]
+  const imgSrcs = (h: string) => [...String(h).matchAll(/<img[^>]+src=["']([^"']+)["']/gi)].map((m) => m[1])
+  const hrefs = (h: string) => [...String(h).matchAll(/<a[^>]+href=["']([^"']+)["']/gi)].map((m) => m[1])
+  const perPage: Array<{ pageId: string; title: string; redesigned: number; keptOriginal: number }> = []
+  // Serial across pages, parallel across sections within a page. Cap 12 pages
+  // per call so we don't blow up on huge sites (still covers most workspaces).
+  for (const page of rows.slice(0, 12)) {
+    const blocks = Array.isArray(page.blocks) ? JSON.parse(JSON.stringify(page.blocks)) : []
+    const targets = blocks
+      .map((b: any, i: number) => ({ b, i }))
+      .filter((x: any) => x.b?.type === 'raw-html' && typeof x.b?.props?.html === 'string' && x.b.props.html.length > 120)
+      .slice(0, 14)
+    if (!targets.length) { perPage.push({ pageId: page.id, title: page.title, redesigned: 0, keptOriginal: 0 }); continue }
+    const results = await Promise.all(targets.map(async ({ b, i }: any) => {
+      const orig = String(b.props.html)
+      const oImgs = imgSrcs(orig), oHrefs = [...new Set(hrefs(orig))]
+      const assets = [
+        oImgs.length ? `You MUST keep every one of these images, each as an <img> with this EXACT src:\n${oImgs.map((s) => `- ${s}`).join('\n')}` : '',
+        oHrefs.length ? `You MUST keep every one of these links, each as an <a> with this EXACT href:\n${oHrefs.map((s) => `- ${s}`).join('\n')}` : '',
+      ].filter(Boolean).join('\n\n')
+      try {
+        const r = await a.messages.create({
+          model: MODEL, max_tokens: 8000, system, tools, tool_choice: { type: 'tool', name: 'section' },
+          messages: [{ role: 'user', content: `Redesign this section.\n\n${assets ? assets + '\n\n' : ''}--- CURRENT SECTION HTML ---\n${orig.slice(0, 24000)}` }],
+        })
+        const tu = r.content.find((x: any) => x.type === 'tool_use') as any
+        const html = tu?.input?.html ? stripPageChrome(tu.input.html) : ''
+        if (html.length < 40) return { i, ok: false }
+        const keepsAll = oImgs.every((s) => html.includes(s)) && oHrefs.every((s) => html.includes(s))
+        return { i, ok: keepsAll, html: keepsAll ? html : null }
+      } catch { return { i, ok: false } }
+    }))
+    let redesigned = 0, kept = 0
+    for (const r of results) { if (r.ok && r.html) { blocks[r.i].props.html = r.html; redesigned++ } else { kept++ } }
+    if (redesigned) await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
+    perPage.push({ pageId: page.id, title: page.title, redesigned, keptOriginal: kept })
+  }
+  await logAiJob(ws.id, 'edit', 'done', { source: 'polish-site', pages: perPage.length }, perPage.reduce((s, p) => s + p.redesigned * 2, 0), null)
+  res.json({ ok: true, data: { pages: perPage } })
+})
+
 // POST /ai/extract-footer — sniff out the trailing footer sections of a page
 // (newsletter / copyright / footer nav, even when split across several raw-html
 // blocks), move their links + tagline into the SITE footer, and remove them

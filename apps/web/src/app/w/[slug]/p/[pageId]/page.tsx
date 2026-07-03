@@ -76,17 +76,6 @@ export default function PageEditor() {
     try { await runLongEdit('/ai/critique-page', 'Design polished ✓ — saved') } finally { setPolishing(false) }
   }
 
-  // Detect the trailing footer sections and move them into the site footer.
-  async function extractFooter() {
-    if (!window.confirm('Move the trailing footer sections (newsletter, copyright, footer links) into the site footer and remove them from this page body?')) return
-    setErr('')
-    try {
-      const r = await api<{ removedSections: number; footerLinks: number }>('/ai/extract-footer', { method: 'POST', body: JSON.stringify({ slug, pageId }) })
-      const p = await api<PageData>(`/pages/${pageId}`)
-      setBlocks(Array.isArray(p.blocks) ? p.blocks : []); setSelected(null); setPreviewKey((k) => k + 1)
-      setSavedAt(`Footer extracted — ${r.removedSections} section(s) → site footer, ${r.footerLinks} links`)
-    } catch (e: any) { setErr(e.message || 'Footer extraction failed') }
-  }
   async function fillImages() {
     setFillingImg(true)
     try { await runLongEdit('/ai/fill-images', 'Images generated ✓ — saved') } finally { setFillingImg(false) }
@@ -233,9 +222,6 @@ export default function PageEditor() {
             <button className="btn btn-secondary" onClick={polishDesign} disabled={polishing} title="AI design pass — redesigns every section, keeping your copy, links and images">
               {polishing ? 'Polishing…' : '✦ Polish design'}
             </button>
-          )}
-          {blocks.filter((b) => b.type === 'raw-html').length >= 3 && (
-            <button className="btn btn-secondary" onClick={extractFooter} title="Detect the trailing footer sections and move them into the site footer">⇩ Extract footer</button>
           )}
           {page?.seo?.import_source && (
             <>
