@@ -31,12 +31,22 @@ async function ownedWs(slug: string, accountId: string) {
   return ws
 }
 
+// An apex domain (example.com) also serves www.example.com. A subdomain
+// (nou.example.com) must NOT — www.nou.example.com has no DNS, so including it
+// makes certbot fail and produces the "Website not found" default page.
+function isApex(hostname: string) {
+  return hostname.split('.').length <= 2
+}
+function serverNames(hostname: string) {
+  return isApex(hostname) ? `${hostname} www.${hostname}` : hostname
+}
+
 function vhostHttp(hostname: string, slug: string) {
   return `# uWebsites custom domain — ${hostname} -> workspace "${slug}"
 server {
     listen 80;
     listen [::]:80;
-    server_name ${hostname} www.${hostname};
+    server_name ${serverNames(hostname)};
     root ${SITES_DIR}/${slug};
     index index.html;
     location / { try_files $uri $uri/index.html =404; }
@@ -58,8 +68,8 @@ async function nginxReload() {
 }
 
 async function issueCert(hostname: string) {
-  const args = ['--nginx', '--non-interactive', '--agree-tos', '--redirect',
-    '-d', hostname, '-d', `www.${hostname}`]
+  const args = ['--nginx', '--non-interactive', '--agree-tos', '--redirect', '-d', hostname]
+  if (isApex(hostname)) args.push('-d', `www.${hostname}`)
   if (CERTBOT_EMAIL) args.push('--email', CERTBOT_EMAIL)
   else args.push('--register-unsafely-without-email')
   await execFile('certbot', args, { timeout: 120_000 })

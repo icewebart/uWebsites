@@ -586,8 +586,10 @@ main > section.article-hero:first-child{padding-top:120px}
 /* Cover (image) + Gradient share the full-bleed overlay layout */
 .article-hero.ah-cover{color:#fff;background-size:cover;background-position:center;display:flex;align-items:flex-end;min-height:min(72vh,620px);padding:0}
 main > section.article-hero.ah-cover:first-child{padding-top:0}
-.article-hero.ah-cover .container{padding-top:140px;padding-bottom:52px}
-.article-hero.ah-cover .ah-inner{max-width:860px;margin:0;text-align:left}
+/* container must fill the page width (else it shrinks to its text inside the
+   flex and centres — that's why the title wasn't left-aligned) */
+.article-hero.ah-cover .container{width:100%;padding-top:140px;padding-bottom:52px}
+.article-hero.ah-cover .ah-inner{max-width:760px;margin:0;text-align:left}
 .article-hero.ah-cover .ah-meta{justify-content:flex-start}
 .article-hero.ah-cover h1,.article-hero.ah-cover .ah-deck,.article-hero.ah-cover .ah-kicker{text-align:left}
 .article-hero.ah-cover h1{color:#fff;max-width:none}
@@ -620,7 +622,6 @@ main > section.article-hero.ah-cover:first-child{padding-top:0}
 .article-body .ab-card-news input:focus{outline:2px solid color-mix(in srgb,var(--primary) 40%,transparent);outline-offset:1px;border-color:var(--primary)}
 .article-body .ab-card-news .btn{width:100%;text-align:center}
 @media(max-width:640px){.article-body .ab-toc-inline ul{columns:1}}
-.article-body > .container{max-width:1060px}
 .article-body .grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:36px;align-items:start}
 .article-body .ab-main{min-width:0}
 .article-body .ab-meta{font-size:.85rem;color:color-mix(in srgb, var(--text) 55%, transparent);text-transform:uppercase;letter-spacing:.05em;margin-bottom:16px}
@@ -903,7 +904,7 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
           // Layered overlay: light wash at the TOP (contrast for the logo/menu),
           // and a stronger dark gradient toward the BOTTOM-LEFT (where the title
           // sits) — ~20% darker than before for legible left-aligned text.
-          bg = ` style="background-image:linear-gradient(to bottom, rgba(255,255,255,.5), rgba(255,255,255,0) 16%),linear-gradient(to top right, rgba(0,0,0,.82), rgba(0,0,0,.38) 46%, rgba(0,0,0,.06) 74%),url('${esc(p.image_url)}')"`
+          bg = ` style="background-image:linear-gradient(to bottom, rgba(255,255,255,.6), rgba(255,255,255,0) 16%),linear-gradient(to top right, rgba(0,0,0,.82), rgba(0,0,0,.38) 46%, rgba(0,0,0,.06) 74%),url('${esc(p.image_url)}')"`
         }
         const noimg = variant === 'cover' && !p.image_url ? ' ah-cover-noimg' : ''
         return `<section class="article-hero ah-cover${noimg}"${bg}><div class="container"><div class="ah-inner">${inner}</div></div></section>`
