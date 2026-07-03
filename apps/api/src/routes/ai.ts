@@ -624,11 +624,15 @@ aiRouter.post('/critique-section', requireAuth, async (req: AuthRequest, res) =>
 // page title. Fixes CTA cta_href and <a href> inside richtext/raw-html. Returns
 // per-page counts.
 aiRouter.post('/verify-links', requireAuth, async (req: AuthRequest, res) => {
-  const { slug } = req.body ?? {}
+  const { slug, pageId } = req.body ?? {}
   if (!slug) return res.status(400).json({ ok: false, error: 'slug required' })
   const ws = await ownedWs(String(slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  // The title→url index is always built from ALL pages (so links can point to
+  // any page). When pageId is given we only WRITE fixes to that one page.
   const all = await db.select().from(pages).where(eq(pages.workspaceId, ws.id))
+  const scope = pageId ? all.filter((p) => p.id === String(pageId)) : all
+  if (pageId && !scope.length) return res.status(404).json({ ok: false, error: 'page not found' })
   // Build a title → url map. Home = "/", others = "/<slug>/". Also stash a
   // normalized version of the title so the matcher tolerates casing/diacritics.
   const norm = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
@@ -644,7 +648,7 @@ aiRouter.post('/verify-links', requireAuth, async (req: AuthRequest, res) => {
   }
   const isPlaceholder = (h: any) => typeof h !== 'string' || !h.trim() || h.trim() === '#' || h.trim().toLowerCase() === 'javascript:void(0)'
   const perPage: Array<{ pageId: string; title: string; fixed: number; stillEmpty: number }> = []
-  for (const p of all) {
+  for (const p of scope) {
     const blocks = Array.isArray(p.blocks) ? JSON.parse(JSON.stringify(p.blocks)) : []
     let fixed = 0, stillEmpty = 0
     const walkProps = (props: any) => {

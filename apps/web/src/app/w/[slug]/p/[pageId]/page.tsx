@@ -36,12 +36,40 @@ export default function PageEditor() {
   const [polishing, setPolishing] = useState(false)
   const [polishingSectionIdx, setPolishingSectionIdx] = useState<number | null>(null)
   const [sideCollapsed, setSideCollapsed] = useState(false)
+  const [fixingLinks, setFixingLinks] = useState(false)
+
+  // Undo stack — snapshot the blocks BEFORE any destructive / AI change so the
+  // user can always step back one move. Capped at 20 states.
+  const [history, setHistory] = useState<Block[][]>([])
+  function pushHistory(current?: Block[]) {
+    const snap = JSON.parse(JSON.stringify(current ?? blocks))
+    setHistory((h) => [...h.slice(-19), snap])
+  }
+  async function undo() {
+    if (!history.length) return
+    const prev = history[history.length - 1]
+    setHistory((h) => h.slice(0, -1))
+    setBlocks(prev); setSelected(null); setPreviewKey((k) => k + 1)
+    try { await api(`/pages/${pageId}`, { method: 'PUT', body: JSON.stringify({ blocks: prev }) }); setSavedAt('Undo ✓ — reverted') }
+    catch (e: any) { setErr(e.message || 'Undo failed') }
+  }
+
+  // Resolve placeholder (#/empty) links on THIS page to real workspace pages.
+  async function fixLinks() {
+    setErr(''); setFixingLinks(true); pushHistory()
+    try {
+      const r = await api<{ totalFixed: number; pages: Array<{ stillEmpty: number }> }>('/ai/verify-links', { method: 'POST', body: JSON.stringify({ slug, pageId }) })
+      const p = await api<PageData>(`/pages/${pageId}`); setBlocks(Array.isArray(p.blocks) ? p.blocks : []); setPreviewKey((k) => k + 1)
+      const unresolved = r.pages.reduce((s, x) => s + x.stillEmpty, 0)
+      setSavedAt(`Fixed ${r.totalFixed} link(s)${unresolved ? ` · ${unresolved} couldn't be matched` : ''}`)
+    } catch (e: any) { setErr(e.message || 'Fix links failed') } finally { setFixingLinks(false) }
+  }
 
   // Redesign a SINGLE raw-html section. Same content guarantee as full polish,
   // but much faster because it's just one block. The endpoint saves server-side,
   // so we poll for a hash change to survive the proxy timeout.
   async function polishSection(idx: number) {
-    setErr(''); setPolishingSectionIdx(idx)
+    setErr(''); setPolishingSectionIdx(idx); pushHistory()
     const before = JSON.stringify(blocks[idx]?.props?.html || '')
     let apiErr: any = null
     api('/ai/critique-section', { method: 'POST', body: JSON.stringify({ slug, pageId, index: idx }) })
@@ -68,7 +96,7 @@ export default function PageEditor() {
   // actually change, then adopt them. This keeps the editor's in-memory copy in
   // sync with the server so a later Save can never clobber the new design.
   async function runLongEdit(endpoint: string, successLabel: string): Promise<boolean> {
-    setErr('')
+    setErr(''); pushHistory()
     const beforeSig = JSON.stringify(blocks)
     const isTimeout = (m: string) => /gateway|timeout|network|fetch|504|502|aborted/i.test(m || '')
     let done = false, apiErr: any = null, resp: any = null
@@ -106,7 +134,7 @@ export default function PageEditor() {
   // sibling workspace that has the same content-hashed filename, and rewrite
   // any foreign-slug URLs to our workspace's slug.
   async function healImages() {
-    setErr(''); setHealing(true)
+    setErr(''); setHealing(true); pushHistory()
     try {
       const r = await api<{ referenced: number; brokenBefore: number; copiedFromSibling: number; urlsRemapped: number; stillMissingCount: number }>('/import/heal-images', { method: 'POST', body: JSON.stringify({ pageId }) })
       const p = await api<PageData>(`/pages/${pageId}`)
@@ -221,6 +249,7 @@ export default function PageEditor() {
   }
 
   function applyRebuild(data: { title: string; blocks: Block[] }) {
+    pushHistory()
     setBlocks(data.blocks); setTitle(data.title); setSelected(null); setPreviewKey((k) => k + 1); setSavedAt(new Date().toLocaleTimeString())
   }
 
@@ -251,6 +280,7 @@ export default function PageEditor() {
           <input className="title-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Page title" />
           <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="draft">Draft</option><option value="published">Published</option></select>
           {savedAt && <span className="muted eb-saved" style={{ fontSize: 12 }}>Saved {savedAt}</span>}
+          <button className="btn btn-ghost" onClick={undo} disabled={!history.length} title={history.length ? `Undo the last change (${history.length} step${history.length > 1 ? 's' : ''} available)` : 'Nothing to undo'}>↶ Undo</button>
           <a className="btn btn-ghost" href={`${API_URL}/pages/${pageId}/preview`} target="_blank" rel="noreferrer" title="Open in a new tab (without editor UI)">↗ Preview</a>
         </div>
         <div className="eb-right">
@@ -259,6 +289,9 @@ export default function PageEditor() {
           </button>
           <button className="btn btn-secondary" onClick={polishDesign} disabled={polishing} title="AI design pass — redesigns imported sections, or sharpens the copy on typed pages; keeps your links + images">
             {polishing ? 'Polishing…' : '✦ Polish design'}
+          </button>
+          <button className="btn btn-secondary" onClick={fixLinks} disabled={fixingLinks} title="Resolve placeholder (#) links on this page to real pages by matching link text to page titles">
+            {fixingLinks ? 'Fixing…' : '🔗 Fix links'}
           </button>
           <button className="btn btn-secondary" onClick={healImages} disabled={healing} title="Copy any missing image files from sibling workspaces (fixes broken images without a full re-import)">
             {healing ? 'Healing…' : '⚕ Fix images'}
@@ -334,9 +367,15 @@ export default function PageEditor() {
             <div className="ev-card">
               <h4>{selMeta?.name || sel.type}</h4>
               <SectionForm block={sel} onChange={(partial) => upd(selected, partial)} />
+              {sel.type === 'raw-html' && typeof sel.props?.html === 'string' && sel.props.html.length > 120 && (
+                <button className="ev-redesign" onClick={() => polishSection(selected)} disabled={polishingSectionIdx === selected}
+                  title="AI redesign of this one section — modern layout, keeps your text, links and images">
+                  {polishingSectionIdx === selected ? 'Redesigning…' : '✦ Redesign this section'}
+                </button>
+              )}
               <div className="ev-actions">
                 {sel.type === 'raw-html' ? (<>
-                  <button onClick={() => rewriteRawHtml(selected)} title="Rewrite the copy IN PLACE — keeps the layout, only changes the text">✦ AI rewrite copy</button>
+                  <button onClick={() => rewriteRawHtml(selected)} title="Rewrite the copy IN PLACE — keeps the layout, only changes the text">✎ Rewrite copy</button>
                   <button onClick={() => typifySection(selected)} title="Convert this raw HTML section to a typed catalog section (hero / features / etc.)">⇆ Convert to typed</button>
                 </>) : (
                   <button onClick={() => aiRewrite(selected)} title="Rewrite with AI">↻ AI rewrite</button>
