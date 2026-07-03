@@ -198,7 +198,7 @@ const DEFAULT_ARTICLE_SIDEBAR = [
   { kind: 'cta', title: 'Ready to start?', text: 'A short line about the next step.', cta_label: 'Get in touch', cta_href: '/contact/' },
   { kind: 'newsletter', title: 'Get our newsletter', text: 'Tips in your inbox, no spam.', cta_label: 'Subscribe', placeholder: 'you@email.com' },
 ]
-function articleBlocksFromImport(title: string, contentHtml: string, featuredImg?: { url: string; alt?: string }, tmpl?: { heroVariant: string; sidebar: any[] }) {
+export function articleBlocksFromImport(title: string, contentHtml: string, featuredImg?: { url: string; alt?: string }, tmpl?: { heroVariant: string; sidebar: any[] }) {
   const html = String(contentHtml || '')
   // Pull the first paragraph as the deck, and drop it from the body to avoid a
   // duplicate lead line.

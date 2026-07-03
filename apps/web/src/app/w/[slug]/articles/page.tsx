@@ -74,6 +74,28 @@ export default function ArticlesPage() {
     setNote(`Normalised "${p.title}" ✓`); await load()
   }
 
+  // Deterministic, zero-credit: rebuild every article into the template using
+  // its existing content. Instant, no AI. This is the cheap path.
+  const [structuring, setStructuring] = useState(false)
+  async function structureOne(p: Page) {
+    setBusyId(p.id); setNote(''); setErr('')
+    try {
+      await api(`/workspaces/${slug}/rewrap-articles`, { method: 'POST', body: JSON.stringify({ pageId: p.id }) })
+      setNote(`Structured "${p.title}" ✓`); await load()
+    } catch (e: any) { setErr(e.message || 'Failed') } finally { setBusyId(null) }
+  }
+
+  async function structureAll() {
+    if (!articles.length) return
+    if (!window.confirm(`Give all ${articles.length} article(s) the article layout (hero + sidebar) using their existing content? This is instant and free — no AI credits used.`)) return
+    setStructuring(true); setNote(''); setErr('')
+    try {
+      const r = await api<{ rewrapped: number; total: number }>(`/workspaces/${slug}/rewrap-articles`, { method: 'POST', body: JSON.stringify({}) })
+      setNote(`Structured ${r.rewrapped}/${r.total} article(s) ✓ — no credits used.`)
+      await load()
+    } catch (e: any) { setErr(e.message || 'Failed') } finally { setStructuring(false) }
+  }
+
   async function normaliseAll() {
     if (!articles.length) return
     if (!window.confirm(`Normalise all ${articles.length} article(s) into the standard layout? This runs one after another and can take a while — keep this tab open.`)) return
@@ -93,10 +115,11 @@ export default function ArticlesPage() {
     <AppShell title="Articles" currentSlug={slug} active="Articles">
       <div className="ev-actions-row" style={{ marginBottom: 18 }}>
         <div className="dash-sub" style={{ margin: 0 }}>
-          Long-form pages — blog posts, guides, resources. New articles start from the SEO-ready template (sidebar, table of contents, schema).
+          Long-form pages. <b>⚡ Structure</b> applies the article layout (hero + sidebar) from existing content — free &amp; instant. <b>✦ AI clean</b> tidies messy imported markup — costs credits, use only when needed.
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {articles.length > 1 && <button className="btn btn-secondary" onClick={normaliseAll} title="Reshape every article into the standard layout">✦ Normalise all</button>}
+          {articles.length > 0 && <button className="btn btn-secondary" onClick={structureAll} disabled={structuring} title="Give every article the hero + sidebar layout using existing content — instant, no AI credits">{structuring ? 'Structuring…' : '⚡ Structure all (free)'}</button>}
+          {articles.length > 1 && <button className="btn btn-secondary" onClick={normaliseAll} title="AI cleanup of messy body markup — costs credits, slow">✦ AI Normalise all</button>}
           <button className="btn btn-primary" onClick={newArticle}>＋ New article</button>
         </div>
       </div>
@@ -121,7 +144,8 @@ export default function ArticlesPage() {
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <a className="btn-mini" href={`/w/${slug}/p/${p.id}`}>Edit</a>
-                      <button className="btn-mini" disabled={busyId === p.id} onClick={() => normalise(p)} title="Reshape into the standard article layout">{busyId === p.id ? '…' : '✦ Normalise'}</button>
+                      <button className="btn-mini" disabled={busyId === p.id} onClick={() => structureOne(p)} title="Apply the article layout using existing content — free, instant">{busyId === p.id ? '…' : '⚡ Structure'}</button>
+                      <button className="btn-mini" disabled={busyId === p.id} onClick={() => normalise(p)} title="AI cleanup of messy body markup — costs credits">{busyId === p.id ? '…' : '✦ AI clean'}</button>
                       <button className="btn-mini danger" disabled={busyId === p.id} onClick={() => del(p)}>Delete</button>
                     </div>
                   </td>

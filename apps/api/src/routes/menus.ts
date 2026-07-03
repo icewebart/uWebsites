@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
 import { db, workspaces, menus, pages, brandingTokens } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
-import { analyzeBranding, richBranding } from './import.js'
+import { analyzeBranding, richBranding, articleBlocksFromImport } from './import.js'
 import { renderHeader, renderFooter, fontsHead, siteCss, DEFAULT_TOKENS, HEADER_SCRIPT } from './publish.js'
 
 // Workspace-level menus — header + footer — applied to every published page.
@@ -209,6 +209,53 @@ export function articleTemplateOf(tokens: any) {
     sidebar: Array.isArray(at?.sidebar) && at.sidebar.length ? at.sidebar : DEFAULT_ARTICLE_TEMPLATE.sidebar,
   }
 }
+
+// POST /workspaces/:slug/rewrap-articles — DETERMINISTIC (no AI, no credits).
+// Rebuilds every article into the article template using its existing content:
+// article-hero (title + first paragraph + first image) → article-body (content
+// + sidebar + auto TOC) → Smart CTA. The structure is identical across articles,
+// so there's no reason to spend AI on it — that's what this does for free.
+// AI Normalise stays for cleaning up genuinely messy body markup, per article.
+menusRouter.post('/:slug/rewrap-articles', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const tmpl = articleTemplateOf(tok?.tokens as any)
+  const onlyId = req.body?.pageId ? String(req.body.pageId) : null
+  const arts = await db.select().from(pages).where(and(eq(pages.workspaceId, ws.id), eq(pages.type, 'article' as any)))
+  const targets = onlyId ? arts.filter((p) => p.id === onlyId) : arts
+
+  // Pull the readable content HTML + first image out of whatever blocks the
+  // article currently has (raw-html, richtext, or an existing article-body).
+  const cleanRaw = (h: string) => String(h || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '').replace(/\sstyle=("[^"]*"|'[^']*')/gi, '')
+  function extract(blocks: any[]): { html: string; image: string } {
+    const parts: string[] = []; let image = ''
+    for (const b of blocks) {
+      const p = b?.props || {}
+      if (typeof p.html === 'string' && p.html.trim()) parts.push(b.type === 'raw-html' ? cleanRaw(p.html) : p.html)
+      else if (typeof p.sub === 'string' && p.heading) parts.push(`<p>${p.sub}</p>`)
+      if (!image) {
+        if (p.image_url) image = p.image_url
+        else if (p.url && b.type === 'image') image = p.url
+        else if (typeof p.html === 'string') { const m = p.html.match(/<img[^>]+src=["']([^"']+)["']/i); if (m) image = m[1] }
+      }
+    }
+    return { html: parts.join('\n'), image }
+  }
+
+  let count = 0
+  for (const p of targets) {
+    const blocks = Array.isArray(p.blocks) ? (p.blocks as any[]) : []
+    const { html, image } = extract(blocks)
+    if (!html.trim()) continue
+    const newBlocks = articleBlocksFromImport(p.title, html, image ? { url: image } : undefined, tmpl)
+    await db.update(pages).set({ blocks: newBlocks as any, seo: { ...((p.seo as any) || {}), schemaType: 'Article' } as any, updatedAt: new Date() }).where(eq(pages.id, p.id))
+    count++
+  }
+  res.json({ ok: true, data: { rewrapped: count, total: targets.length } })
+})
 
 menusRouter.get('/:slug/article-template', requireAuth, async (req: AuthRequest, res) => {
   const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
