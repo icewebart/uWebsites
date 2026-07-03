@@ -356,7 +356,7 @@ HARD RULES (content is sacred — you REDESIGN, you do NOT rewrite):
 // are left untouched.
 // Merge AI-polished copy back over the original props: only overlay safe text
 // keys; never touch urls/hrefs/images/numbers/layout flags; keep array lengths.
-const UNSAFE_PROP_KEY = /url|href|image|icon|src|rating|price|period|value|variant|layout|side|featured|width|height|scale/i
+const UNSAFE_PROP_KEY = /url|href|image|icon|src|rating|price|period|value|variant|layout|side|featured|width|height|scale|html/i
 function mergePolishedProps(orig: any, pol: any): any {
   if (Array.isArray(orig)) return Array.isArray(pol) ? orig.map((o, i) => i < pol.length ? mergePolishedProps(o, pol[i]) : o) : orig
   if (orig && typeof orig === 'object') {
@@ -549,14 +549,14 @@ ${brief ? '\nSITE CONTEXT (for the CTA only):\n' + brief : ''}`,
     const out = tu?.input || {}
     const body = stripPageChrome(String(out.body_html || ''))
     if (body.length < 60) return res.status(502).json({ ok: false, error: 'Could not extract an article body.' })
+    const readMins = Math.max(2, Math.round(body.replace(/<[^>]*>/g, ' ').split(/\s+/).length / 200))
     const blocks: any[] = [
-      { type: 'hero', props: { heading: out.heading || row.title, sub: out.deck || '', eyebrow: '' } },
+      { type: 'article-hero', props: { eyebrow: '', heading: out.heading || row.title, sub: out.deck || '', author: '', date: '', readMins } },
       { type: 'article-body', props: {
-        html: body, toc: true, author: '', publishedAt: '', readMins: Math.max(2, Math.round(body.replace(/<[^>]*>/g, ' ').split(/\s+/).length / 200)),
+        html: body, toc: true, headline: out.heading || row.title, author: '', publishedAt: '', readMins,
         sidebar: [
-          { kind: 'toc', title: 'On this page' },
           ...(out.cta_label ? [{ kind: 'cta', title: 'Next step', text: '', cta_label: out.cta_label, cta_href: out.cta_href || '/contact/' }] : []),
-          { kind: 'related', title: 'Related reading' },
+          { kind: 'newsletter', title: 'Get our newsletter', text: 'Tips in your inbox, no spam.', cta_label: 'Subscribe', placeholder: 'you@email.com' },
         ],
       } },
     ]
@@ -583,11 +583,31 @@ aiRouter.post('/critique-section', requireAuth, async (req: AuthRequest, res) =>
   if (!page) return res.status(404).json({ ok: false, error: 'page not found' })
   const blocks = Array.isArray(page.blocks) ? JSON.parse(JSON.stringify(page.blocks)) : []
   const b = blocks[index]
-  if (!b || b.type !== 'raw-html' || typeof b?.props?.html !== 'string' || b.props.html.length < 120) {
-    return res.status(400).json({ ok: false, error: 'This section is not a raw-html block, or is too short to redesign.' })
-  }
+  if (!b || !b.type) return res.status(400).json({ ok: false, error: 'No section at that index.' })
   const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
   const t: any = tok?.tokens || {}
+
+  // Typed section → on-brand COPY polish (same as the typed critique-page path).
+  if (b.type !== 'raw-html' || typeof b?.props?.html !== 'string' || b.props.html.length < 120) {
+    if (!sectionHasContent(b)) return res.status(400).json({ ok: false, error: 'This section has no copy to polish yet.' })
+    const brandBrief_ = await brandPrompt(ws.id)
+    try {
+      const r = await a.messages.create({
+        model: MODEL, max_tokens: 2000,
+        system: `You improve the COPY of one website section. Return the SAME JSON props with only human-readable TEXT values rewritten sharper + on-brand. Keep EVERY key + array length. NEVER change any value whose key contains url, href, image, icon, src, rating, price, period, value, variant, layout, side, featured. Only rewrite: heading, sub, eyebrow, title, desc, quote, q, a, label, cta_label, name, caption, marker, badge, text. Preserve concrete facts.\n\n${brandBrief_}\n\n${COPY_RULES}`,
+        tools: [{ name: 'props', description: 'Section props with improved copy.', input_schema: { type: 'object', properties: { props: { type: 'object' } }, required: ['props'] } as any }],
+        tool_choice: { type: 'tool', name: 'props' },
+        messages: [{ role: 'user', content: `Section kind: ${b.type}\nprops:\n${JSON.stringify(b.props).slice(0, 12000)}` }],
+      })
+      const tu = r.content.find((x: any) => x.type === 'tool_use') as any
+      if (!tu?.input?.props) return res.status(502).json({ ok: false, error: 'Model returned nothing.' })
+      blocks[index].props = mergePolishedProps(b.props, tu.input.props)
+      await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
+      await logAiJob(ws.id, 'edit', 'done', { source: 'critique-section-typed', pageId: page.id, index }, 1, page.id)
+      return res.json({ ok: true, data: { index, mode: 'copy' } })
+    } catch (e: any) { return res.status(502).json({ ok: false, error: 'Polish failed: ' + (e?.message || 'unknown') }) }
+  }
+
   const system = critiqueSystemPrompt(t.color || {}, t.font || {})
   const orig = String(b.props.html)
   const oImgs = [...orig.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)].map((m) => m[1])

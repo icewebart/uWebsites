@@ -46,15 +46,13 @@ type Template = { key: string; label: string; type: string; blocks: any[]; seo?:
 const TEMPLATES: Template[] = [
   { key: 'article', label: 'Article (with sidebar)', type: 'article',
     blocks: [
-      { type: 'hero', props: { heading: 'Your article headline goes here', sub: 'A one-line deck under the headline that promises the reader something specific.' } },
+      { type: 'article-hero', props: { eyebrow: 'Guide', heading: 'Your article headline goes here', sub: 'A one-line deck under the headline that promises the reader something specific.', author: '', date: '', readMins: 5 } },
       { type: 'article-body', props: {
         html: '<p><strong>Lead paragraph.</strong> Open with a specific hook — the concrete thing the reader learns or gains here.</p>\n<h2>The core idea</h2>\n<p>Explain the core idea in plain language. One idea per paragraph.</p>\n<h2>Why it matters</h2>\n<p>Ground the idea in a real example or moment.</p>\n<h2>What to do next</h2>\n<p>End with a clear next step. Link to a related page on this site when it helps the reader.</p>',
         toc: true, author: '', publishedAt: '', readMins: 5,
         sidebar: [
-          { kind: 'toc', title: 'On this page' },
-          { kind: 'author', title: 'About the author', text: 'One sentence about who wrote this.' },
-          { kind: 'cta', title: 'Get in touch', text: 'Short line explaining what happens next.', cta_label: 'Contact us', cta_href: '/contact/' },
-          { kind: 'related', title: 'Related reading' },
+          { kind: 'cta', title: 'Ready to start?', text: 'A short line about the next step.', cta_label: 'Get in touch', cta_href: '/contact/' },
+          { kind: 'newsletter', title: 'Get our newsletter', text: 'Tips in your inbox, no spam.', cta_label: 'Subscribe', placeholder: 'you@email.com' },
         ],
       } },
       { type: 'cta-banner', props: { heading: 'Ready to talk?', sub: 'Tell us what you\'re working on and we\'ll get back within a day.', cta_label: 'Get in touch', cta_href: '/contact/' } },

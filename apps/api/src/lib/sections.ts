@@ -11,7 +11,7 @@ export type SectionKind =
   | 'hero' | 'hero-image' | 'hero-blob' | 'richtext' | 'image'
   | 'features-3' | 'program-cards' | 'cta-banner' | 'steps'
   | 'testimonials-3' | 'pricing-3' | 'faq' | 'logo-cloud' | 'image-text' | 'stats-row' | 'stats-band'
-  | 'article-body' | 'timeline' | 'gallery'
+  | 'article-hero' | 'article-body' | 'timeline' | 'gallery'
   | 'raw-html'
 
 export type SectionMeta = {
@@ -192,6 +192,13 @@ export const SECTIONS: SectionMeta[] = [
     // when the user wants pixel-faithful import rather than a typed rebuild.
     // Editable in two ways: (a) raw HTML textarea, (b) future 'typify' AI flow
     // that converts it back to a typed section.
+    kind: 'article-hero',
+    name: 'Article hero',
+    description: 'A designed masthead for an article: a category kicker, the big headline, a one-line deck, and a meta row (author · date · read time). Optional wide banner image. Generous top spacing so the fixed menu never overlaps it. Use at the very top of articles.',
+    category: 'content',
+    defaults: { eyebrow: '', heading: 'Article headline', sub: '', author: '', date: '', readMins: 5, image_url: '', image_alt: '' },
+  },
+  {
     kind: 'article-body',
     name: 'Article body (with sidebar)',
     description: 'The main body of an article: rich text on the left; a sticky sidebar on the right with an auto Table of Contents (from h2/h3), author bio, a CTA and related links. Ships an <article> element + Schema.org markup for SEO.',
@@ -290,6 +297,7 @@ export function sectionHasContent(b: any): boolean {
     case 'hero-image': return has(p.heading) || has(p.image_url)
     case 'hero-blob': return has(p.heading) || has(p.image_url)
     case 'richtext': return has(p.html)
+    case 'article-hero': return has(p.heading)
     case 'article-body': return has(p.html)
     case 'image': return has(p.url)
     case 'features-3': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.desc))
@@ -440,8 +448,42 @@ export const SECTION_CSS = `
 .stats-row .stat .val{font-size:2.6rem;font-weight:700;letter-spacing:-.02em;line-height:1;color:var(--primary);margin-bottom:6px}
 .stats-row .stat .lbl{font-size:.85rem;opacity:.7;text-transform:uppercase;letter-spacing:.06em}
 
+/* article-hero — designed masthead; extra top padding clears the fixed menu */
+.article-hero{padding:calc(var(--pad) + 72px) 0 8px}
+main > section.article-hero:first-child{padding-top:calc(var(--pad) + 112px)}
+.article-hero .ah-inner{max-width:820px}
+.article-hero .ah-kicker{display:inline-block;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--primary);background:color-mix(in srgb,var(--primary) 10%,transparent);padding:4px 12px;border-radius:999px;margin-bottom:18px}
+.article-hero h1{font-size:clamp(1.9rem, 5vw, calc(2.6rem * var(--scale, 1.2)));line-height:1.08;letter-spacing:-.02em;margin:0 0 16px;max-width:20ch}
+.article-hero .ah-deck{font-size:clamp(1.05rem,2.4vw,1.25rem);line-height:1.55;color:color-mix(in srgb,var(--text) 72%,transparent);max-width:60ch;margin:0 0 20px}
+.article-hero .ah-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.9rem;color:color-mix(in srgb,var(--text) 58%,transparent)}
+.article-hero .ah-meta i{opacity:.5;font-style:normal}
+.article-hero .ah-banner{margin-top:32px}
+.article-hero .ah-banner img{width:100%;height:auto;max-height:460px;object-fit:cover;border-radius:calc(var(--card-r) + 4px)}
+@media(max-width:640px){main > section.article-hero:first-child{padding-top:calc(var(--pad) + 92px)}.article-hero .ah-banner{margin-top:22px}}
+
 /* article-body — main text + sticky sidebar, tuned for reading + SEO */
 .article-body{padding:var(--pad) 0}
+/* inline (top-of-article) collapsible Table of Contents */
+.article-body .ab-toc-inline{background:color-mix(in srgb,var(--text) 3.5%,transparent);border:1px solid color-mix(in srgb,var(--text) 8%,transparent);border-radius:var(--card-r);padding:14px 18px;margin:0 0 28px;max-width:70ch}
+.article-body .ab-toc-inline summary{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:color-mix(in srgb,var(--text) 60%,transparent);cursor:pointer;list-style:none}
+.article-body .ab-toc-inline summary::-webkit-details-marker{display:none}
+.article-body .ab-toc-inline summary::after{content:"▾";float:right;font-size:11px;transition:transform .2s}
+.article-body .ab-toc-inline:not([open]) summary::after{transform:rotate(-90deg)}
+.article-body .ab-toc-inline nav{margin-top:12px}
+.article-body .ab-toc-inline ul{list-style:none;margin:0;padding:0;columns:2;column-gap:28px}
+.article-body .ab-toc-inline li{margin:5px 0;break-inside:avoid}
+.article-body .ab-toc-inline li.lv-3{padding-left:14px}
+.article-body .ab-toc-inline a{color:color-mix(in srgb,var(--text) 78%,transparent);text-decoration:none;font-size:.92rem}
+.article-body .ab-toc-inline a:hover{color:var(--primary)}
+/* sidebar CTA card — stands out */
+.article-body .ab-card-cta{background:linear-gradient(160deg,color-mix(in srgb,var(--primary) 12%,var(--surface)),var(--surface));border-color:color-mix(in srgb,var(--primary) 22%,transparent)}
+.article-body .ab-card-cta .btn{width:100%;text-align:center}
+/* sidebar newsletter form */
+.article-body .ab-card-news .ab-news-form{display:flex;flex-direction:column;gap:8px}
+.article-body .ab-card-news input{width:100%;padding:10px 12px;border:1px solid color-mix(in srgb,var(--text) 14%,transparent);border-radius:var(--btn-r);font:inherit;font-size:.92rem;background:var(--surface);color:var(--text)}
+.article-body .ab-card-news input:focus{outline:2px solid color-mix(in srgb,var(--primary) 40%,transparent);outline-offset:1px;border-color:var(--primary)}
+.article-body .ab-card-news .btn{width:100%;text-align:center}
+@media(max-width:640px){.article-body .ab-toc-inline ul{columns:1}}
 .article-body .grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:56px;align-items:start}
 .article-body .ab-main{min-width:0}
 .article-body .ab-meta{font-size:.85rem;color:color-mix(in srgb, var(--text) 55%, transparent);text-transform:uppercase;letter-spacing:.05em;margin-bottom:16px}
@@ -597,6 +639,13 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
     }
     case 'richtext':
       return `<section class="rt"><div class="container">${p.html || ''}</div></section>`
+    case 'article-hero': {
+      const eyebrow = p.eyebrow ? `<div class="ah-kicker"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
+      const meta = [p.author ? `By ${esc(p.author)}` : '', p.date ? esc(p.date) : '', p.readMins ? `${esc(String(p.readMins))} min read` : ''].filter(Boolean)
+      const metaRow = meta.length ? `<div class="ah-meta">${meta.map((m) => `<span>${m}</span>`).join('<i>·</i>')}</div>` : ''
+      const banner = p.image_url ? `<div class="ah-banner"><img src="${esc(p.image_url)}" alt="${esc(p.image_alt || '')}" loading="eager"></div>` : ''
+      return `<section class="article-hero"><div class="container"><div class="ah-inner">${eyebrow}<h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="ah-deck"${f('sub')}>${esc(p.sub)}</p>` : ''}${metaRow}</div>${banner}</div></section>`
+    }
     case 'article-body': {
       // Build a Table of Contents from the h2/h3 in the body HTML. Also
       // guarantees each heading has an id (for anchor jump + SEO deep-links).
@@ -612,20 +661,27 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
         return `<h${lv}${cleanedAttrs} id="${id}">${inner}</h${lv}>`
       })
       const wantToc = p.toc !== false && toc.length > 1
-      const tocHtml = wantToc ? `<nav class="ab-toc" aria-label="Table of contents"><ul>${toc.map((t) => `<li class="lv-${t.level}"><a href="#${esc(t.id)}">${esc(t.text)}</a></li>`).join('')}</ul></nav>` : ''
-      // Sidebar cards (title/text/optional cta + special kinds: toc/related).
+      // TOC is now INLINE at the top of the article (collapsible), not in the
+      // sidebar. The sidebar is reserved for a CTA + newsletter signup.
+      const tocInline = wantToc ? `<details class="ab-toc-inline" open><summary>On this page</summary><nav aria-label="Table of contents"><ul>${toc.map((t) => `<li class="lv-${t.level}"><a href="#${esc(t.id)}">${esc(t.text)}</a></li>`).join('')}</ul></nav></details>` : ''
+      // Sidebar cards. Reserved kinds: cta, newsletter, author, related.
       const sidebar = (Array.isArray(p.sidebar) ? p.sidebar : []).map((c: any) => {
-        if (c?.kind === 'toc') return wantToc ? `<aside class="ab-card ab-card-toc"><h4>${esc(c.title || 'On this page')}</h4>${tocHtml}</aside>` : ''
+        if (c?.kind === 'toc') return ''  // TOC moved inline — ignore legacy toc cards
+        if (c?.kind === 'newsletter') {
+          const action = c.action || '#'
+          return `<aside class="ab-card ab-card-news"><h4>${esc(c.title || 'Newsletter')}</h4>${c.text ? `<p>${esc(c.text)}</p>` : ''}<form class="ab-news-form" action="${esc(action)}" method="post"><input type="email" name="email" placeholder="${esc(c.placeholder || 'you@email.com')}" required aria-label="Email"><button type="submit" class="btn">${esc(c.cta_label || 'Subscribe')}</button></form></aside>`
+        }
         if (c?.kind === 'related') return `<aside class="ab-card ab-card-related"><h4>${esc(c.title || 'Related')}</h4><ul>${(Array.isArray(c.items) ? c.items : []).map((it: any) => `<li><a href="${esc(it.href || '#')}">${esc(it.label || '')}</a></li>`).join('')}</ul></aside>`
+        // generic / cta / author card
         const cta = c?.cta_label ? `<a class="btn" href="${esc(c.cta_href || '#')}">${esc(c.cta_label)}</a>` : ''
-        return `<aside class="ab-card"><h4>${esc(c?.title || '')}</h4>${c?.text ? `<p>${esc(c.text)}</p>` : ''}${cta}</aside>`
+        const cls = c?.kind === 'cta' ? ' ab-card-cta' : ''
+        return `<aside class="ab-card${cls}"><h4>${esc(c?.title || '')}</h4>${c?.text ? `<p>${esc(c.text)}</p>` : ''}${cta}</aside>`
       }).join('')
-      const meta = [p.author ? `By ${esc(p.author)}` : '', p.publishedAt ? esc(p.publishedAt) : '', p.readMins ? `${esc(String(p.readMins))} min read` : ''].filter(Boolean).join(' · ')
-      // Schema.org JSON-LD (Article) — SEO wins for structured search snippets.
+      // Schema.org JSON-LD (Article) — headline is filled in publish.ts head too.
       const jsonLd = `<script type="application/ld+json">${JSON.stringify({
-        '@context': 'https://schema.org', '@type': 'Article', headline: '', author: p.author ? { '@type': 'Person', name: p.author } : undefined, datePublished: p.publishedAt || undefined,
+        '@context': 'https://schema.org', '@type': 'Article', headline: p.headline || undefined, author: p.author ? { '@type': 'Person', name: p.author } : undefined, datePublished: p.publishedAt || undefined,
       }).replace(/</g, '\\u003c')}</script>`
-      return `<section class="article-body"><div class="container"><div class="grid"><article class="ab-main">${meta ? `<div class="ab-meta">${meta}</div>` : ''}<div class="ab-content rt">${body}</div>${jsonLd}</article><div class="ab-side">${sidebar}</div></div></div></section>`
+      return `<section class="article-body"><div class="container"><div class="grid"><article class="ab-main">${tocInline}<div class="ab-content rt">${body}</div>${jsonLd}</article><div class="ab-side">${sidebar}</div></div></div></section>`
     }
     case 'image':
       return p.url ? `<section class="img"><div class="container"><img src="${esc(p.url)}" alt="${esc(p.alt || '')}" loading="lazy"></div></section>` : ''

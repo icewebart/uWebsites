@@ -70,7 +70,7 @@ export default function PageEditor() {
   // so we poll for a hash change to survive the proxy timeout.
   async function polishSection(idx: number) {
     setErr(''); setPolishingSectionIdx(idx); pushHistory()
-    const before = JSON.stringify(blocks[idx]?.props?.html || '')
+    const before = JSON.stringify(blocks[idx] || null)
     let apiErr: any = null
     api('/ai/critique-section', { method: 'POST', body: JSON.stringify({ slug, pageId, index: idx }) })
       .catch((e) => { apiErr = e })
@@ -82,8 +82,8 @@ export default function PageEditor() {
       }
       try {
         const p = await api<PageData>(`/pages/${pageId}`)
-        const nowHtml = JSON.stringify((Array.isArray(p.blocks) ? p.blocks[idx] : null)?.props?.html || '')
-        if (nowHtml !== before) { setBlocks(p.blocks); setPreviewKey((k) => k + 1); setSavedAt('Section polished ✓'); setPolishingSectionIdx(null); return }
+        const now = JSON.stringify((Array.isArray(p.blocks) ? p.blocks[idx] : null) || null)
+        if (now !== before) { setBlocks(p.blocks); setPreviewKey((k) => k + 1); setSavedAt('Section polished ✓'); setPolishingSectionIdx(null); return }
       } catch { /* keep polling */ }
     }
     setPolishingSectionIdx(null); setErr('Polish took too long — reload to see if the section changed.')
@@ -342,7 +342,9 @@ export default function PageEditor() {
               {blocks.length === 0 && <div className="ev-empty">No sections yet. Add one below.</div>}
               {blocks.map((b, i) => {
                 const meta = catalog[b.type]
-                const canPolish = b.type === 'raw-html' && typeof b.props?.html === 'string' && b.props.html.length > 120
+                const canPolish = b.type === 'raw-html'
+                  ? (typeof b.props?.html === 'string' && b.props.html.length > 120)
+                  : (!!b.props && Object.keys(b.props).length > 0)
                 return (
                   <div key={i} className={`sec-row ${selected === i ? 'active' : ''}`} onClick={() => setSelected(i)}>
                     <div className="lbl"><span className="num">{i + 1}</span><span>{meta?.name || b.type}</span></div>
@@ -367,12 +369,17 @@ export default function PageEditor() {
             <div className="ev-card">
               <h4>{selMeta?.name || sel.type}</h4>
               <SectionForm block={sel} onChange={(partial) => upd(selected, partial)} />
-              {sel.type === 'raw-html' && typeof sel.props?.html === 'string' && sel.props.html.length > 120 && (
-                <button className="ev-redesign" onClick={() => polishSection(selected)} disabled={polishingSectionIdx === selected}
-                  title="AI redesign of this one section — modern layout, keeps your text, links and images">
-                  {polishingSectionIdx === selected ? 'Redesigning…' : '✦ Redesign this section'}
-                </button>
-              )}
+              {(() => {
+                const isRaw = sel.type === 'raw-html' && typeof sel.props?.html === 'string' && sel.props.html.length > 120
+                const isTyped = sel.type !== 'raw-html' && !!sel.props && Object.keys(sel.props).length > 0
+                if (!isRaw && !isTyped) return null
+                return (
+                  <button className="ev-redesign" onClick={() => polishSection(selected)} disabled={polishingSectionIdx === selected}
+                    title={isRaw ? 'AI redesign of this one section — modern layout, keeps your text, links and images' : 'AI copy polish — sharpens the wording on-brand; keeps structure, links and images'}>
+                    {polishingSectionIdx === selected ? (isRaw ? 'Redesigning…' : 'Polishing…') : (isRaw ? '✦ Redesign this section' : '✦ Polish this section')}
+                  </button>
+                )
+              })()}
               <div className="ev-actions">
                 {sel.type === 'raw-html' ? (<>
                   <button onClick={() => rewriteRawHtml(selected)} title="Rewrite the copy IN PLACE — keeps the layout, only changes the text">✎ Rewrite copy</button>
@@ -650,6 +657,38 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
           {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
         </div>
       </>)
+    case 'article-hero':
+      return (<>
+        <div className="field"><label>Kicker / category</label><input className="inp" value={p.eyebrow || ''} onChange={(e) => onChange({ eyebrow: e.target.value })} placeholder="Guide" /></div>
+        <div className="field"><label>Headline</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        <div className="field"><label>Deck (one line)</label><textarea className="inp" value={p.sub || ''} onChange={(e) => onChange({ sub: e.target.value })} /></div>
+        <div className="field"><label>Author</label><input className="inp" value={p.author || ''} onChange={(e) => onChange({ author: e.target.value })} placeholder="(optional)" /></div>
+        <div className="field"><label>Date</label><input className="inp" value={p.date || ''} onChange={(e) => onChange({ date: e.target.value })} placeholder="e.g. 3 iulie 2026" /></div>
+        <div className="field"><label>Read time (min)</label><input className="inp" type="number" value={p.readMins || ''} onChange={(e) => onChange({ readMins: Number(e.target.value) || 0 })} /></div>
+        <div className="field" style={{ marginBottom: 0 }}><label>Banner image URL</label><input className="inp" value={p.image_url || ''} onChange={(e) => onChange({ image_url: e.target.value })} placeholder="(optional)" /></div>
+      </>)
+    case 'article-body': {
+      const sidebar: any[] = Array.isArray(p.sidebar) ? p.sidebar : []
+      const setCard = (j: number, patch: any) => onChange({ sidebar: sidebar.map((c, k) => k === j ? { ...c, ...patch } : c) })
+      return (<>
+        <div className="field"><label>Article body (HTML)</label><textarea className="inp" style={{ minHeight: 240 }} value={p.html || ''} onChange={(e) => onChange({ html: e.target.value })} placeholder="<p>…</p>" /></div>
+        <div className="field"><label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={p.toc !== false} onChange={(e) => onChange({ toc: e.target.checked })} style={{ width: 'auto' }} /> Show table of contents</label></div>
+        <div className="dash-h" style={{ fontSize: 12, margin: '6px 0' }}>Sidebar cards</div>
+        {sidebar.map((c, j) => (
+          <div className="field" key={j} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+            <label style={{ textTransform: 'capitalize' }}>{c.kind || 'card'}</label>
+            <input className="inp" placeholder="Title" value={c.title || ''} onChange={(e) => setCard(j, { title: e.target.value })} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Text" value={c.text || ''} onChange={(e) => setCard(j, { text: e.target.value })} />
+            {(c.kind === 'cta' || c.kind === 'newsletter') && (
+              <input className="inp" style={{ marginTop: 6 }} placeholder="Button label" value={c.cta_label || ''} onChange={(e) => setCard(j, { cta_label: e.target.value })} />
+            )}
+            {c.kind === 'cta' && (
+              <input className="inp" style={{ marginTop: 6 }} placeholder="Button link (/contact/)" value={c.cta_href || ''} onChange={(e) => setCard(j, { cta_href: e.target.value })} />
+            )}
+          </div>
+        ))}
+      </>)
+    }
     default:
       return <div className="muted" style={{ fontSize: 13 }}>No editor for "{block.type}" sections yet.</div>
   }
