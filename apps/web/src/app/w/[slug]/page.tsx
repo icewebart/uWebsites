@@ -110,6 +110,17 @@ export default function WorkspaceHome() {
       alert(`Made ${rel.totalFixed} external link(s) internal, and resolved ${r.totalFixed} placeholder link(s).${unresolved ? `\n${unresolved} placeholder link(s) could not be matched — edit them manually or create the target pages.` : ''}`)
     } catch (e: any) { alert(e.message || 'Fix links failed') } finally { setVerifying(false) }
   }
+  const [structuringAll, setStructuringAll] = useState(false)
+  async function structureAll() {
+    const pgs = (data?.pages || []).filter((p) => p.type !== 'home')
+    if (!pgs.length) return
+    if (!window.confirm(`Rebuild all ${pgs.length} non-home page(s) into clean sections (hero + content + CTA) from their existing content? Free — no AI credits.`)) return
+    setStructuringAll(true)
+    try {
+      const r = await api<{ structured: number; total: number }>(`/workspaces/${slug}/structure-all`, { method: 'POST', body: JSON.stringify({}) })
+      alert(`Structured ${r.structured} page(s) — no credits used. Reload a page to see it.`)
+    } catch (e: any) { alert(e.message || 'Structure failed') } finally { setStructuringAll(false) }
+  }
   async function polishAllPages() {
     const pgs = data?.pages || []
     if (!pgs.length) return
@@ -206,34 +217,39 @@ export default function WorkspaceHome() {
           </div>
         </div>
       ) : (
-        <div className="site-grid">
-          {/* main column — preview + actions */}
-          <div>
-            <div className="site-hero">
-              <div className="meta">
-                <div>
-                  <b>{home?.title || data?.workspace.name}</b>
-                  <div className="sub">{pages.length} pages · /{home?.slug || ''}</div>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <a className="btn btn-ghost" href={`/w/${slug}/p/${home?.id}`}>Edit homepage</a>
-                  <button className="btn btn-secondary" onClick={polishAllPages} disabled={polishingAll} title="Run the AI design polish on every page">
-                    {polishingAll ? 'Polishing…' : '✦ Polish all pages'}
-                  </button>
-                  <button className="btn btn-secondary" onClick={verifyLinks} disabled={verifying} title="Rewrite links to the original site into internal links to your imported pages, and resolve placeholder (#) links by title">
-                    {verifying ? 'Fixing…' : '🔗 Fix internal links'}
-                  </button>
-                  <button className="btn btn-primary" onClick={publish} disabled={publishing}>{publishing ? 'Publishing…' : 'Publish'}</button>
-                </div>
-              </div>
-              {home && <iframe src={`${API_URL}/pages/${home.id}/preview`} title="Site preview" />}
-            </div>
+        <>
+        {/* Full-width action bar — title + primary actions, above everything */}
+        <div className="ws-actionbar">
+          <div className="ws-title">
+            <b>{home?.title || data?.workspace.name}</b>
+            <span>{pages.length} pages · /{home?.slug || ''}</span>
+          </div>
+          <div className="ws-actions">
+            <a className="btn btn-ghost" href={`/w/${slug}/p/${home?.id}`}>Edit homepage</a>
+            <button className="btn btn-secondary" onClick={structureAll} disabled={structuringAll} title="Rebuild every page into clean sections from existing content — free, no AI credits">
+              {structuringAll ? 'Structuring…' : '⚡ Structure all'}
+            </button>
+            <button className="btn btn-secondary" onClick={polishAllPages} disabled={polishingAll} title="Run the AI design polish on every page (uses credits)">
+              {polishingAll ? 'Polishing…' : '✦ Polish all'}
+            </button>
+            <button className="btn btn-secondary" onClick={verifyLinks} disabled={verifying} title="Rewrite links to the original site into internal links, and resolve placeholder (#) links">
+              {verifying ? 'Fixing…' : '🔗 Fix links'}
+            </button>
+            <button className="btn btn-primary" onClick={publish} disabled={publishing}>{publishing ? 'Publishing…' : '↗ Publish'}</button>
+          </div>
+        </div>
 
-            <div className="site-actions">
+        <div className="site-grid">
+          {/* main column — quick tiles + taller preview */}
+          <div>
+            <div className="site-actions site-tiles-top">
               <a className="tile" href={`/w/${slug}/import`}><div><b>Import a site</b><span>WordPress &amp; more</span></div></a>
               <a className="tile" href={`/w/${slug}/branding`}><div><b>Branding</b><span>Colors, fonts, shape</span></div></a>
               <a className="tile" href={`/w/${slug}/domains`}><div><b>Domains</b><span>Connect your URL</span></div></a>
               <a className="tile" href={`/w/${slug}/settings`}><div><b>Settings</b><span>Workspace info</span></div></a>
+            </div>
+            <div className="site-hero site-hero-tall">
+              {home && <iframe src={`${API_URL}/pages/${home.id}/preview`} title="Site preview" />}
             </div>
           </div>
 
@@ -259,6 +275,7 @@ export default function WorkspaceHome() {
             )}
           </div>
         </div>
+        </>
       )}
 
     </AppShell>

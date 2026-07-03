@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
 import { db, workspaces, menus, pages, brandingTokens } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
-import { analyzeBranding, richBranding, articleBlocksFromImport } from './import.js'
+import { analyzeBranding, richBranding, articleBlocksFromImport, structuredPageBlocks, decodeEntities } from './import.js'
 import { saveImageBytes } from '../lib/image-host.js'
 import { renderHeader, renderFooter, fontsHead, siteCss, DEFAULT_TOKENS, HEADER_SCRIPT, FOOTER_STYLES } from './publish.js'
 
@@ -287,34 +287,55 @@ menusRouter.post('/:slug/relink-internal', requireAuth, async (req: AuthRequest,
 // body as richtext and a Smart CTA. Fixes the ugly imported hero for free; the
 // user can then swap the hero design or add richer sections. This is the
 // credit-free path for the "all pages share the same pattern" case.
+// Extract readable content HTML + first image from a page's existing blocks.
+function extractContent(blocks: any[]): { html: string; image: string } {
+  const cleanRaw = (h: string) => String(h || '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<!--[\s\S]*?-->/g, '').replace(/\sstyle=("[^"]*"|'[^']*')/gi, '')
+  let html = '', image = ''
+  for (const b of blocks) {
+    const pr = b?.props || {}
+    if (typeof pr.html === 'string' && pr.html.trim()) html += (b.type === 'raw-html' ? cleanRaw(pr.html) : pr.html) + '\n'
+    else if (pr.heading) { html += `<h2>${pr.heading}</h2>`; if (pr.sub) html += `<p>${pr.sub}</p>` }
+    if (!image) { if (pr.image_url) image = pr.image_url; else if (pr.url && b.type === 'image') image = pr.url; else if (typeof pr.html === 'string') { const m = pr.html.match(/<img[^>]+src=["']([^"']+)["']/i); if (m) image = m[1] } }
+  }
+  return { html, image }
+}
+function structureOnePage(p: any): any[] {
+  const { html, image } = extractContent(Array.isArray(p.blocks) ? p.blocks : [])
+  return structuredPageBlocks(decodeEntities(p.title || ''), html, image ? { url: image } : undefined)
+}
+
 menusRouter.post('/:slug/structure-page', requireAuth, async (req: AuthRequest, res) => {
   const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
   const pageId = String(req.body?.pageId || '')
   const [p] = await db.select().from(pages).where(and(eq(pages.id, pageId), eq(pages.workspaceId, ws.id))).limit(1)
   if (!p) return res.status(404).json({ ok: false, error: 'page not found' })
-
-  const cleanRaw = (h: string) => String(h || '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<!--[\s\S]*?-->/g, '').replace(/\sstyle=("[^"]*"|'[^']*')/gi, '')
-  const blocks = Array.isArray(p.blocks) ? (p.blocks as any[]) : []
-  let html = '', image = '', cta: { label: string; href: string } | null = null
-  for (const b of blocks) {
-    const pr = b?.props || {}
-    if (typeof pr.html === 'string' && pr.html.trim()) html += (b.type === 'raw-html' ? cleanRaw(pr.html) : pr.html) + '\n'
-    else if (pr.heading) { html += `<h2>${pr.heading}</h2>`; if (pr.sub) html += `<p>${pr.sub}</p>` }
-    if (!image) { if (pr.image_url) image = pr.image_url; else if (pr.url && b.type === 'image') image = pr.url; else if (typeof pr.html === 'string') { const m = pr.html.match(/<img[^>]+src=["']([^"']+)["']/i); if (m) image = m[1] } }
-    if (!cta && typeof pr.html === 'string') { const m = pr.html.match(/<a[^>]+href=["']([^"']+)["'][^>]*class=["'][^"']*(?:btn|button)[^"']*["'][^>]*>([\s\S]*?)<\/a>/i); if (m) cta = { label: m[2].replace(/<[^>]*>/g, '').trim().slice(0, 40), href: m[1] } }
-  }
-  // Deck = first paragraph; drop it from the body to avoid duplication.
-  const firstP = html.match(/<p[^>]*>([\s\S]*?)<\/p>/i)
-  const deck = firstP ? firstP[1].replace(/<[^>]*>/g, '').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 220) : ''
-  const body = firstP ? html.replace(firstP[0], '') : html
-  const newBlocks: any[] = [
-    { type: 'hero-image', props: { eyebrow: '', heading: p.title || '', sub: deck, image_url: image || '', image_alt: p.title || '', cta_label: cta?.label || '', cta_href: cta?.href || '', variant: 'split' } },
-    ...(body.replace(/<[^>]*>/g, '').trim().length > 20 ? [{ type: 'richtext', props: { html: body } }] : []),
-    { type: 'cta-ref', props: { cta_id: '', variant: 'gradient' } },
-  ]
-  await db.update(pages).set({ blocks: newBlocks as any, updatedAt: new Date() }).where(eq(pages.id, p.id))
+  const newBlocks = structureOnePage(p)
+  await db.update(pages).set({ blocks: newBlocks as any, title: decodeEntities(p.title || ''), updatedAt: new Date() }).where(eq(pages.id, p.id))
   res.json({ ok: true, data: { sections: newBlocks.length } })
+})
+
+// POST /:slug/structure-all — deterministic Structure for EVERY non-home page
+// (articles keep their template; others get hero + sections + CTA). No AI.
+menusRouter.post('/:slug/structure-all', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const tmpl = articleTemplateOf(tok?.tokens as any)
+  const rows = await db.select().from(pages).where(eq(pages.workspaceId, ws.id))
+  let count = 0
+  for (const p of rows) {
+    if (p.type === 'home') continue  // home is the showcase — leave it to the user
+    const { html, image } = extractContent(Array.isArray(p.blocks) ? p.blocks : [])
+    if (!html.trim()) continue
+    const isArticle = p.type === 'article' || p.type === 'collection_item'
+    const newBlocks = isArticle
+      ? articleBlocksFromImport(decodeEntities(p.title || ''), html, image ? { url: image } : undefined, tmpl)
+      : structuredPageBlocks(decodeEntities(p.title || ''), html, image ? { url: image } : undefined)
+    await db.update(pages).set({ blocks: newBlocks as any, title: decodeEntities(p.title || ''), updatedAt: new Date() }).where(eq(pages.id, p.id))
+    count++
+  }
+  res.json({ ok: true, data: { structured: count, total: rows.length } })
 })
 
 // POST /workspaces/:slug/rewrap-articles — DETERMINISTIC (no AI, no credits).

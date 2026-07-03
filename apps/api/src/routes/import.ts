@@ -198,19 +198,67 @@ const DEFAULT_ARTICLE_SIDEBAR = [
   { kind: 'cta', title: 'Ready to start?', text: 'A short line about the next step.', cta_label: 'Get in touch', cta_href: '/contact/' },
   { kind: 'newsletter', title: 'Get our newsletter', text: 'Tips in your inbox, no spam.', cta_label: 'Subscribe', placeholder: 'you@email.com' },
 ]
+// Decode HTML entities so imported titles/text read as real characters
+// (&#8211; → –, &#8217; → ’, &amp; → &, &hellip; → …, etc.).
+export function decodeEntities(s: string): string {
+  return String(s || '')
+    .replace(/&#x([0-9a-f]+);/gi, (_m, n) => { try { return String.fromCodePoint(parseInt(n, 16)) } catch { return _m } })
+    .replace(/&#(\d+);/g, (_m, n) => { try { return String.fromCodePoint(parseInt(n, 10)) } catch { return _m } })
+    .replace(/&nbsp;/g, ' ').replace(/&hellip;/g, '…').replace(/&mdash;/g, '—').replace(/&ndash;/g, '–')
+    .replace(/&rsquo;/g, '’').replace(/&lsquo;/g, '‘').replace(/&rdquo;/g, '”').replace(/&ldquo;/g, '“')
+    .replace(/&laquo;/g, '«').replace(/&raquo;/g, '»').replace(/&trade;/g, '™').replace(/&copy;/g, '©').replace(/&reg;/g, '®')
+    .replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, '\'').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+}
+const stripToText = (h: string) => decodeEntities(String(h || '').replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim()
+
+// DETERMINISTIC full-page structurer (no AI). Splits content into a clean
+// hero-image + one section per <h2> (image-text when the section has an image,
+// else prose), + a Smart CTA. Alternating tone bands give it landing-page
+// rhythm. Used at import and by the "⚡ Structure" button.
+export function structuredPageBlocks(title: string, contentHtml: string, featuredImg?: { url: string; alt?: string }): any[] {
+  const html = decodeEntities(String(contentHtml || ''))
+  const firstP = html.match(/<p[^>]*>([\s\S]*?)<\/p>/i)
+  const deck = firstP ? stripToText(firstP[1]).slice(0, 220) : ''
+  let heroImg = featuredImg?.url || ''
+  const firstImg = html.match(/<img[^>]+src=["']([^"']+)["']/i)
+  if (!heroImg && firstImg) heroImg = firstImg[1]
+  const ctaM = html.match(/<a[^>]+href=["']([^"']+)["'][^>]*class=["'][^"']*(?:btn|button)[^"']*["'][^>]*>([\s\S]*?)<\/a>/i)
+  const cta = ctaM ? { label: stripToText(ctaM[2]).slice(0, 40), href: ctaM[1] } : null
+  // Body = content minus the lead paragraph and the hero image (avoid dup).
+  let body = firstP ? html.replace(firstP[0], '') : html
+  if (heroImg) body = body.replace(new RegExp(`<img[^>]+src=["']${heroImg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*>`, 'i'), '')
+  const blocks: any[] = [{ type: 'hero-image', props: { eyebrow: '', heading: decodeEntities(title || ''), sub: deck, image_url: heroImg, image_alt: decodeEntities(title || ''), cta_label: cta?.label || '', cta_href: cta?.href || '', variant: 'split' } }]
+  // Split the remaining body at each <h2> boundary.
+  const parts = body.split(/(?=<h2[\s>])/i).map((s) => s.trim()).filter((s) => stripToText(s).length > 4)
+  let alt = 0
+  for (const part of parts.slice(0, 12)) {
+    const h2 = part.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i)
+    const img = part.match(/<img[^>]+src=["']([^"']+)["']/i)
+    if (h2 && img) {
+      const heading = stripToText(h2[1]).slice(0, 120)
+      const text = part.replace(h2[0], '').replace(/<img[^>]+>/gi, '')
+      blocks.push({ type: 'image-text', props: { heading, html: safeHtml(text), image_url: img[1], image_alt: heading, image_side: (alt++ % 2) ? 'left' : 'right' } })
+    } else {
+      blocks.push({ type: 'richtext', props: { html: safeHtml(part) } })
+    }
+  }
+  blocks.push({ type: 'cta-ref', props: { cta_id: '', variant: 'gradient' } })
+  return blocks
+}
+
 export function articleBlocksFromImport(title: string, contentHtml: string, featuredImg?: { url: string; alt?: string }, tmpl?: { heroVariant: string; sidebar: any[]; grad_from?: string; grad_to?: string }) {
-  const html = String(contentHtml || '')
+  const html = decodeEntities(String(contentHtml || ''))
   // Pull the first paragraph as the deck, and drop it from the body to avoid a
   // duplicate lead line.
   const firstP = html.match(/<p[^>]*>([\s\S]*?)<\/p>/i)
-  const deck = firstP ? firstP[1].replace(/<[^>]*>/g, '').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 200) : ''
+  const deck = firstP ? stripToText(firstP[1]).slice(0, 200) : ''
   const body = firstP ? html.replace(firstP[0], '') : html
   const readMins = Math.max(2, Math.round(html.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length / 200))
   const heroVariant = tmpl?.heroVariant || 'classic'
   const sidebar = JSON.parse(JSON.stringify(tmpl?.sidebar?.length ? tmpl.sidebar : DEFAULT_ARTICLE_SIDEBAR))
   return [
-    { type: 'article-hero', props: { variant: heroVariant, grad_from: tmpl?.grad_from || 'primary', grad_to: tmpl?.grad_to || 'accent', eyebrow: '', heading: title || '', sub: deck, author: '', date: '', readMins, image_url: featuredImg?.url || '', image_alt: featuredImg?.alt || title || '' } },
-    { type: 'article-body', props: { html: safeHtml(body), toc: true, headline: title || '', author: '', publishedAt: '', readMins, sidebar } },
+    { type: 'article-hero', props: { variant: heroVariant, grad_from: tmpl?.grad_from || 'primary', grad_to: tmpl?.grad_to || 'accent', eyebrow: '', heading: decodeEntities(title || ''), sub: deck, author: '', date: '', readMins, image_url: featuredImg?.url || '', image_alt: decodeEntities(title || '') } },
+    { type: 'article-body', props: { html: safeHtml(body), toc: true, headline: decodeEntities(title || ''), author: '', publishedAt: '', readMins, sidebar } },
     { type: 'cta-ref', props: { cta_id: '', variant: 'gradient' } },
   ]
 }
@@ -220,26 +268,14 @@ function importedBlocks(title: string, contentHtml: string, featuredImg?: { url:
   if ((opts?.pageType === 'article' || opts?.pageType === 'collection_item') && contentHtml && contentHtml.trim()) {
     return articleBlocksFromImport(title, contentHtml, featuredImg, opts.articleTemplate)
   }
-  const blocks: any[] = []
-  const cta = opts?.isHome ? (opts.cta || null) : null
-
-  if (opts?.isHome && featuredImg?.url) {
-    blocks.push({
-      type: 'hero-image',
-      props: {
-        heading: title || '', sub: '',
-        image_url: featuredImg.url, image_alt: featuredImg.alt || title || '',
-        cta_label: cta?.label || '', cta_href: cta?.href || '',
-      },
-    })
-  } else {
-    const heroProps: any = { heading: title || '', sub: '' }
-    if (cta) { heroProps.cta_label = cta.label; heroProps.cta_href = cta.href }
-    blocks.push({ type: 'hero', props: heroProps })
-    if (featuredImg?.url) blocks.push({ type: 'image', props: { url: featuredImg.url, alt: featuredImg.alt || title || '' } })
-  }
-  if (contentHtml && contentHtml.trim()) blocks.push({ type: 'richtext', props: { html: safeHtml(contentHtml) } })
-  return blocks
+  // Every other page with content comes in PRE-STRUCTURED (clean hero + a
+  // section per H2 + Smart CTA) — deterministic, no AI credits.
+  if (contentHtml && contentHtml.trim()) return structuredPageBlocks(title, contentHtml, featuredImg)
+  // No content — just a hero.
+  const heroProps: any = { heading: decodeEntities(title || ''), sub: '' }
+  if (opts?.cta) { heroProps.cta_label = opts.cta.label; heroProps.cta_href = opts.cta.href }
+  if (featuredImg?.url) { heroProps.image_url = featuredImg.url; heroProps.image_alt = featuredImg.alt || title || ''; return [{ type: 'hero-image', props: heroProps }] }
+  return [{ type: 'hero', props: heroProps }]
 }
 
 function snapshotUrl(sourceUrl: string): string {
@@ -765,7 +801,7 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
 
     await db.insert(pages).values({
       workspaceId: ws.id, type: type as any, slug: pslug,
-      title: item.title || pslug, status: 'draft', blocks: blocks as any,
+      title: decodeEntities(item.title || pslug), status: 'draft', blocks: blocks as any,
       seo: { import_source: { url: sourceUrl, snapshot_url: snapshotUrl(sourceUrl), imported_at: new Date().toISOString() } } as any,
     })
     created++
