@@ -164,6 +164,9 @@ main > section.uw-raw:first-child{padding-top:0}
   .site-header .brand{flex:1 1 auto;font-size:15px;min-width:0}
   .site-header .brand img{max-width:70%}
   .site-header .header-cta{padding:8px 14px;font-size:13px}
+  /* When nav-open, the CTA also lives INSIDE the panel visually — keep it
+     tappable but move it below the nav list via order (panel is flex-column). */
+  .site-header.nav-open .header-cta{position:relative;z-index:2;order:2;margin-top:20px;align-self:flex-start}
   .site-header .burger{display:block}
   .site-header .nav{position:fixed;top:0;left:0;right:0;bottom:0;background:var(--surface);padding:80px 24px 32px;flex-direction:column;justify-content:flex-start;align-items:stretch;gap:6px;overflow-y:auto;opacity:0;visibility:hidden;transform:translateY(-8px);transition:opacity .2s ease, transform .2s ease, visibility .2s ease;z-index:1}
   .site-header.nav-open .nav{opacity:1;visibility:visible;transform:none}

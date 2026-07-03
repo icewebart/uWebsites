@@ -778,6 +778,12 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
   .site-hero iframe{height:260px}
   .site-actions{grid-template-columns:1fr}
 }
+@media(max-width:760px){
+  /* On mobile there's no hover — always show the section action buttons */
+  .sec-row .sec-polish,.sec-row .sec-del{opacity:1}
+  .sec-row .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sec-row .lbl .kind{display:none}
+}
 @media(max-width:420px){
   .content{padding:12px 10px}
   .dash-totals,.kpi-grid{grid-template-columns:1fr}
