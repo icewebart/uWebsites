@@ -13,7 +13,7 @@ export type SectionKind =
   | 'testimonials-3' | 'pricing-3' | 'faq' | 'logo-cloud' | 'image-text' | 'stats-row' | 'stats-band'
   | 'article-hero' | 'article-body' | 'timeline' | 'gallery'
   | 'features-2col' | 'feature-alt' | 'split-hero' | 'bento-grid' | 'carousel-cards' | 'faq-accordion' | 'big-quote'
-  | 'cta-ref'
+  | 'cta-ref' | 'post-list'
   | 'raw-html'
 
 export type SectionMeta = {
@@ -369,6 +369,13 @@ export const SECTIONS: SectionMeta[] = [
     defaults: { quote: 'This is the single most persuasive thing a real customer said about you.', author: 'Full Name', role: 'Role, Company', image_url: '' },
   },
   {
+    kind: 'post-list',
+    name: 'Article list (blog index)',
+    description: 'Automatically lists the articles on this site as a card grid (image, title, excerpt, date). Populated at publish time — you do not fill it in. Put it on your blog / articles index page.',
+    category: 'content',
+    defaults: { eyebrow: '', heading: 'Latest articles', layout: 'grid', items: [] },
+  },
+  {
     kind: 'cta-ref',
     name: 'Smart CTA (from CTA library)',
     description: 'A call-to-action banner whose text + link come from the workspace CTA library (Website → CTAs). Set cta_id to pin a specific CTA, or leave it "auto" to use the best CTA for this page by the rules. Editing the CTA once updates it everywhere.',
@@ -414,6 +421,7 @@ export function sectionHasContent(b: any): boolean {
     case 'faq-accordion': return arrOk(p.items) && p.items.some((i: any) => has(i?.q) || has(i?.a))
     case 'big-quote': return has(p.quote)
     case 'cta-ref': return true  // resolved from the CTA library at render time
+    case 'post-list': return true  // populated with the site's articles at render time
     case 'stats-row': return arrOk(p.items) && p.items.some((i: any) => has(i?.value) || has(i?.label))
     case 'raw-html': return has(p.html)
     default: return false
@@ -790,6 +798,22 @@ main > section.article-hero:first-child{padding-top:calc(var(--pad) + 112px)}
 .big-quote .bq-portrait{width:52px;height:52px;border-radius:50%;object-fit:cover}
 .big-quote .bq-who b{display:block;font-size:1rem}
 .big-quote .bq-who span{display:block;font-size:.9rem;color:color-mix(in srgb,var(--text) 60%,transparent)}
+
+/* post-list — auto blog index */
+.post-list .head{max-width:640px;margin:0 auto 34px;text-align:center}
+.post-list .pl-empty{text-align:center;color:color-mix(in srgb,var(--text) 55%,transparent);padding:40px;border:1px dashed color-mix(in srgb,var(--text) 18%,transparent);border-radius:var(--card-r)}
+.post-list .pl-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.post-list .pl-card{display:flex;flex-direction:column;background:var(--surface);border:1px solid color-mix(in srgb,var(--text) 8%,transparent);border-radius:var(--card-r);overflow:hidden;text-decoration:none;color:var(--text);box-shadow:var(--shadow);transition:transform .18s ease, box-shadow .18s ease}
+.post-list .pl-card:hover{transform:translateY(-4px);box-shadow:0 16px 40px -18px rgba(20,10,40,.28)}
+.post-list .pl-media img,.post-list .pl-media.pl-ph{width:100%;aspect-ratio:16/9;object-fit:cover;display:block}
+.post-list .pl-media.pl-ph{background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--primary) 8%,transparent) 0 14px,transparent 14px 28px)}
+.post-list .pl-body{padding:20px;display:flex;flex-direction:column;gap:8px;flex:1}
+.post-list .pl-kicker{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--primary)}
+.post-list .pl-body h3{margin:0;font-size:1.2rem;line-height:1.25;letter-spacing:-.01em}
+.post-list .pl-body p{margin:0;color:color-mix(in srgb,var(--text) 74%,transparent);font-size:.95rem;line-height:1.55}
+.post-list .pl-meta{margin-top:auto;font-size:.82rem;color:color-mix(in srgb,var(--text) 55%,transparent)}
+@media(max-width:900px){.post-list .pl-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.post-list .pl-grid{grid-template-columns:1fr}}
 `
 
 // ---- per-kind static HTML renderer (used by publish.ts) ----
@@ -1013,6 +1037,21 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
       }
       const solid = p.variant === 'solid' ? ' v-solid' : ''
       return `<section class="cta-banner${solid}"><div class="container"><div class="box"><span class="cta-orb cta-orb-1"></span><span class="cta-orb cta-orb-2"></span><div class="cta-inner">${p.heading ? `<h2>${esc(p.heading)}</h2>` : ''}${p.sub ? `<p class="sub">${esc(p.sub)}</p>` : ''}${p.cta_label ? `<p><a class="btn" href="${esc(p.cta_href || '#')}">${esc(p.cta_label)}</a></p>` : ''}</div></div></div></section>`
+    }
+    case 'post-list': {
+      // items are injected at render time (publish.ts) from the site's articles.
+      const items = (Array.isArray(p.items) ? p.items : [])
+      const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
+      const head = (p.heading || eyebrow) ? `<div class="head">${eyebrow}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}</div>` : ''
+      if (!items.length) {
+        return ed ? `<section class="post-list"><div class="container">${head}<div class="pl-empty">Your articles will appear here automatically once published.</div></div></section>` : `<section class="post-list"><div class="container">${head}</div></section>`
+      }
+      const cards = items.map((it: any) => {
+        const media = it.image ? `<div class="pl-media"><img src="${esc(it.image)}" alt="${esc(it.title || '')}" loading="lazy"></div>` : `<div class="pl-media pl-ph"></div>`
+        const meta = [it.date, it.readMins ? `${esc(String(it.readMins))} min` : ''].filter(Boolean).map((m: string) => esc(m)).join(' · ')
+        return `<a class="pl-card" href="${esc(it.url || '#')}">${media}<div class="pl-body">${it.eyebrow ? `<div class="pl-kicker">${esc(it.eyebrow)}</div>` : ''}<h3>${esc(it.title)}</h3>${it.excerpt ? `<p>${esc(it.excerpt)}</p>` : ''}${meta ? `<div class="pl-meta">${meta}</div>` : ''}</div></a>`
+      }).join('')
+      return `<section class="post-list" data-anim="stagger"><div class="container">${head}<div class="pl-grid">${cards}</div></div></section>`
     }
     case 'cta-banner': {
       const solid = p.variant === 'solid' ? ' v-solid' : ''

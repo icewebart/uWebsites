@@ -252,6 +252,32 @@ function resolveCtaRefs(blocks: any[], ctas: Cta[], page: { slug?: string; title
   })
 }
 
+// ---- Blog index (post-list) resolution ----
+const ARTICLE_LIST_TYPES = new Set(['article', 'collection_item'])
+function articleCard(pg: { slug?: string; title?: string; blocks?: any }) {
+  const blocks = Array.isArray(pg.blocks) ? pg.blocks : []
+  const hero = blocks.find((b: any) => b?.type === 'article-hero')
+  const body = blocks.find((b: any) => b?.type === 'article-body')
+  let excerpt = hero?.props?.sub || blocks.find((b: any) => /hero/.test(b?.type))?.props?.sub || ''
+  if (!excerpt && typeof body?.props?.html === 'string') excerpt = body.props.html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150)
+  let image = hero?.props?.image_url || ''
+  if (!image) for (const b of blocks) {
+    if (b?.props?.image_url) { image = b.props.image_url; break }
+    const m = typeof b?.props?.html === 'string' && b.props.html.match(/<img[^>]+src=["']([^"']+)["']/i)
+    if (m) { image = m[1]; break }
+  }
+  return { title: pg.title || '', url: pg.slug === 'home' ? '/' : `/${pg.slug}/`, excerpt: String(excerpt).slice(0, 160), image, date: hero?.props?.date || body?.props?.publishedAt || '', readMins: hero?.props?.readMins || body?.props?.readMins || 0, eyebrow: hero?.props?.eyebrow || '' }
+}
+// Fill post-list sections with the site's articles; auto-add one to a blog_index
+// page that doesn't have any yet (so an "empty" blog index just works).
+function resolvePostLists(blocks: any[], cards: any[], pageType?: string): any[] {
+  let out = blocks.map((b) => b?.type === 'post-list' ? { ...b, props: { ...b.props, items: cards } } : b)
+  if (pageType === 'blog_index' && !out.some((b) => b?.type === 'post-list')) {
+    out = [...out, { type: 'post-list', props: { heading: out.length ? '' : 'Articles', layout: 'grid', items: cards } }]
+  }
+  return out
+}
+
 type MenuItem = { label: string; href: string; children?: MenuItem[] }
 type MenuTree = { items: MenuItem[]; cta?: { label: string; href: string } | null }
 
@@ -450,7 +476,14 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
   const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, row.wsId)).limit(1)
   const t = (tok?.tokens as any) ?? DEFAULT_TOKENS
   const rawBlocks = Array.isArray(row.blocks) ? (row.blocks as any[]) : []
-  const blocks = resolveCtaRefs(rawBlocks, (t as any).ctas || [], { slug: row.slug, title: row.title, type: row.type })
+  let blocks = resolveCtaRefs(rawBlocks, (t as any).ctas || [], { slug: row.slug, title: row.title, type: row.type })
+  // Blog index preview: pull sibling articles.
+  const needsPosts = row.type === 'blog_index' || rawBlocks.some((b: any) => b?.type === 'post-list')
+  if (needsPosts) {
+    const siblings = await db.select({ slug: pages.slug, title: pages.title, type: pages.type, blocks: pages.blocks }).from(pages).where(eq(pages.workspaceId, row.wsId))
+    const cards = siblings.filter((x) => ARTICLE_LIST_TYPES.has(x.type as string) && x.slug !== row.slug).map(articleCard)
+    blocks = resolvePostLists(blocks, cards, row.type)
+  }
   const body = opts?.edit
     ? blocks.map((b, i) => {
         const empty = !sectionHasContent(b)
@@ -482,10 +515,13 @@ publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) 
     await rm(outDir, { recursive: true, force: true })
     await mkdir(outDir, { recursive: true })
     const siteMenus = await getMenusFor(ws.id)
+    // Article cards for any blog index / post-list on the site.
+    const articleCards = pageRows.filter((x) => ARTICLE_LIST_TYPES.has(x.type as string)).map(articleCard)
     let count = 0
     for (const p of publishable) {
       const rawBlocks = Array.isArray(p.blocks) ? (p.blocks as any[]) : []
-      const blocks = resolveCtaRefs(rawBlocks, (t as any).ctas || [], { slug: p.slug, title: p.title, type: p.type })
+      let blocks = resolveCtaRefs(rawBlocks, (t as any).ctas || [], { slug: p.slug, title: p.title, type: p.type })
+      blocks = resolvePostLists(blocks, articleCards.filter((c) => c.url !== (p.slug === 'home' ? '/' : `/${p.slug}/`)), p.type)
       const html = renderPage(p, composeBody(blocks, (b) => renderBlock(b)), t, ws, base, siteMenus)
       const rel = p.slug === 'home' ? 'index.html' : path.join(p.slug, 'index.html')
       const file = path.join(outDir, rel)
