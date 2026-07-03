@@ -85,6 +85,11 @@ section + section{padding-top:0}
 .site-header .container{display:flex;align-items:center;gap:24px;min-height:56px;padding:8px 22px;border-radius:16px;transition:background .2s ease, box-shadow .2s ease}
 .site-header .brand,.site-header .nav .nav-link,.site-header .caret{color:var(--text)}
 main > section:first-child{padding-top:calc(var(--pad) + 76px)}
+/* Imported heroes carry their background on a NESTED element, so our headroom
+   would just be a white band above it. Drop the headroom for raw-html first
+   sections — the imported hero has its own top padding, and the transparent
+   header overlays its (colored) top so the menu sits ON the hero. */
+main > section.uw-raw:first-child{padding-top:0}
 
 /* glass — scroll-aware: at the top it's fully TRANSPARENT so the menu is part
    of the hero (no white bar); once scrolled it becomes a frosted bar so the nav

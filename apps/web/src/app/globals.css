@@ -138,8 +138,10 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 .feat a.go{display:inline-block;margin-top:12px;font-size:13px;font-weight:600;color:var(--forest)}
 
 /* ============ Editor v2 — preview-centric ============ */
-.editor-bar2{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.editor-bar2{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .editor-bar2 .back{font-size:13px;color:var(--text-muted);text-decoration:none}
+/* uniform toolbar buttons — never wrap text to two lines, don't shrink */
+.editor-bar2 .btn,.editor-bar2 a.btn{white-space:nowrap;flex:0 0 auto;font-size:13px;padding:8px 13px;min-height:36px}
 .editor-bar2 .title-input{flex:1;font-family:'Space Grotesk',sans-serif;font-size:17px;font-weight:600;color:var(--text);background:transparent;border:1px solid transparent;border-radius:var(--r-sm);padding:8px 10px}
 .editor-bar2 .title-input:hover{border-color:var(--border)}
 .editor-bar2 .title-input:focus{outline:none;border-color:var(--forest);background:var(--surface)}
@@ -393,7 +395,10 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .bb-neutral.bb-editable:hover,.bb-swatch.bb-editable:hover{outline-color:rgba(0,0,0,.25)}
 /* uploaded SVG decor + upload tile */
 .bb-decor-custom{position:relative}
-.bb-decor-custom .bb-decor-ico :is(svg,img){max-width:52px;max-height:52px}
+/* force a concrete size — SVGs uploaded with only a viewBox (no width/height)
+   otherwise collapse to 0×0 and look invisible */
+.bb-decor-custom .bb-decor-ico svg{width:52px;height:52px}
+.bb-decor-custom .bb-decor-ico img{max-width:52px;max-height:52px}
 .bb-decor-del{position:absolute;top:6px;right:6px;width:20px;height:20px;border:0;border-radius:999px;background:rgba(0,0,0,.06);color:var(--text-muted);font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .bb-decor-del:hover{background:#e5484d;color:#fff}
 .bb-decor-upload{cursor:pointer;border-style:dashed;color:var(--text-muted);transition:border-color .15s,color .15s}
