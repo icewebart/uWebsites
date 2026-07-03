@@ -363,18 +363,20 @@ HARD RULES (content is sacred — you REDESIGN, you do NOT rewrite):
 // are left untouched.
 // Merge AI-polished copy back over the original props: only overlay safe text
 // keys; never touch urls/hrefs/images/numbers/layout flags; keep array lengths.
-const UNSAFE_PROP_KEY = /url|href|image|icon|src|rating|price|period|value|variant|layout|side|featured|width|height|scale|html/i
-function mergePolishedProps(orig: any, pol: any): any {
-  if (Array.isArray(orig)) return Array.isArray(pol) ? orig.map((o, i) => i < pol.length ? mergePolishedProps(o, pol[i]) : o) : orig
+// Design-only merge for typed sections: overlay ONLY visual/layout keys from
+// the model, never text. Polish must never change a single word (user rule).
+const VISUAL_PROP_KEY = /^(variant|layout|image_side|align|accent|icon)$/i
+function mergeVisualProps(orig: any, pol: any): any {
+  if (Array.isArray(orig)) return Array.isArray(pol) ? orig.map((o, i) => i < pol.length ? mergeVisualProps(o, pol[i]) : o) : orig
   if (orig && typeof orig === 'object') {
     const out: any = { ...orig }
     if (pol && typeof pol === 'object') for (const k of Object.keys(orig)) {
-      if (UNSAFE_PROP_KEY.test(k) || !(k in pol)) continue
-      out[k] = mergePolishedProps(orig[k], pol[k])
+      if (VISUAL_PROP_KEY.test(k) && typeof pol[k] === 'string') out[k] = pol[k]
+      else if (orig[k] && typeof orig[k] === 'object') out[k] = mergeVisualProps(orig[k], pol?.[k])
     }
     return out
   }
-  return typeof orig === 'string' ? (typeof pol === 'string' ? pol : orig) : orig
+  return orig
 }
 
 aiRouter.post('/critique-page', requireAuth, async (req: AuthRequest, res) => {
@@ -413,19 +415,15 @@ aiRouter.post('/critique-page', requireAuth, async (req: AuthRequest, res) => {
         const propsJson = JSON.stringify(b.props)
         try {
           const r = await a.messages.create({
-            model: MODEL, max_tokens: 2000,
-            system: `You improve the COPY of one website section. You are given its props as JSON. Return the SAME JSON object with only the human-readable TEXT values rewritten to be sharper, specific and on-brand.
+            model: MODEL, max_tokens: 1500,
+            system: `You are a web designer improving the VISUAL DESIGN of ONE section. You are given its props as JSON. Return the SAME JSON object.
 ABSOLUTE RULES:
-- Keep EVERY key. Keep array lengths identical. Keep object shape identical.
-- NEVER change any value whose key contains url, href, image, icon, src, rating, price, period, value, variant, layout, side, featured — copy those verbatim.
-- Only rewrite visible prose: heading, sub, eyebrow, title, desc, quote, q, a, label, cta_label, name, caption, marker, badge, text.
-- Preserve concrete facts (numbers, names, dates). Do not invent testimonials or fake stats.
-- If a value is already strong, leave it. Do not pad. Return ONLY the JSON via the tool.
-
-${brandBrief_}
-
-${COPY_RULES}`,
-            tools: [{ name: 'props', description: 'The section props with improved copy.', input_schema: { type: 'object', properties: { props: { type: 'object', description: 'The full props object, same shape, improved text.' } }, required: ['props'] } as any }],
+- NEVER change any text. Every heading, sub, eyebrow, title, desc, quote, label, caption, q, a must stay BYTE-IDENTICAL. This is a design pass, not a copywriting pass.
+- You may ONLY change these visual/layout keys when a better option exists: "variant", "layout", "image_side", "align", and item "icon" values (pick more fitting emoji icons).
+- Keep every other key and every array length identical.
+- If there is no better visual option, return the props unchanged.
+Return ONLY the JSON via the tool.`,
+            tools: [{ name: 'props', description: 'The section props with improved visual/layout keys only.', input_schema: { type: 'object', properties: { props: { type: 'object' } }, required: ['props'] } as any }],
             tool_choice: { type: 'tool', name: 'props' },
             messages: [{ role: 'user', content: `Section kind: ${b.type}\nprops:\n${propsJson.slice(0, 12000)}` }],
           })
@@ -438,13 +436,12 @@ ${COPY_RULES}`,
       let changed = 0
       for (const r of results) {
         if (!r.props) continue
-        // Merge: start from the original props (authoritative for urls/counts),
-        // overlay only the safe text keys the model returned.
+        // Overlay ONLY visual keys — text is never touched.
         const orig = blocks[r.i].props
-        blocks[r.i].props = mergePolishedProps(orig, r.props)
-        changed++
+        const merged = mergeVisualProps(orig, r.props)
+        if (JSON.stringify(merged) !== JSON.stringify(orig)) { blocks[r.i].props = merged; changed++ }
       }
-      if (!changed) return res.status(502).json({ ok: false, error: 'Polish could not improve any section — please try again.' })
+      if (!changed) return res.status(200).json({ ok: true, data: { redesigned: 0, keptOriginal: typed.length, mode: 'design', note: 'Sections are already on-brand — nothing to restyle. Use the Article Template or ⇄ Replace to change a section\'s layout.' } })
       await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
       await logAiJob(ws.id, 'edit', 'done', { source: 'critique-typed', pageId: page.id, sections: changed }, changed, page.id)
       return res.json({ ok: true, data: { redesigned: changed, keptOriginal: 0, mode: 'copy' } })
@@ -598,22 +595,23 @@ aiRouter.post('/critique-section', requireAuth, async (req: AuthRequest, res) =>
 
   // Typed section → on-brand COPY polish (same as the typed critique-page path).
   if (b.type !== 'raw-html' || typeof b?.props?.html !== 'string' || b.props.html.length < 120) {
-    if (!sectionHasContent(b)) return res.status(400).json({ ok: false, error: 'This section has no copy to polish yet.' })
-    const brandBrief_ = await brandPrompt(ws.id)
+    if (!sectionHasContent(b)) return res.status(400).json({ ok: false, error: 'This section has no content to polish yet.' })
     try {
       const r = await a.messages.create({
-        model: MODEL, max_tokens: 2000,
-        system: `You improve the COPY of one website section. Return the SAME JSON props with only human-readable TEXT values rewritten sharper + on-brand. Keep EVERY key + array length. NEVER change any value whose key contains url, href, image, icon, src, rating, price, period, value, variant, layout, side, featured. Only rewrite: heading, sub, eyebrow, title, desc, quote, q, a, label, cta_label, name, caption, marker, badge, text. Preserve concrete facts.\n\n${brandBrief_}\n\n${COPY_RULES}`,
-        tools: [{ name: 'props', description: 'Section props with improved copy.', input_schema: { type: 'object', properties: { props: { type: 'object' } }, required: ['props'] } as any }],
+        model: MODEL, max_tokens: 1500,
+        system: `You are a web designer improving the VISUAL DESIGN of ONE section (props JSON). Return the SAME JSON object. NEVER change any text — every heading, sub, title, desc, quote, label, caption must stay BYTE-IDENTICAL (this is a design pass, not copywriting). You may ONLY change visual/layout keys when a better option exists: "variant", "layout", "image_side", "align", and item "icon" emoji. Keep every other key + array length identical. If nothing visual can be improved, return props unchanged. Return ONLY the JSON via the tool.`,
+        tools: [{ name: 'props', description: 'Section props with improved visual keys only.', input_schema: { type: 'object', properties: { props: { type: 'object' } }, required: ['props'] } as any }],
         tool_choice: { type: 'tool', name: 'props' },
         messages: [{ role: 'user', content: `Section kind: ${b.type}\nprops:\n${JSON.stringify(b.props).slice(0, 12000)}` }],
       })
       const tu = r.content.find((x: any) => x.type === 'tool_use') as any
       if (!tu?.input?.props) return res.status(502).json({ ok: false, error: 'Model returned nothing.' })
-      blocks[index].props = mergePolishedProps(b.props, tu.input.props)
+      const merged = mergeVisualProps(b.props, tu.input.props)
+      if (JSON.stringify(merged) === JSON.stringify(b.props)) return res.status(200).json({ ok: true, data: { index, mode: 'design', note: 'Already on-brand — nothing to restyle. Use ⇄ Replace to change the layout, or the Article Template for the hero.' } })
+      blocks[index].props = merged
       await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, page.id))
       await logAiJob(ws.id, 'edit', 'done', { source: 'critique-section-typed', pageId: page.id, index }, 1, page.id)
-      return res.json({ ok: true, data: { index, mode: 'copy' } })
+      return res.json({ ok: true, data: { index, mode: 'design' } })
     } catch (e: any) { return res.status(502).json({ ok: false, error: 'Polish failed: ' + (e?.message || 'unknown') }) }
   }
 

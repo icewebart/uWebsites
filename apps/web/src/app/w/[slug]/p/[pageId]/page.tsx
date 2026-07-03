@@ -71,9 +71,10 @@ export default function PageEditor() {
   async function polishSection(idx: number) {
     setErr(''); setPolishingSectionIdx(idx); pushHistory()
     const before = JSON.stringify(blocks[idx] || null)
-    let apiErr: any = null
-    api('/ai/critique-section', { method: 'POST', body: JSON.stringify({ slug, pageId, index: idx }) })
-      .catch((e) => { apiErr = e })
+    let apiErr: any = null, resp: any = null, done = false
+    api<{ mode?: string; note?: string }>('/ai/critique-section', { method: 'POST', body: JSON.stringify({ slug, pageId, index: idx }) })
+      .then((d) => { resp = d; done = true })
+      .catch((e) => { apiErr = e; done = true })
     const started = Date.now()
     while (Date.now() - started < 180_000) {
       await new Promise((r) => setTimeout(r, 3000))
@@ -85,6 +86,8 @@ export default function PageEditor() {
         const now = JSON.stringify((Array.isArray(p.blocks) ? p.blocks[idx] : null) || null)
         if (now !== before) { setBlocks(p.blocks); setPreviewKey((k) => k + 1); setSavedAt('Section polished ✓'); setPolishingSectionIdx(null); return }
       } catch { /* keep polling */ }
+      // Request finished with no change (e.g. "already on-brand") — stop waiting.
+      if (done && !apiErr) { setHistory((h) => h.slice(0, -1)); setSavedAt(resp?.note || 'No visual changes to make on this section.'); setPolishingSectionIdx(null); return }
     }
     setPolishingSectionIdx(null); setErr('Polish took too long — reload to see if the section changed.')
   }
