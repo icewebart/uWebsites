@@ -777,8 +777,9 @@ export default function Branding() {
 
           <div className="ctl-group card">
             <h3>Spacing</h3>
+            <p className="muted" style={{ fontSize: 11, marginTop: -4, marginBottom: 10 }}>Section spacing applies to every page, including articles. Try 72–96px for a roomy feel.</p>
+            <PxRow label="Space around sections" group="space" k="sectionPaddingY" max={200} />
             <PxRow label="Gap between sections" group="space" k="sectionGap" max={200} />
-            <PxRow label="Section padding (Y)" group="space" k="sectionPaddingY" max={200} />
             <PxRow label="Container width" group="space" k="container" max={1600} />
           </div>
         </div>

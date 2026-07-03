@@ -73,6 +73,13 @@ section.tone-surface + section.tone-surface{padding-top:calc(var(--pad) * .4)}
 .tone-hero-wash{background:linear-gradient(160deg, color-mix(in srgb, var(--primary) 8%, var(--surface)), color-mix(in srgb, var(--accent) 7%, var(--surface)));overflow:hidden}
 .tone-tint::before,.tone-hero-wash::before{content:"";position:absolute;width:220px;height:220px;border-radius:50%;background:color-mix(in srgb, var(--accent) 16%, transparent);top:-70px;right:-60px;z-index:0;pointer-events:none}
 .tone-tint::after,.tone-hero-wash::after{content:"";position:absolute;width:150px;height:150px;border-radius:50%;background:color-mix(in srgb, var(--primary) 12%, transparent);bottom:-50px;left:-40px;z-index:0;pointer-events:none}
+/* Uploaded decor SVGs replace the plain circles when present */
+.has-decor::before,.has-decor::after{display:none}
+.uw-decor{position:absolute;z-index:0;pointer-events:none;opacity:.5}
+.uw-decor svg{width:100%;height:100%;display:block}
+.uw-decor-a{width:180px;height:180px;top:-38px;right:-30px}
+.uw-decor-b{width:120px;height:120px;bottom:-34px;left:-30px}
+@media(max-width:640px){.uw-decor-a{width:120px;height:120px}.uw-decor-b{width:84px;height:84px}}
 .hero{padding-bottom:calc(var(--pad))}
 .hero h1{font-size:calc(2.1rem * ${t.font.scale});margin-bottom:14px;max-width:18ch}
 .hero .sub{font-size:1.1rem;opacity:.78;max-width:60ch;margin-bottom:24px}
@@ -213,8 +220,17 @@ const renderBlock = renderSection
 // Tinted bands also get scattered decorative circles (see .tone-tint CSS).
 const HERO_KINDS = new Set(['hero', 'hero-image', 'hero-blob'])
 const NEUTRAL_KINDS = new Set(['stats-band', 'cta-banner', 'raw-html'])
-function composeBody(blocks: any[], renderOne: (b: any, i: number) => string): string {
+// Uploaded decor SVG markup from the workspace brand assets (Branding →
+// Iconițe & decor). Used as scattered section-background decoration.
+function decorSvgs(t: any): string[] {
+  const arr = (t as any)?.brand_assets?.decor_svgs
+  return Array.isArray(arr) ? arr.map((d: any) => String(d?.svg || '')).filter((s: string) => s.includes('<svg')) : []
+}
+
+function composeBody(blocks: any[], renderOne: (b: any, i: number) => string, decor?: string[]): string {
   let toggle = false
+  let decorIdx = 0
+  const decorList = Array.isArray(decor) ? decor.filter(Boolean) : []
   return blocks.map((b, i) => {
     let html = renderOne(b, i)
     const type = b?.type
@@ -225,9 +241,22 @@ function composeBody(blocks: any[], renderOne: (b: any, i: number) => string): s
     }
     // hero-blob gets a very soft wash so the opening doesn't read as flat white
     if (type === 'hero-blob') tone = 'hero-wash'
+    // Tinted bands get decoration: the workspace's uploaded decor SVGs, cycled
+    // + rotated so no two sections look the same. Falls back to the CSS circles
+    // when no decor has been uploaded (Branding → Iconițe & decor).
+    let decorMarkup = ''
+    const hasDecor = (tone === 'tint' || tone === 'hero-wash') && decorList.length > 0
+    if (hasDecor) {
+      const a = decorList[decorIdx % decorList.length]
+      const b2 = decorList.length > 1 ? decorList[(decorIdx + 1) % decorList.length] : ''
+      const rA = ((decorIdx * 37) % 30) - 15, rB = ((decorIdx * 53) % 26) - 13
+      decorMarkup = `<span class="uw-decor uw-decor-a" aria-hidden="true" style="transform:rotate(${rA}deg)">${a}</span>${b2 ? `<span class="uw-decor uw-decor-b" aria-hidden="true" style="transform:rotate(${rB}deg)">${b2}</span>` : ''}`
+      decorIdx += 2
+    }
     // Always stamp the tone class (incl. tone-surface) so the section-rhythm CSS
     // can tighten same-tone seams. All section renderers start with <section class=".
-    html = html.replace(/<section class="/, `<section data-tone="${tone}" class="tone-${tone} `)
+    html = html.replace(/<section class="/, `<section data-tone="${tone}" class="tone-${tone}${hasDecor ? ' has-decor' : ''} `)
+    if (decorMarkup) html = html.replace(/(<section[^>]*>)/, `$1${decorMarkup}`)
     return html
   }).join('\n')
 }
@@ -502,7 +531,7 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
         const emptyAttr = empty ? ' data-empty="true"' : ''
         return `<div data-section-index="${i}" data-section-kind="${esc(b.type)}"${emptyAttr}${isSel ? ' data-selected="1"' : ''} style="${sel}">${empty ? '' : renderSection(b, { edit: true })}</div>`
       }).join('\n') + EDIT_SCRIPT
-    : composeBody(blocks, (b) => renderBlock(b))
+    : composeBody(blocks, (b) => renderBlock(b), decorSvgs(t))
   const menus = await getMenusFor(row.wsId)
   return renderPage({ title: row.title }, body, t, { name: row.wsName }, '#', menus)
 }
@@ -532,7 +561,7 @@ publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) 
       const rawBlocks = Array.isArray(p.blocks) ? (p.blocks as any[]) : []
       let blocks = resolveCtaRefs(rawBlocks, (t as any).ctas || [], { slug: p.slug, title: p.title, type: p.type })
       blocks = resolvePostLists(blocks, articleCards.filter((c) => c.url !== (p.slug === 'home' ? '/' : `/${p.slug}/`)), p.type)
-      const html = renderPage(p, composeBody(blocks, (b) => renderBlock(b)), t, ws, base, siteMenus)
+      const html = renderPage(p, composeBody(blocks, (b) => renderBlock(b), decorSvgs(t)), t, ws, base, siteMenus)
       const rel = p.slug === 'home' ? 'index.html' : path.join(p.slug, 'index.html')
       const file = path.join(outDir, rel)
       await mkdir(path.dirname(file), { recursive: true })
