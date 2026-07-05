@@ -39,23 +39,25 @@ export function classifySection(fp: SectionFP): Classification {
   const cta2 = fp.buttons[1]
   const mk = (type: string, props: any, confidence: number, reason: string): Classification => ({ block: { type, props }, confidence, kind: type, reason })
 
-  // 1) HERO — first section, has a heading, a dominant image (bg or content),
-  //    little repeated structure. This is what people judge the page on.
-  if (fp.isFirst && fp.heading && c.heading <= 3 && cards.length < 3) {
+  // 1) HERO — first section, real heading, a DOMINANT image, and enough height
+  //    to be a banner. Requiring an image + height avoids promoting a slim
+  //    contact/utility bar (phone·email) at the top of the page into a hero with
+  //    empty placeholders. A heading that's just contact info is rejected too.
+  const looksContact = /^[\s\d()+.\-|/]*$/.test(fp.heading) || /@|\btel\b|\bemail\b/i.test(fp.heading)
+  if (fp.isFirst && fp.heading && !looksContact && c.heading <= 3 && cards.length < 3 && fp.rect.h >= 300) {
     const img = heroImage(fp)
-    const base: any = {
-      eyebrow: clip(fp.kicker, 60), heading: clip(fp.heading, 160), sub: clip(fp.deck, 260),
-      image_url: img.url, image_alt: img.alt,
-      cta_label: cta?.label || '', cta_href: cta?.href || '',
-      cta2_label: cta2?.label || '', cta2_href: cta2?.href || '',
-    }
-    // Big full-bleed background image → split-hero reads best; a contained
-    // image beside text → hero-image.
     if (img.url) {
+      const base: any = {
+        eyebrow: clip(fp.kicker, 60), heading: clip(fp.heading, 160), sub: clip(fp.deck, 260),
+        image_url: img.url, image_alt: img.alt,
+        cta_label: cta?.label || '', cta_href: cta?.href || '',
+        cta2_label: cta2?.label || '', cta2_href: cta2?.href || '',
+      }
+      // Full-bleed background image → split-hero; a contained image → hero-image.
       const bleed = fp.bg.hasImage || (fp.rect.h >= 420)
       return mk(bleed ? 'split-hero' : 'hero-image', base, 0.82, 'first section w/ heading + hero image')
     }
-    return mk('hero-image', base, 0.6, 'first section w/ heading, no image')
+    // No image → not a confident hero; let raw-html preserve it verbatim.
   }
 
   // 2) FAQ — accordion/toggle markup is an unambiguous signal.
@@ -88,8 +90,12 @@ export function classifySection(fp: SectionFP): Classification {
     }, 0.72, `${c.img} images, low text`)
   }
 
-  // 5) CARD ROWS — the equal-width repeated children the fingerprint found.
-  if (cards.length >= 2 && withHeading >= Math.ceil(cards.length / 2)) {
+  // 5) CARD ROWS — equal-width repeated children. Require the cards to carry
+  //    real substance (a description, an image, or an icon) — a row of bare
+  //    heading+link items is a nav/menu list, not a feature grid, so let it fall
+  //    through to a faithful raw-html block instead.
+  const substantive = cards.filter((x) => x.text.length > 20 || x.imgUrl || x.icon).length
+  if (cards.length >= 2 && withHeading >= Math.ceil(cards.length / 2) && substantive >= Math.ceil(cards.length / 2)) {
     // Testimonials: quote-shaped cards (blockquotes / a name + a longer line).
     if (c.blockquote >= 2 || (cards.every((x) => !x.imgUrl && x.text.length > 40) && /testimon|review|p[ăa]rer|recenz/i.test(fp.classes + ' ' + fp.heading))) {
       return mk('testimonials-3', {
