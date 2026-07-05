@@ -18,7 +18,7 @@ const NAV: NavEntry[] = [
   { label: 'Article Template', Icon: IconArticles, sub: true },
   { label: 'Articles', Icon: IconArticles },
   { label: 'Branding', Icon: IconBranding },
-  { label: 'Stats', Icon: IconStats },
+  { label: 'Insights', Icon: IconStats },
 ]
 const PROFILE_ITEMS = ['Settings', 'Domains', 'Integrations', 'Email Setup', 'Billing']
 
@@ -56,7 +56,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
         <nav className="sidebar-nav">
           {NAV.map(({ label, Icon, sub }) => {
             const href = label === 'Dashboard' ? '/'
-              : label === 'Stats' ? '/stats'
+              : label === 'Insights' ? '/insights'
               : !current ? undefined
               : label === 'Website' ? `/w/${current.slug}`
               : label === 'Menu' ? `/w/${current.slug}/menu`

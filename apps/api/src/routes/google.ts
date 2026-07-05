@@ -2,7 +2,8 @@ import { Router } from 'express'
 import { Google, generateState, generateCodeVerifier } from 'arctic'
 import { eq } from 'drizzle-orm'
 import { db, accounts, users, workspaces, memberships } from '@uwebsites/db'
-import { signSession, setSessionCookie } from '../middleware/auth.js'
+import { signSession, setSessionCookie, sessionFromReq, requireAuth, type AuthRequest } from '../middleware/auth.js'
+import { dataClient, SCOPE_SEARCH, SCOPE_ANALYTICS, getGoogleConn, saveGoogleConn } from '../lib/google-data.js'
 
 // Google OAuth (OpenID Connect) via arctic. Secrets come from env
 // (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET) — never committed.
@@ -66,5 +67,68 @@ googleRouter.get('/google/callback', async (req, res) => {
     res.redirect(isNew ? `${APP_URL}/onboarding` : `${APP_URL}/`)
   } catch {
     res.redirect(`${APP_URL}/login?error=oauth`)
+  }
+})
+
+// ---------------- Google DATA connect (Search Console + Analytics) ----------
+// Separate flow from login: the logged-in user grants read access to their
+// Search Console / Analytics; we keep an offline refresh token per account.
+// Reuses the same OAuth client, a DIFFERENT redirect URI.
+
+googleRouter.get('/google/data/connect', requireAuth, async (req: AuthRequest, res) => {
+  if (!process.env.GOOGLE_CLIENT_ID) return res.redirect(`${APP_URL}/integrations?google=unconfigured`)
+  const which = String(req.query.scope || 'search')
+  // Re-request any scopes already granted so the fresh consent's refresh token
+  // covers everything (incremental auth), plus the newly requested one.
+  const existing = (await getGoogleConn(req.user!.accountId))?.scopes || []
+  const want = new Set<string>(['openid', 'email', ...existing])
+  if (which === 'search' || which === 'both') want.add(SCOPE_SEARCH)
+  if (which === 'analytics' || which === 'both') want.add(SCOPE_ANALYTICS)
+  const state = generateState()
+  const codeVerifier = generateCodeVerifier()
+  const url = dataClient().createAuthorizationURL(state, codeVerifier, [...want])
+  url.searchParams.set('access_type', 'offline')       // → refresh token
+  url.searchParams.set('prompt', 'consent')            // force it even on re-connect
+  url.searchParams.set('include_granted_scopes', 'true')
+  res.cookie('gd_state', state, tmp)
+  res.cookie('gd_verifier', codeVerifier, tmp)
+  res.redirect(url.toString())
+})
+
+googleRouter.get('/google/data/callback', async (req, res) => {
+  const code = req.query.code as string | undefined
+  const state = req.query.state as string | undefined
+  const storedState = req.cookies?.gd_state
+  const verifier = req.cookies?.gd_verifier
+  const back = (q: string) => res.redirect(`${APP_URL}/integrations?${q}`)
+  // Identify the account from the session cookie (carried on this redirect).
+  const sess = await sessionFromReq(req)
+  if (!sess) return back('google=needlogin')
+  if (!code || !state || !storedState || state !== storedState || !verifier) return back('google=error')
+  try {
+    const tokens = await dataClient().validateAuthorizationCode(code, verifier)
+    let refreshToken: string | null = null
+    try { refreshToken = tokens.refreshToken() } catch { /* none returned */ }
+    // Which scopes were actually granted.
+    let scopes: string[] = []
+    try { scopes = (tokens as any).scopes?.() || [] } catch { /* fall back below */ }
+    // Identify the connected Google account email.
+    let email: string | undefined
+    try {
+      const u = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${tokens.accessToken()}` } })
+      email = ((await u.json()) as any)?.email
+    } catch { /* optional */ }
+    const prev = await getGoogleConn(sess.accountId)
+    // Merge scopes with previously-granted; keep old refresh token if Google
+    // didn't return a new one (happens when the user already consented).
+    const mergedScopes = [...new Set([...(prev?.scopes || []), ...scopes])]
+    const finalRefresh = refreshToken || prev?.refreshToken
+    if (!finalRefresh) return back('google=norefresh')
+    await saveGoogleConn(sess.accountId, { refreshToken: finalRefresh, scopes: mergedScopes.length ? mergedScopes : (prev?.scopes || []), email: email || prev?.email, connectedAt: new Date().toISOString() })
+    res.clearCookie('gd_state', { path: '/' })
+    res.clearCookie('gd_verifier', { path: '/' })
+    back('google=connected')
+  } catch {
+    back('google=error')
   }
 })

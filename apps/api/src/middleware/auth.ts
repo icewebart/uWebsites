@@ -8,6 +8,18 @@ export interface AuthRequest extends Request {
   user?: { id: string; accountId: string; email: string }
 }
 
+// Read + verify the session from a request without failing the response —
+// returns the user payload or null. Used by the Google data-OAuth callback,
+// which is a top-level redirect (not an API call) but still carries the cookie.
+export async function sessionFromReq(req: Request): Promise<{ id: string; accountId: string; email: string } | null> {
+  try {
+    const token = (req as any).cookies?.[COOKIE]
+    if (!token) return null
+    const { payload } = await jwtVerify(token, secret())
+    return { id: payload.id as string, accountId: payload.accountId as string, email: payload.email as string }
+  } catch { return null }
+}
+
 export async function signSession(payload: { id: string; accountId: string; email: string }) {
   return new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })

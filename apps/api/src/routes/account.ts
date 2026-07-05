@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db, accounts, workspaces, domains } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
+import { getGoogleConn, saveGoogleConn, hasScope, SCOPE_SEARCH, SCOPE_ANALYTICS, scListSites, scQuery, gaListProperties, gaReport } from '../lib/google-data.js'
 
 // Account-level settings: integrations (Cloudflare) + domains across all
 // workspaces. Secrets are stored in accounts.settings (jsonb) server-side and
@@ -77,6 +78,54 @@ accountRouter.delete('/integrations/mailjet', requireAuth, async (req: AuthReque
   delete s.mailjet
   await saveSettings(req.user!.accountId, s)
   res.json({ ok: true })
+})
+
+// ---------------- Google (Search Console + Analytics) ----------------
+// The OAuth connect/callback live in routes/google.ts; these expose status +
+// data. Tokens themselves are never returned — only connection status + scopes.
+accountRouter.get('/google/status', requireAuth, async (req: AuthRequest, res) => {
+  const c = await getGoogleConn(req.user!.accountId)
+  res.json({ ok: true, data: {
+    connected: !!c,
+    email: c?.email || null,
+    searchConsole: hasScope(c, SCOPE_SEARCH),
+    analytics: hasScope(c, SCOPE_ANALYTICS),
+    connectedAt: c?.connectedAt || null,
+  } })
+})
+
+accountRouter.delete('/google', requireAuth, async (req: AuthRequest, res) => {
+  await saveGoogleConn(req.user!.accountId, null)
+  res.json({ ok: true })
+})
+
+const reauth = (res: any, e: any) => {
+  const m = String(e?.message || '')
+  if (m === 'google-not-connected') return res.status(400).json({ ok: false, error: 'Connect Google first.' })
+  if (m === 'google-reauth-required') return res.status(401).json({ ok: false, error: 'Google access expired — reconnect.' })
+  return res.status(502).json({ ok: false, error: m || 'Google API error' })
+}
+
+// Search Console
+accountRouter.get('/google/search-console/sites', requireAuth, async (req: AuthRequest, res) => {
+  try { res.json({ ok: true, data: await scListSites(req.user!.accountId) }) } catch (e) { reauth(res, e) }
+})
+accountRouter.post('/google/search-console/report', requireAuth, async (req: AuthRequest, res) => {
+  const siteUrl = String(req.body?.siteUrl || '')
+  const days = Math.min(90, Math.max(7, Number(req.body?.days) || 28))
+  if (!siteUrl) return res.status(400).json({ ok: false, error: 'siteUrl required' })
+  try { res.json({ ok: true, data: await scQuery(req.user!.accountId, siteUrl, days) }) } catch (e) { reauth(res, e) }
+})
+
+// Analytics (GA4)
+accountRouter.get('/google/analytics/properties', requireAuth, async (req: AuthRequest, res) => {
+  try { res.json({ ok: true, data: await gaListProperties(req.user!.accountId) }) } catch (e) { reauth(res, e) }
+})
+accountRouter.post('/google/analytics/report', requireAuth, async (req: AuthRequest, res) => {
+  const propertyId = String(req.body?.propertyId || '')
+  const days = Math.min(90, Math.max(7, Number(req.body?.days) || 28))
+  if (!propertyId) return res.status(400).json({ ok: false, error: 'propertyId required' })
+  try { res.json({ ok: true, data: await gaReport(req.user!.accountId, propertyId, days) }) } catch (e) { reauth(res, e) }
 })
 
 // ---------------- Domains ----------------

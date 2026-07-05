@@ -1,11 +1,12 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { api } from '@/lib/api'
+import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
 type CF = { connected: boolean; verified: boolean; tokenHint: string | null; verifiedAt: string | null }
 type MJ = { connected: boolean; tokenHint: string | null; listId: string | null; verifiedAt: string | null }
+type GS = { connected: boolean; email: string | null; searchConsole: boolean; analytics: boolean; connectedAt: string | null }
 
 export default function IntegrationsPage() {
   const router = useRouter()
@@ -13,12 +14,35 @@ export default function IntegrationsPage() {
   const [mj, setMj] = useState<MJ | null>(null)
   const [token, setToken] = useState('')
   const [mjKey, setMjKey] = useState(''); const [mjSecret, setMjSecret] = useState(''); const [mjList, setMjList] = useState('')
+  const [gs, setGs] = useState<GS | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [note, setNote] = useState('')
 
-  function load() { return api<{ cloudflare: CF; mailjet: MJ }>('/account/integrations').then((d) => { setCf(d.cloudflare); setMj(d.mailjet) }) }
+  function load() {
+    return Promise.all([
+      api<{ cloudflare: CF; mailjet: MJ }>('/account/integrations').then((d) => { setCf(d.cloudflare); setMj(d.mailjet) }),
+      api<GS>('/account/google/status').then(setGs).catch(() => setGs(null)),
+    ])
+  }
   useEffect(() => { load().catch(() => router.push('/login')) }, [])
+  // Surface the result of the Google OAuth redirect (?google=connected|error|…).
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get('google')
+    if (!p) return
+    if (p === 'connected') setNote('Google connected ✓')
+    else if (p === 'needlogin') setErr('Please log in, then connect Google again.')
+    else if (p === 'norefresh') setErr('Google didn’t return a refresh token — click Disconnect, then Connect again.')
+    else if (p === 'unconfigured') setErr('Google OAuth is not configured on the server.')
+    else if (p === 'error') setErr('Google connection failed — try again.')
+    window.history.replaceState({}, '', '/integrations')
+  }, [])
+
+  const goConnectGoogle = (scope: 'search' | 'analytics') => { window.location.href = `${API_URL}/auth/google/data/connect?scope=${scope}` }
+  async function disconnectGoogle() {
+    if (!window.confirm('Disconnect Google? Search Console / Analytics data will stop loading.')) return
+    setBusy(true); try { await api('/account/google', { method: 'DELETE' }); setNote('Google disconnected.'); await load() } finally { setBusy(false) }
+  }
 
   async function connectMj() {
     if (!mjKey.trim() || !mjSecret.trim()) return
@@ -108,15 +132,39 @@ export default function IntegrationsPage() {
 
       <div className="ctl-group card" style={{ maxWidth: 640, marginTop: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 10, background: '#4285F4', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>GSC</div>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: '#4285F4', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>G</div>
           <div style={{ flex: 1 }}>
-            <h3 style={{ margin: 0 }}>Google Search Console</h3>
-            <p className="muted" style={{ fontSize: 12, margin: 0 }}>Get your site indexed &amp; track search performance.</p>
+            <h3 style={{ margin: 0 }}>Google Search Console &amp; Analytics</h3>
+            <p className="muted" style={{ fontSize: 12, margin: 0 }}>Pull search performance &amp; traffic into your <a href="/insights">Insights</a> dashboard.</p>
+          </div>
+          {gs?.connected && <span className="status-pill live">Connected</span>}
+        </div>
+
+        {gs?.connected && <p className="muted" style={{ fontSize: 13, margin: '0 0 12px' }}>Connected as <b>{gs.email || 'your Google account'}</b>.</p>}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div className="aside-block" style={{ padding: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <b style={{ fontSize: 13 }}>Search Console</b>
+              {gs?.searchConsole && <span className="status-pill live" style={{ fontSize: 10 }}>on</span>}
+            </div>
+            <p className="muted" style={{ fontSize: 11, margin: '4px 0 8px' }}>Clicks, impressions, top queries.</p>
+            <button className="btn-mini" onClick={() => goConnectGoogle('search')}>{gs?.searchConsole ? 'Reconnect' : 'Connect'}</button>
+          </div>
+          <div className="aside-block" style={{ padding: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <b style={{ fontSize: 13 }}>Analytics (GA4)</b>
+              {gs?.analytics && <span className="status-pill live" style={{ fontSize: 10 }}>on</span>}
+            </div>
+            <p className="muted" style={{ fontSize: 11, margin: '4px 0 8px' }}>Sessions, users, top pages.</p>
+            <button className="btn-mini" onClick={() => goConnectGoogle('analytics')}>{gs?.analytics ? 'Reconnect' : 'Connect'}</button>
           </div>
         </div>
-        <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
-          Verification is per-site: add your <b>google-site-verification</b> tag under each workspace's <b>Branding → SEO &amp; Search Console</b>, then Publish. Every published site also ships a <code>robots.txt</code> + <code>sitemap.xml</code> and pings Bing on publish. (Full search-performance dashboards via OAuth are on the roadmap.)
+
+        <p className="muted" style={{ fontSize: 11, marginTop: 10, marginBottom: gs?.connected ? 12 : 0 }}>
+          Each teammate connects their own Google account. Search Console works immediately; Analytics needs Google to approve the app for the sensitive scope (until then it works for accounts added as test users). Site <b>verification</b> is still per-site under <b>Branding → SEO</b>.
         </p>
+        {gs?.connected && <button className="btn btn-secondary" onClick={disconnectGoogle} disabled={busy}>Disconnect Google</button>}
       </div>
 
       {note && <div className="banner-ok" style={{ marginTop: 12, maxWidth: 640 }}>{note}</div>}
