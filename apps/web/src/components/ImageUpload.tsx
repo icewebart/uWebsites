@@ -5,8 +5,8 @@ import { api } from '@/lib/api'
 // Reusable image upload: pick a file → base64 → POST to the workspace, store the
 // returned public URL. Also accepts a pasted URL. Shows a preview.
 // `dark` renders the preview on a dark backing (for white/footer logos).
-export function ImageUpload({ slug, value, onChange, dark, accept = 'image/*', height = 140 }: {
-  slug: string; value: string; onChange: (url: string) => void; dark?: boolean; accept?: string; height?: number
+export function ImageUpload({ slug, value, onChange, dark, accept = 'image/*', height = 140, extraActions }: {
+  slug: string; value: string; onChange: (url: string) => void; dark?: boolean; accept?: string; height?: number; extraActions?: React.ReactNode
 }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -30,11 +30,12 @@ export function ImageUpload({ slug, value, onChange, dark, accept = 'image/*', h
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <label className="btn-mini" style={{ cursor: busy ? 'wait' : 'pointer' }}>
-          {busy ? 'Uploading…' : (value ? 'Replace' : '⬆ Upload')}
+        <label className="btn-mini" style={{ cursor: busy ? 'wait' : 'pointer', flex: '1 1 0', minWidth: 88, textAlign: 'center', justifyContent: 'center' }}>
+          {busy ? 'Uploading…' : (value ? '⬆ Replace' : '⬆ Upload')}
           <input type="file" accept={accept} style={{ display: 'none' }} disabled={busy} onChange={(e) => pick(e.target.files?.[0])} />
         </label>
-        {value && <button className="btn-mini danger" onClick={() => onChange('')}>Delete</button>}
+        {value && <button className="btn-mini danger" style={{ flex: '1 1 0', minWidth: 88 }} onClick={() => onChange('')}>Delete</button>}
+        {extraActions}
       </div>
       <input className="inp" style={{ marginTop: 8 }} placeholder="…or paste an image URL" value={value} onChange={(e) => onChange(e.target.value)} />
       {err && <p className="err" style={{ fontSize: 12, marginTop: 6 }}>{err}</p>}

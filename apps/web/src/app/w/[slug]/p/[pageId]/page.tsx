@@ -832,9 +832,8 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
         <div className="field"><label>Button label</label><input className="inp" value={p.cta_label || ''} onChange={(e) => onChange({ cta_label: e.target.value })} /></div>
         <div className="field"><label>Button link</label><input className="inp" value={p.cta_href || ''} onChange={(e) => onChange({ cta_href: e.target.value })} /></div>
         <div className="field"><label>Image</label><ImageField slug={slug} value={p.image_url || ''} onChange={(url) => onChange({ image_url: url })} caption={p.heading || ''} /></div>
-        <div className="field" style={{ marginBottom: 0 }}><label>Media background color <span className="muted" style={{ fontWeight: 400 }}>(brand colors — used behind / instead of the image)</span></label>
-          <select className="inp" value={p.bg || 'surface'} onChange={(e) => onChange({ bg: e.target.value })}>
-            <option value="surface">Surface (neutral)</option>
+        <div className="field" style={{ marginBottom: 0 }}><label>Text panel color <span className="muted" style={{ fontWeight: 400 }}>(the big colored block — brand colors)</span></label>
+          <select className="inp" value={p.bg || 'primary'} onChange={(e) => onChange({ bg: e.target.value })}>
             <option value="primary">Primary</option>
             <option value="accent">Accent</option>
             <option value="accent2">Accent 2</option>

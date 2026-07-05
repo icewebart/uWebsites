@@ -20,13 +20,15 @@ export function ImageField({ slug, value, onChange, caption, height }: {
   }
   return (
     <div>
-      <ImageUpload slug={slug} value={value} onChange={onChange} height={height} />
-      <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button className="btn-mini" onClick={generate} disabled={busy} title="Generate an image for this section with AI (uses credits)">
-          {busy ? 'Generating…' : '✨ Generate image'}
-        </button>
-        {err && <span className="err" style={{ fontSize: 12 }}>{err}</span>}
-      </div>
+      <ImageUpload
+        slug={slug} value={value} onChange={onChange} height={height}
+        extraActions={
+          <button className="btn-mini" style={{ flex: '1 1 0', minWidth: 88, justifyContent: 'center' }} onClick={generate} disabled={busy} title="Generate an image for this section with AI (uses credits)">
+            {busy ? 'Generating…' : '✨ Generate'}
+          </button>
+        }
+      />
+      {err && <p className="err" style={{ fontSize: 12, marginTop: 6 }}>{err}</p>}
     </div>
   )
 }

@@ -1130,16 +1130,17 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
         p.cta_label ? `<a class="btn" href="${esc(p.cta_href || '#')}">${esc(p.cta_label)}</a>` : '',
         p.cta2_label ? `<a class="btn btn-outline" href="${esc(p.cta2_href || '#')}">${esc(p.cta2_label)}</a>` : '',
       ].filter(Boolean).join('')
-      // Media-panel background from the BRAND palette (behind / instead of the
-      // image). primary/accent/accent2 → solid; gradient → primary→accent.
+      // Colour of the TEXT panel (the big solid colour block) from the BRAND
+      // palette. primary (default) / accent / accent2 → solid; gradient →
+      // primary→accent. Text stays white, so keep to saturated brand colours.
       const bgKey = p.bg
-      const mediaStyle = bgKey === 'gradient'
+      const txtStyle = bgKey === 'gradient'
         ? ` style="background-image:linear-gradient(135deg,var(--primary),var(--accent))"`
         : (['primary', 'accent', 'accent2'].includes(bgKey) ? ` style="background:var(--${bgKey})"` : '')
       const media = p.image_url
-        ? `<div class="sh-media"${mediaStyle}><img src="${esc(p.image_url)}" alt="${esc(p.image_alt || '')}" loading="eager"></div>`
-        : `<div class="sh-media sh-ph"${mediaStyle}></div>`
-      return `<section class="split-hero"><div class="sh-grid"><div class="sh-txt"><div class="sh-txt-inner">${p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''}<h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${ctas ? `<div class="actions">${ctas}</div>` : ''}</div></div>${media}</div></section>`
+        ? `<div class="sh-media"><img src="${esc(p.image_url)}" alt="${esc(p.image_alt || '')}" loading="eager"></div>`
+        : `<div class="sh-media sh-ph"></div>`
+      return `<section class="split-hero"><div class="sh-grid"><div class="sh-txt"${txtStyle}><div class="sh-txt-inner">${p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''}<h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}${ctas ? `<div class="actions">${ctas}</div>` : ''}</div></div>${media}</div></section>`
     }
     case 'bento-grid': {
       const items = (Array.isArray(p.items) ? p.items : []).slice(0, 7)
