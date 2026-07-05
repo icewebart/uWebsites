@@ -17,6 +17,13 @@ export default function WorkspaceHome() {
   const [publishedUrl, setPublishedUrl] = useState('')
   const [pubErr, setPubErr] = useState('')
   const [showAll, setShowAll] = useState(false)
+  // Articles are hidden from the pages list by default (a site can have 100+),
+  // so the list shows just the "normal" pages. Toggle persists per workspace.
+  const [showArticles, setShowArticles] = useState(false)
+  useEffect(() => { try { setShowArticles(localStorage.getItem(`uw-showArticles-${slug}`) === '1') } catch {} }, [slug])
+  function toggleArticles() {
+    setShowArticles((v) => { const n = !v; try { localStorage.setItem(`uw-showArticles-${slug}`, n ? '1' : '0') } catch {}; return n })
+  }
   const [aiPrompt, setAiPrompt] = useState('')
   const [building, setBuilding] = useState(false)
   const [buildErr, setBuildErr] = useState('')
@@ -266,12 +273,23 @@ export default function WorkspaceHome() {
           </div>
 
           {/* aside — pages quick-list with add/delete */}
+          {(() => {
+          const isArticle = (p: Page) => p.type === 'article' || p.type === 'collection_item'
+          const articleCount = pages.filter(isArticle).length
+          const listPages = showArticles ? pages : pages.filter((p) => !isArticle(p))
+          return (
           <div className="aside-block">
             <div className="pages-head">
-              <h3>Pages ({pages.length})</h3>
+              <h3>Pages ({listPages.length})</h3>
               <button className="btn-mini" onClick={addPagePrompt} title="Create a new page">＋ New page</button>
             </div>
-            {(showAll ? pages : pages.slice(0, 8)).map((p) => (
+            {articleCount > 0 && (
+              <label className="row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, margin: '2px 0 10px', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                <input type="checkbox" checked={showArticles} onChange={toggleArticles} style={{ cursor: 'pointer' }} />
+                Show articles <span className="muted" style={{ fontSize: 11 }}>({articleCount})</span>
+              </label>
+            )}
+            {(showAll ? listPages : listPages.slice(0, 8)).map((p) => (
               <div className="row page-row" key={p.id}>
                 <a href={`/w/${slug}/p/${p.id}`} className="page-title" style={{ fontWeight: 500 }}>{p.title || '(untitled)'}</a>
                 <span className="muted" style={{ fontSize: 11 }}>{p.type}</span>
@@ -280,12 +298,13 @@ export default function WorkspaceHome() {
                 )}
               </div>
             ))}
-            {pages.length > 8 && (
+            {listPages.length > 8 && (
               <button className="btn btn-ghost" style={{ marginTop: 10, width: '100%' }} onClick={() => setShowAll((v) => !v)}>
-                {showAll ? 'Show less' : `Show all ${pages.length}`}
+                {showAll ? 'Show less' : `Show all ${listPages.length}`}
               </button>
             )}
           </div>
+          )})()}
         </div>
         </>
       )}
