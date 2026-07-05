@@ -77,11 +77,18 @@ section.tone-surface:not(.uw-raw) + section.tone-surface:not(.uw-raw){padding-to
 .tone-tint::after,.tone-hero-wash::after{content:"";position:absolute;width:150px;height:150px;border-radius:50%;background:color-mix(in srgb, var(--primary) 12%, transparent);bottom:-50px;left:-40px;z-index:0;pointer-events:none}
 /* Uploaded decor SVGs replace the plain circles when present */
 .has-decor::before,.has-decor::after{display:none}
+section.has-decor{overflow:hidden}
 .uw-decor{position:absolute;z-index:0;pointer-events:none;opacity:.5}
 .uw-decor svg{width:100%;height:100%;display:block}
-.uw-decor-a{width:180px;height:180px;top:-38px;right:-30px}
-.uw-decor-b{width:120px;height:120px;bottom:-34px;left:-30px}
-@media(max-width:640px){.uw-decor-a{width:120px;height:120px}.uw-decor-b{width:84px;height:84px}}
+/* Inset so decor sits fully inside the band (never clipped at the edges). */
+.uw-decor-a{width:150px;height:150px;top:20px;right:24px}
+.uw-decor-b{width:100px;height:100px;bottom:20px;left:24px}
+@media(max-width:640px){.uw-decor-a{width:100px;height:100px;top:14px;right:14px}.uw-decor-b{width:72px;height:72px;bottom:14px;left:14px}}
+/* Dark section background — brand color block with light text. */
+.tone-dark{background:var(--primary);color:#fff;overflow:hidden}
+.tone-dark h1,.tone-dark h2,.tone-dark h3,.tone-dark h4,.tone-dark p,.tone-dark .sub,.tone-dark li{color:#fff}
+.tone-dark .item,.tone-dark .pc-card,.tone-dark .card,.tone-dark .tss-card{background:color-mix(in srgb,#fff 8%,transparent);border-color:color-mix(in srgb,#fff 16%,transparent)}
+.tone-dark .eyebrow{color:color-mix(in srgb,var(--accent) 70%,#fff)}
 .hero{padding-bottom:calc(var(--pad))}
 .hero h1{font-size:calc(2.1rem * ${t.font.scale});margin-bottom:14px;max-width:18ch}
 .hero .sub{font-size:1.1rem;opacity:.78;max-width:60ch;margin-bottom:24px}
@@ -256,17 +263,27 @@ function composeBody(blocks: any[], renderOne: (b: any, i: number) => string, de
     let html = renderOne(b, i)
     const type = b?.type
     let tone = 'surface'
-    if (!HERO_KINDS.has(type) && !NEUTRAL_KINDS.has(type)) {
+    // Per-section background override (editor: surface/tint/dark); else the
+    // automatic alternating band. Overridden sections don't disturb the
+    // alternation of the rest.
+    const bgOverride = b?.props?.section_bg
+    if (bgOverride && ['surface', 'tint', 'dark'].includes(bgOverride)) {
+      tone = bgOverride
+    } else if (!HERO_KINDS.has(type) && !NEUTRAL_KINDS.has(type)) {
       toggle = !toggle
       if (toggle) tone = 'tint'
     }
     // hero-blob gets a very soft wash so the opening doesn't read as flat white
-    if (type === 'hero-blob') tone = 'hero-wash'
+    if (type === 'hero-blob' && !bgOverride) tone = 'hero-wash'
     // Tinted bands get decoration: the workspace's uploaded decor SVGs, cycled
     // + rotated so no two sections look the same. Falls back to the CSS circles
     // when no decor has been uploaded (Branding → Iconițe & decor).
     let decorMarkup = ''
-    const hasDecor = (tone === 'tint' || tone === 'hero-wash') && decorList.length > 0
+    // Decor override (editor: on/off); else auto — decor on tint/hero-wash/dark.
+    const decorPref = b?.props?.section_decor
+    const decorAuto = tone === 'tint' || tone === 'hero-wash' || tone === 'dark'
+    const wantDecor = decorPref === 'on' ? true : decorPref === 'off' ? false : decorAuto
+    const hasDecor = wantDecor && decorList.length > 0
     if (hasDecor) {
       const a = decorList[decorIdx % decorList.length]
       const b2 = decorList.length > 1 ? decorList[(decorIdx + 1) % decorList.length] : ''

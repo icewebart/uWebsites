@@ -455,6 +455,24 @@ export default function PageEditor() {
             <div className="ev-card">
               <h4>{selMeta?.name || sel.type}</h4>
               <SectionForm block={sel} onChange={(partial) => upd(selected, partial)} />
+              {!['hero', 'hero-image', 'hero-blob', 'split-hero', 'raw-html', 'article-hero', 'article-body'].includes(sel.type) && (
+                <div className="field" style={{ marginTop: 12, borderTop: '1px dashed var(--border)', paddingTop: 12 }}>
+                  <label>Section background</label>
+                  <select className="inp" value={sel.props?.section_bg || 'auto'} onChange={(e) => upd(selected, { section_bg: e.target.value })}>
+                    <option value="auto">Auto (alternating)</option>
+                    <option value="surface">Surface — plain</option>
+                    <option value="tint">Tint — soft brand wash</option>
+                    <option value="dark">Dark — brand color block</option>
+                  </select>
+                  <label style={{ fontSize: 13, marginTop: 8, display: 'block' }}>Decorations</label>
+                  <select className="inp" value={sel.props?.section_decor || 'auto'} onChange={(e) => upd(selected, { section_decor: e.target.value })}>
+                    <option value="auto">Auto</option>
+                    <option value="on">Show (brand decor SVGs)</option>
+                    <option value="off">None</option>
+                  </select>
+                  <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>Decor shapes are inset so they never get cut at the section edges. Upload them in <a href={`/w/${slug}/branding`}>Branding → Iconițe &amp; decor</a>.</p>
+                </div>
+              )}
               {(() => {
                 const isRaw = sel.type === 'raw-html' && typeof sel.props?.html === 'string' && sel.props.html.length > 120
                 const isTyped = sel.type !== 'raw-html' && !!sel.props && Object.keys(sel.props).length > 0
