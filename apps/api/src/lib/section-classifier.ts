@@ -97,14 +97,8 @@ export function classifySection(fp: SectionFP): Classification {
         items: cards.slice(0, 6).map((x) => ({ quote: clip(x.text || x.heading, 400), author: clip(x.heading, 60), role: '' })),
       }, 0.66, 'quote-shaped cards')
     }
-    // Program cards: ≤3 image-topped cards, often with a CTA.
-    if (fp.row.cols <= 3 && withImg >= Math.ceil(cards.length / 2)) {
-      return mk('program-cards', {
-        eyebrow: clip(fp.kicker, 60), heading: clip(fp.heading, 140),
-        items: cards.slice(0, 3).map((x) => ({ badge: '', title: clip(x.heading, 120), desc: clip(x.text, 260), image_url: x.imgUrl, cta_label: clip(x.label, 32), cta_href: x.href })),
-      }, 0.8, `${cards.length} image cards`)
-    }
-    // Two columns, one image + one text → image-text.
+    // Two columns, one image + one text → image-text (checked before cards so a
+    // 2-up "photo beside a paragraph" doesn't get read as a 2-card grid).
     if (fp.row.cols === 2 && withImg === 1) {
       const imgCard = cards.find((x) => x.imgUrl)!
       const txtCard = cards.find((x) => !x.imgUrl) || cards[0]
@@ -114,6 +108,13 @@ export function classifySection(fp: SectionFP): Classification {
         image_url: imgCard.imgUrl, image_alt: clip(imgCard.imgAlt, 140),
         image_side: cards.indexOf(imgCard) === 0 ? 'left' : 'right',
       }, 0.74, 'two-col image + text')
+    }
+    // Program cards: image-topped cards (each column has a photo), often w/ a CTA.
+    if (fp.row.cols <= 3 && withImg >= Math.max(2, cards.length - 1)) {
+      return mk('program-cards', {
+        eyebrow: clip(fp.kicker, 60), heading: clip(fp.heading, 140),
+        items: cards.slice(0, 3).map((x) => ({ badge: '', title: clip(x.heading, 120), desc: clip(x.text, 260), image_url: x.imgUrl, cta_label: clip(x.label, 32), cta_href: x.href })),
+      }, 0.8, `${cards.length} image cards`)
     }
     // Icon/heading/desc feature grid.
     const kind = fp.row.cols === 2 ? 'features-2col' : 'features-3'
