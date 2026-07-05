@@ -644,6 +644,8 @@ main > section.article-hero:first-child{padding-top:120px}
 .article-hero h1{font-size:clamp(1.9rem, 5vw, calc(2.6rem * var(--scale, 1.2)));line-height:1.08;letter-spacing:-.02em;margin:0 0 16px;max-width:22ch}
 .article-hero .ah-deck{font-size:clamp(1.05rem,2.4vw,1.25rem);line-height:1.55;color:color-mix(in srgb,var(--text) 72%,transparent);max-width:60ch;margin:0 0 20px}
 .article-hero .ah-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.9rem;color:color-mix(in srgb,var(--text) 58%,transparent)}
+.article-hero .ah-author{display:inline-flex;align-items:center;gap:8px}
+.article-hero .ah-avatar{width:26px;height:26px;border-radius:999px;object-fit:cover}
 .article-hero .ah-meta i{opacity:.5;font-style:normal}
 .article-hero .ah-banner{margin-top:32px}
 .article-hero .ah-banner img{width:100%;height:auto;max-height:460px;object-fit:cover;border-radius:calc(var(--card-r) + 4px)}
@@ -717,6 +719,13 @@ main > section.article-hero.ah-cover:first-child{padding-top:0}
 .article-body .ab-side{position:sticky;top:96px;display:flex;flex-direction:column;gap:14px}
 .article-body .ab-card{background:var(--surface);border:1px solid color-mix(in srgb, var(--text) 8%, transparent);border-radius:var(--card-r);padding:18px}
 .article-body .ab-card .ab-card-img{width:100%;border-radius:calc(var(--card-r) * .7);display:block;margin:0 0 14px;object-fit:cover;aspect-ratio:16/10}
+/* Author card at the end of the article body (E-E-A-T byline) */
+.article-body .ab-author-card{display:flex;gap:16px;align-items:flex-start;margin-top:36px;padding-top:24px;border-top:1px solid color-mix(in srgb,var(--text) 10%,transparent)}
+.article-body .ab-author-ava{width:60px;height:60px;border-radius:999px;object-fit:cover;flex:0 0 auto}
+.article-body .ab-author-name{font-weight:700;font-size:1.05rem}
+.article-body .ab-author-name span{display:block;font-weight:500;font-size:.85rem;opacity:.65}
+.article-body .ab-author-meta p{margin:6px 0 8px;font-size:.94rem;opacity:.8;line-height:1.55}
+.article-body .ab-author-link{font-size:.9rem;color:var(--primary);font-weight:600;text-decoration:none}
 .article-body .ab-card h4{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:color-mix(in srgb, var(--text) 60%, transparent);margin-bottom:12px}
 .article-body .ab-card p{font-size:.94rem;line-height:1.5;color:color-mix(in srgb, var(--text) 82%, transparent);margin-bottom:12px}
 .article-body .ab-card .btn{padding:9px 16px;font-size:.9rem}
@@ -984,8 +993,11 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
     case 'article-hero': {
       const variant = ['classic', 'centered', 'boxed', 'cover', 'gradient', 'minimal'].includes(p.variant) ? p.variant : 'classic'
       const eyebrow = p.eyebrow ? `<div class="ah-kicker"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
-      const meta = [p.author ? `By ${esc(p.author)}` : '', p.date ? esc(p.date) : '', p.readMins ? `${esc(String(p.readMins))} min read` : ''].filter(Boolean)
-      const metaRow = meta.length ? `<div class="ah-meta">${meta.map((m) => `<span>${m}</span>`).join('<i>·</i>')}</div>` : ''
+      const authorBy = p.author
+        ? `<span class="ah-author">${p.authorAvatar ? `<img class="ah-avatar" src="${esc(p.authorAvatar)}" alt="${esc(p.author)}" loading="lazy">` : ''}By ${esc(p.author)}${p.authorTitle ? `, ${esc(p.authorTitle)}` : ''}</span>`
+        : ''
+      const meta = [authorBy, p.date ? `<span>${esc(p.date)}</span>` : '', p.readMins ? `<span>${esc(String(p.readMins))} min read</span>` : ''].filter(Boolean)
+      const metaRow = meta.length ? `<div class="ah-meta">${meta.join('<i>·</i>')}</div>` : ''
       const inner = `${eyebrow}<h1${f('heading')}>${esc(p.heading)}</h1>${p.sub ? `<p class="ah-deck"${f('sub')}>${esc(p.sub)}</p>` : ''}${metaRow}`
       // 'cover' = full-bleed banner image with the title overlaid;
       // 'gradient' = same overlay layout but a brand-color gradient background.
@@ -1038,11 +1050,19 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
         const img = c?.image ? `<img class="ab-card-img" src="${esc(c.image)}" alt="${esc(c.title || '')}" loading="lazy">` : ''
         return `<aside class="ab-card${cls}">${img}<h4>${esc(c?.title || '')}</h4>${c?.text ? `<p>${esc(c.text)}</p>` : ''}${cta}</aside>`
       }).join('')
-      // Schema.org JSON-LD (Article) — headline is filled in publish.ts head too.
+      // Author (Person) schema — richer for E-E-A-T: name + title + url + image.
+      const authorLd = p.author ? {
+        '@type': 'Person', name: p.author,
+        ...(p.authorTitle ? { jobTitle: p.authorTitle } : {}),
+        ...(p.authorUrl ? { url: p.authorUrl } : {}),
+        ...(p.authorAvatar ? { image: p.authorAvatar } : {}),
+      } : undefined
       const jsonLd = `<script type="application/ld+json">${JSON.stringify({
-        '@context': 'https://schema.org', '@type': 'Article', headline: p.headline || undefined, author: p.author ? { '@type': 'Person', name: p.author } : undefined, datePublished: p.publishedAt || undefined,
+        '@context': 'https://schema.org', '@type': 'Article', headline: p.headline || undefined, author: authorLd, datePublished: p.publishedAt || undefined,
       }).replace(/</g, '\\u003c')}</script>`
-      return `<section class="article-body"><div class="container"><div class="grid"><article class="ab-main">${tocInline}<div class="ab-content rt">${body}</div>${jsonLd}</article><div class="ab-side">${sidebar}</div></div></div></section>`
+      // Author card at the end of the article body (byline + bio).
+      const authorCard = p.author ? `<aside class="ab-author-card">${p.authorAvatar ? `<img class="ab-author-ava" src="${esc(p.authorAvatar)}" alt="${esc(p.author)}" loading="lazy">` : ''}<div class="ab-author-meta"><div class="ab-author-name">${esc(p.author)}${p.authorTitle ? `<span>${esc(p.authorTitle)}</span>` : ''}</div>${p.authorBio ? `<p>${esc(p.authorBio)}</p>` : ''}${p.authorUrl ? `<a class="ab-author-link" href="${esc(p.authorUrl)}">More from ${esc(p.author)} →</a>` : ''}</div></aside>` : ''
+      return `<section class="article-body"><div class="container"><div class="grid"><article class="ab-main">${tocInline}<div class="ab-content rt">${body}</div>${authorCard}${jsonLd}</article><div class="ab-side">${sidebar}</div></div></div></section>`
     }
     case 'image':
       return p.url ? `<section class="img"><div class="container"><img src="${esc(p.url)}" alt="${esc(p.alt || '')}" loading="lazy"></div></section>` : ''

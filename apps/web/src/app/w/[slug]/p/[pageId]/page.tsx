@@ -520,6 +520,12 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
   const { slug } = useParams<{ slug: string }>()
   const p = block.props || {}
   const setItems = (items: any[]) => onChange({ items })
+  // Authors (for the article-hero author dropdown) — fetched from branding tokens.
+  const [authors, setAuthors] = useState<Array<{ id: string; name: string }>>([])
+  useEffect(() => {
+    if (block.type !== 'article-hero') return
+    api<{ tokens: any }>(`/workspaces/${slug}/branding`).then((d) => setAuthors(d.tokens?.authors || [])).catch(() => {})
+  }, [slug, block.type])
   switch (block.type) {
     case 'hero':
       return (<>
@@ -826,6 +832,13 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
             <option value="minimal">Minimal</option>
           </select>
           <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>Set the default for all articles in <a href={`/w/${slug}/article-template`}>Article Template</a>.</p>
+        </div>
+        <div className="field"><label>Author</label>
+          <select className="inp" value={p.authorId || ''} onChange={(e) => onChange({ authorId: e.target.value })}>
+            <option value="">Default author</option>
+            {authors.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+          <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>Byline + author schema are added automatically. Manage authors on the <a href={`/w/${slug}/authors`}>Authors</a> page.</p>
         </div>
         {p.variant === 'cover' && (
           <div className="field"><label>Cover image</label>

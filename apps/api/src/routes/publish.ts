@@ -334,6 +334,23 @@ function articleCard(pg: { slug?: string; title?: string; blocks?: any }) {
 }
 // Fill post-list sections with the site's articles; auto-add one to a blog_index
 // page that doesn't have any yet (so an "empty" blog index just works).
+// Resolve the AUTHOR for article blocks: each article-hero/article-body may pin
+// an authorId (dropdown), else the workspace's default author is used. We fill
+// the author's name/title/avatar/url/bio onto the block so the byline + card +
+// Person schema render automatically. Authors live in tokens.authors[].
+function resolveAuthors(blocks: any[], t: any): any[] {
+  const authors: any[] = Array.isArray(t?.authors) ? t.authors : []
+  if (!authors.length) return blocks
+  const byId = new Map(authors.map((a) => [a.id, a]))
+  const def = byId.get(t?.default_author_id) || authors[0]
+  return blocks.map((b) => {
+    if (b?.type !== 'article-hero' && b?.type !== 'article-body') return b
+    const a = byId.get(b?.props?.authorId) || def
+    if (!a) return b
+    return { ...b, props: { ...b.props, author: a.name || b.props?.author || '', authorTitle: a.title || '', authorAvatar: a.avatar || '', authorUrl: a.url || '', authorBio: a.bio || '' } }
+  })
+}
+
 function resolvePostLists(blocks: any[], cards: any[], pageType?: string): any[] {
   // Respect a per-block `limit` (how many recent articles to show; 0/undefined = all).
   const take = (b: any) => { const n = Number(b?.props?.limit); return n > 0 ? cards.slice(0, n) : cards }
@@ -609,7 +626,7 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
   const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, row.wsId)).limit(1)
   const t = (tok?.tokens as any) ?? DEFAULT_TOKENS
   const rawBlocks = Array.isArray(row.blocks) ? (row.blocks as any[]) : []
-  let blocks = resolveCtaRefs(rawBlocks, (t as any).ctas || [], { slug: row.slug, title: row.title, type: row.type })
+  let blocks = resolveAuthors(resolveCtaRefs(rawBlocks, (t as any).ctas || [], { slug: row.slug, title: row.title, type: row.type }), t)
   // Blog index preview: pull sibling articles.
   const needsPosts = row.type === 'blog_index' || rawBlocks.some((b: any) => b?.type === 'post-list')
   if (needsPosts) {
@@ -666,7 +683,7 @@ publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) 
     let count = 0
     for (const p of publishable) {
       const rawBlocks = Array.isArray(p.blocks) ? (p.blocks as any[]) : []
-      let blocks = resolveCtaRefs(rawBlocks, (t as any).ctas || [], { slug: p.slug, title: p.title, type: p.type })
+      let blocks = resolveAuthors(resolveCtaRefs(rawBlocks, (t as any).ctas || [], { slug: p.slug, title: p.title, type: p.type }), t)
       blocks = resolvePostLists(blocks, articleCards.filter((c) => c.url !== (p.slug === 'home' ? '/' : `/${p.slug}/`)), p.type)
       const html = renderPage(p, composeBody(blocks, (b) => renderBlock(b), decorSvgs(t)), t, ws, base, siteMenus)
       const rel = p.slug === 'home' ? 'index.html' : path.join(p.slug, 'index.html')
