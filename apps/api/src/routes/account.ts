@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { and, eq, inArray } from 'drizzle-orm'
-import { db, accounts, workspaces, domains } from '@uwebsites/db'
+import { db, accounts, workspaces, domains, brandingTokens } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { getGoogleConn, saveGoogleConn, hasScope, SCOPE_SEARCH, SCOPE_ANALYTICS, scListSites, scQuery, gaListProperties, gaReport } from '../lib/google-data.js'
 
@@ -126,6 +126,55 @@ accountRouter.post('/google/analytics/report', requireAuth, async (req: AuthRequ
   const days = Math.min(90, Math.max(7, Number(req.body?.days) || 28))
   if (!propertyId) return res.status(400).json({ ok: false, error: 'propertyId required' })
   try { res.json({ ok: true, data: await gaReport(req.user!.accountId, propertyId, days) }) } catch (e) { reauth(res, e) }
+})
+
+// ---------------- Per-workspace analytics link ----------------
+// Pin a Search Console property + GA4 property to a workspace so its search /
+// traffic data is always available for that site (analysis, content ideas).
+// Stored in the workspace's branding tokens (tokens.analytics).
+async function ownedWsTokens(slug: string, accountId: string) {
+  const [ws] = await db.select().from(workspaces).where(and(eq(workspaces.slug, slug), eq(workspaces.accountId, accountId))).limit(1)
+  if (!ws) return null
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  return { ws, tok }
+}
+const clampDays = (v: any) => Math.min(90, Math.max(7, Number(v) || 28))
+
+// GET the current link + the account's available Google properties to pick from.
+accountRouter.get('/workspaces/:slug/analytics', requireAuth, async (req: AuthRequest, res) => {
+  const r = await ownedWsTokens(String(req.params.slug), req.user!.accountId)
+  if (!r) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const link = (r.tok?.tokens as any)?.analytics || {}
+  const conn = await getGoogleConn(req.user!.accountId)
+  let sites: any[] = [], properties: any[] = []
+  if (conn && hasScope(conn, SCOPE_SEARCH)) sites = await scListSites(req.user!.accountId).catch(() => [])
+  if (conn && hasScope(conn, SCOPE_ANALYTICS)) properties = await gaListProperties(req.user!.accountId).catch(() => [])
+  res.json({ ok: true, data: { scProperty: link.scProperty || null, gaProperty: link.gaProperty || null, googleConnected: !!conn, searchConsole: hasScope(conn, SCOPE_SEARCH), analytics: hasScope(conn, SCOPE_ANALYTICS), sites, properties } })
+})
+
+// PUT the link { scProperty, gaProperty } (either may be null to unlink).
+accountRouter.put('/workspaces/:slug/analytics', requireAuth, async (req: AuthRequest, res) => {
+  const r = await ownedWsTokens(String(req.params.slug), req.user!.accountId)
+  if (!r) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const scProperty = req.body?.scProperty ? String(req.body.scProperty) : null
+  const gaProperty = req.body?.gaProperty ? String(req.body.gaProperty) : null
+  const tokens = { ...((r.tok?.tokens as any) || {}), analytics: { scProperty, gaProperty } }
+  if (r.tok) await db.update(brandingTokens).set({ tokens }).where(eq(brandingTokens.id, r.tok.id))
+  else await db.insert(brandingTokens).values({ workspaceId: r.ws.id, tokens })
+  res.json({ ok: true, data: { scProperty, gaProperty } })
+})
+
+// GET this workspace's data using its linked properties — the always-available
+// per-site report (drives the Tracking-page panel and future content tools).
+accountRouter.get('/workspaces/:slug/insights', requireAuth, async (req: AuthRequest, res) => {
+  const r = await ownedWsTokens(String(req.params.slug), req.user!.accountId)
+  if (!r) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const link = (r.tok?.tokens as any)?.analytics || {}
+  const days = clampDays(req.query.days)
+  const out: any = { scProperty: link.scProperty || null, gaProperty: link.gaProperty || null }
+  if (link.scProperty) { try { out.searchConsole = await scQuery(req.user!.accountId, link.scProperty, days) } catch (e: any) { out.scError = String(e?.message || 'error') } }
+  if (link.gaProperty) { try { out.analytics = await gaReport(req.user!.accountId, link.gaProperty, days) } catch (e: any) { out.gaError = String(e?.message || 'error') } }
+  res.json({ ok: true, data: out })
 })
 
 // ---------------- Domains ----------------
