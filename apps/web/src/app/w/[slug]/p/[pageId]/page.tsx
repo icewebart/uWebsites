@@ -143,16 +143,16 @@ export default function PageEditor() {
   }
 
   const [structuring, setStructuring] = useState(false)
-  // Deterministic (no-AI) restructure: turn imported/messy content into a clean
-  // hero-image + body + CTA. Fixes the ugly imported hero for free.
+  // Deterministic (no-AI) restructure: re-render the page's ORIGINAL source in a
+  // real browser, recognise each real section (hero, cards, gallery, FAQ, …) and
+  // reproduce it as editable, on-brand sections — images preserved. Falls back to
+  // a clean hero + content + CTA when there's no source URL. Free, no AI credits.
+  // Uses the long-edit poll (a headless render can exceed the 60s proxy timeout).
   async function structurePage() {
-    if (!window.confirm('Restructure this page into a clean hero + content + CTA from its existing text and images? Free — no AI credits. (Undo is available.)')) return
-    setErr(''); setStructuring(true); pushHistory()
-    try {
-      await api(`/workspaces/${slug}/structure-page`, { method: 'POST', body: JSON.stringify({ pageId }) })
-      const p = await api<PageData>(`/pages/${pageId}`); setBlocks(Array.isArray(p.blocks) ? p.blocks : []); setSelected(null); setPreviewKey((k) => k + 1)
-      setSavedAt('Structured ✓ — clean hero + content')
-    } catch (e: any) { setErr(e.message || 'Structure failed') } finally { setStructuring(false) }
+    if (!window.confirm('Rebuild this page from its original source — recognises each section (hero, cards, gallery, FAQ…) and reproduces it as editable, on-brand sections with images preserved. Free — no AI credits. (Undo is available.)')) return
+    setStructuring(true)
+    try { await runLongEdit(`/workspaces/${slug}/structure-page`, 'Structured ✓ — sections rebuilt from source') }
+    finally { setStructuring(false) }
   }
 
   const [healing, setHealing] = useState(false)

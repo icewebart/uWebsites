@@ -6,6 +6,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { SECTIONS, SECTION_META, sectionHasContent } from '../lib/sections.js'
 import { pickAesthetic, brandVoicePrompt, COPY_RULES, AESTHETICS } from '../lib/aesthetics.js'
 import { generateImage, generateImageResult, photoPrompt, imageGenEnabled, reasonMessage } from '../lib/imagegen.js'
+import { localImageMissing } from '../lib/image-host.js'
 import { upsertMenu, articleTemplateOf } from './menus.js'
 
 // Strip document chrome the model must not emit — the platform wraps every page
@@ -250,16 +251,20 @@ aiRouter.post('/fill-images', requireAuth, async (req: AuthRequest, res) => {
   type Gap = { caption: string; apply: (url: string) => void }
   const gaps: Gap[] = []
   let marker = 0
+  // A slot needs an image when it's empty OR when it points at one of our own
+  // hosted files that has gone missing on disk (heals the "gen-… 404" class of
+  // bug: re-running Generate images regenerates the dangling reference).
+  const needImg = async (url?: string) => !url || (await localImageMissing(String(url || ''), ws.slug))
 
   for (const b of blocks) {
     if (gaps.length >= MAX) break
     const p = (b.props = b.props || {})
-    if ((b.type === 'hero-image' || b.type === 'hero-blob' || b.type === 'image-text') && !p.image_url) {
+    if ((b.type === 'hero-image' || b.type === 'hero-blob' || b.type === 'split-hero' || b.type === 'image-text') && await needImg(p.image_url)) {
       gaps.push({ caption: p.image_alt || p.heading || '', apply: (u) => { p.image_url = u; if (!p.image_alt) p.image_alt = p.heading || '' } })
-    } else if (b.type === 'image' && !p.url) {
+    } else if (b.type === 'image' && await needImg(p.url)) {
       gaps.push({ caption: p.alt || '', apply: (u) => { p.url = u } })
-    } else if (b.type === 'program-cards' && Array.isArray(p.items)) {
-      for (const it of p.items) { if (gaps.length >= MAX) break; if (!it.image_url) gaps.push({ caption: `${it.badge || ''} ${it.title || ''}`.trim(), apply: (u) => { it.image_url = u } }) }
+    } else if ((b.type === 'program-cards' || b.type === 'gallery' || b.type === 'carousel-cards') && Array.isArray(p.items)) {
+      for (const it of p.items) { if (gaps.length >= MAX) break; if (await needImg(it.image_url)) gaps.push({ caption: `${it.badge || ''} ${it.title || it.caption || ''}`.trim(), apply: (u) => { it.image_url = u } }) }
     } else if (b.type === 'raw-html' && typeof p.html === 'string' && p.html.includes('uw-img-slot')) {
       // Replace each slot div with a unique token now; swap in <img> after gen.
       p.html = p.html.replace(/<div[^>]*class="[^"]*uw-img-slot[^"]*"([^>]*)>([\s\S]*?)<\/div>/gi, (_m: string, attrs: string, inner: string) => {

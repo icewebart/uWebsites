@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
 import { db, workspaces, menus, pages, brandingTokens } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
-import { analyzeBranding, richBranding, articleBlocksFromImport, structuredPageBlocks, decodeEntities } from './import.js'
+import { analyzeBranding, richBranding, articleBlocksFromImport, structuredPageBlocks, decodeEntities, structureFromSource } from './import.js'
 import { saveImageBytes } from '../lib/image-host.js'
 import { renderHeader, renderFooter, fontsHead, siteCss, DEFAULT_TOKENS, HEADER_SCRIPT, FOOTER_STYLES } from './publish.js'
 
@@ -325,9 +325,26 @@ menusRouter.post('/:slug/structure-page', requireAuth, async (req: AuthRequest, 
   const pageId = String(req.body?.pageId || '')
   const [p] = await db.select().from(pages).where(and(eq(pages.id, pageId), eq(pages.workspaceId, ws.id))).limit(1)
   if (!p) return res.status(404).json({ ok: false, error: 'page not found' })
-  const newBlocks = structureOnePage(p)
+
+  // Preferred path: re-derive the page from its ORIGINAL source URL — render it
+  // in a real browser and classify each real section into a semantic block.
+  // This is what "understands & reproduces the whole page" (0 credits). Falls
+  // back to the prose-only structurer when there's no source URL / render fails.
+  const sourceUrl = (p.seo as any)?.import_source?.url
+  const isArticle = p.type === 'article' || p.type === 'collection_item'
+  let newBlocks: any[] | null = null
+  let via = 'prose'
+  if (sourceUrl && !isArticle) {
+    try {
+      const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+      const t = (tok?.tokens as any) || {}
+      const out = await structureFromSource(sourceUrl, ws.slug, { primary: t?.color?.primary, accent: t?.color?.accent }, { heading: t?.font?.heading, body: t?.font?.body })
+      if (out && out.blocks.length) { newBlocks = out.blocks; via = `classified ${out.stats.semantic}/${out.stats.total} sections` }
+    } catch { /* fall through to prose */ }
+  }
+  if (!newBlocks) newBlocks = structureOnePage(p)
   await db.update(pages).set({ blocks: newBlocks as any, title: decodeEntities(p.title || ''), updatedAt: new Date() }).where(eq(pages.id, p.id))
-  res.json({ ok: true, data: { sections: newBlocks.length } })
+  res.json({ ok: true, data: { sections: newBlocks.length, via } })
 })
 
 // POST /:slug/structure-all — deterministic Structure for EVERY non-home page

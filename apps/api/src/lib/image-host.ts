@@ -35,6 +35,22 @@ async function fileExists(p: string): Promise<boolean> {
   try { await access(p); return true } catch { return false }
 }
 
+// True when `url` is one of OUR hosted image URLs (mirrored or generated) but
+// the backing file is missing on disk — a broken <img>. External URLs return
+// false (we can't cheaply verify them and they aren't ours to heal). Callers
+// (fill-images, heal) use this to treat a dangling local image as an empty slot
+// so re-running regenerates it. `expectSlug` scopes it to the current workspace.
+export async function localImageMissing(url: string, expectSlug?: string): Promise<boolean> {
+  if (!url || typeof url !== 'string') return false
+  const prefix = SITES_URL.replace(/\/+$/, '') + '/'
+  if (!url.startsWith(prefix)) return false            // not one of ours → not our problem
+  const rest = url.slice(prefix.length)                // "<slug>/img/<name>"
+  const m = rest.match(/^([^/]+)\/img\/([^/?#]+)/)
+  if (!m) return false
+  if (expectSlug && m[1] !== expectSlug) return false
+  return !(await fileExists(path.join(SITES_DIR, m[1], 'img', m[2])))
+}
+
 // Save raw image bytes (e.g. an AI-generated image) into the workspace's img
 // dir and return the public URL. `keyHint` makes the filename deterministic so
 // re-running with the same hint overwrites rather than piling up files.

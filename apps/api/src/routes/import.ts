@@ -6,8 +6,9 @@ import { db, workspaces, pages, redirects, brandingTokens } from '@uwebsites/db'
 import { upsertMenu, navTreeToItems, relinkInternal } from './menus.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { sectionizeHtml } from '../lib/html-sectionizer.js'
-import { createImageMirror } from '../lib/image-host.js'
+import { createImageMirror, localImageMissing } from '../lib/image-host.js'
 import { headlessRender, extractBrandFromDom, type NavNode } from '../lib/headless.js'
+import { classifySection, mirrorBlockImages } from '../lib/section-classifier.js'
 import { parseDesignSystem, preprocessLandingHtml } from '../lib/design-system.js'
 
 // ---- Color scale generation (for the design-system palette display) ----
@@ -843,9 +844,70 @@ export async function sectionizeUrl(
     imageMirror: mirror,
     preloadedStylesheets: r.stylesheets,
     preloadedInlineStyles: r.inlineStyles,
-    preSplitSections: r.capturedSections,
+    preSplitSections: r.capturedSections.map((s) => s.html),
   })
   return sections.map((s) => ({ type: 'raw-html' as const, props: { html: s.html, sourceLabel: s.sourceLabel || '' } }))
+}
+
+// DETERMINISTIC page reproduction (0 credits). Re-render `sourceUrl` in a real
+// browser, then for EACH captured top-level section decide — from its
+// structural fingerprint — which semantic section kind from our catalog it is
+// and build the block props (hero, features/cards, image-text, stats, faq,
+// gallery, cta, …). When the classifier isn't confident, fall back to the
+// styled raw-html for that exact section so fidelity is never lost. Images are
+// mirrored to the workspace's /img dir. This is the engine behind the Structure
+// button: it "understands the whole page and reproduces it" without AI.
+const STRUCT_CONF = 0.55
+export async function structureFromSource(
+  sourceUrl: string,
+  slug: string,
+  brandColors: { primary?: string | null; accent?: string | null } = {},
+  brandFonts: { heading?: string | null; body?: string | null } = {},
+): Promise<{ blocks: any[]; stats: { total: number; semantic: number; raw: number } } | null> {
+  const r = await headlessRender(sourceUrl)
+  if (!r.capturedSections.length) return null
+  const mirror = createImageMirror(slug)
+
+  // Styled raw-html for every section (same order) — our confidence-gated
+  // fallback. sectionizeHtml inlines all the page CSS into raw[0].html.
+  const raw = await sectionizeHtml(r.html, {
+    baseUrl: r.finalUrl || sourceUrl,
+    brandColors, brandFonts, imageMirror: mirror,
+    preloadedStylesheets: r.stylesheets,
+    preloadedInlineStyles: r.inlineStyles,
+    preSplitSections: r.capturedSections.map((s) => s.html),
+  })
+  // The <style>…</style> the sectionizer parked on section 0. If section 0 is
+  // classified into a semantic block (so we drop its raw-html), a later raw-html
+  // fallback still needs that CSS — carry it to the first raw block we emit.
+  const cssPrefix = raw[0]?.html.match(/^<style>[\s\S]*?<\/style>/)?.[0] || ''
+  let cssCarried = false
+
+  const blocks: any[] = []
+  let semantic = 0, rawCount = 0
+  const n = Math.min(r.capturedSections.length, 24)
+  for (let i = 0; i < n; i++) {
+    const cap = r.capturedSections[i]
+    const cls = classifySection(cap.fp)
+    if (cls.block && cls.confidence >= STRUCT_CONF) {
+      await mirrorBlockImages(cls.block, mirror)
+      blocks.push(cls.block); semantic++
+      continue
+    }
+    let html = raw[i]?.html || ''
+    if (html) {
+      if (cssPrefix && !cssCarried && !html.startsWith('<style>')) html = cssPrefix + html
+      if (cssPrefix && (html.startsWith('<style>') || !cssCarried)) cssCarried = true
+      blocks.push({ type: 'raw-html', props: { html, sourceLabel: raw[i].sourceLabel || '' } }); rawCount++
+    } else if (cls.block) {
+      await mirrorBlockImages(cls.block, mirror)
+      blocks.push(cls.block); semantic++
+    }
+  }
+  // End every page on a Smart CTA unless the source already ended with one.
+  const last = blocks[blocks.length - 1]
+  if (!last || !['cta-ref', 'cta-banner'].includes(last.type)) blocks.push({ type: 'cta-ref', props: { cta_id: '', variant: 'gradient' } })
+  return { blocks, stats: { total: n, semantic, raw: rawCount } }
 }
 
 // POST /import/heal-images — walk a page's blocks and repair broken image
@@ -923,8 +985,30 @@ importRouter.post('/heal-images', requireAuth, async (req: AuthRequest, res) => 
   const fs = await import('node:fs/promises')
   const exists = async (p: string) => { try { await fs.access(p); return true } catch { return false } }
 
-  // Collect every /p/<slug>/img/<file> reference in the page's HTML.
   const blocks = Array.isArray(row.blocks) ? row.blocks as any[] : []
+
+  // Pass 0 — semantic block image props: if an image points at one of OUR files
+  // that's now missing on disk AND we kept its original source URL (stamped by
+  // the classifier as <key>_orig), re-download it from source. This recovers
+  // mirrored images whose local files were wiped, with no sibling copy needed.
+  const remirror = createImageMirror(row.slug)
+  let refetched = 0
+  const healProp = async (obj: any, key: string) => {
+    const url = obj?.[key]; const orig = obj?.[`${key}_orig`]
+    if (typeof url === 'string' && typeof orig === 'string' && await localImageMissing(url, row.slug)) {
+      const m = await remirror.mirror(orig); if (m) { obj[key] = m; refetched++ }
+    }
+  }
+  for (const b of blocks) {
+    const p = b?.props || {}
+    await healProp(p, 'image_url'); await healProp(p, 'url')
+    if (Array.isArray(p.items)) for (const it of p.items) { await healProp(it, 'image_url'); await healProp(it, 'image') }
+    if (Array.isArray(p.logos)) for (const l of p.logos) await healProp(l, 'url')
+    if (Array.isArray(p.tiers)) for (const t of p.tiers) await healProp(t, 'image_url')
+  }
+  if (refetched) await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, row.id))
+
+  // Collect every /p/<slug>/img/<file> reference in the page's HTML.
   const refRe = /\/p\/([^/]+)\/img\/([a-f0-9]+\.[a-z0-9]+)/gi
   const refs = new Set<string>()
   for (const b of blocks) if (typeof b?.props?.html === 'string') {
@@ -1000,6 +1084,7 @@ importRouter.post('/heal-images', requireAuth, async (req: AuthRequest, res) => 
   res.json({ ok: true, data: {
     referenced: refs.size,
     brokenBefore: broken.length + foreignRefs.length,
+    refetchedFromSource: refetched,
     copiedFromSibling: copied,
     urlsRemapped: remapped,
     stillMissing: stillMissing.slice(0, 20),
@@ -1062,7 +1147,7 @@ importRouter.post('/sectionize-page', requireAuth, async (req: AuthRequest, res)
       html = r.html
       preloadedStylesheets = r.stylesheets
       preloadedInlineStyles = r.inlineStyles
-      capturedSections = r.capturedSections
+      capturedSections = r.capturedSections.map((s) => s.html)
       resolvedUrl = r.finalUrl || sourceUrl
     } else {
       const r = await fetch(sourceUrl, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(20_000) })

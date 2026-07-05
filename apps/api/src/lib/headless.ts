@@ -31,13 +31,42 @@ async function getBrowser(): Promise<Browser> {
   return launching
 }
 
+// Structural fingerprint of one top-level section — computed IN the browser
+// where we have a real DOM + geometry + computed styles. The deterministic
+// section-classifier (lib/section-classifier.ts) reads this to decide which
+// semantic section kind the block is, WITHOUT any AI. Rich enough that the
+// classifier rarely needs to re-parse the HTML.
+export type SectionFP = {
+  tag: string
+  id: string
+  classes: string
+  index: number
+  isFirst: boolean
+  rect: { w: number; h: number; top: number }
+  bg: { color: string; hasImage: boolean; imageUrl: string }
+  kicker: string           // small text above the heading (eyebrow)
+  heading: string          // the section's primary heading text
+  deck: string             // first substantial paragraph
+  counts: { img: number; heading: number; p: number; li: number; a: number; button: number; blockquote: number; icon: number }
+  row: { kind: 'grid' | 'flex' | 'stack'; cols: number }
+  cards: Array<{ heading: string; text: string; imgUrl: string; imgAlt: string; icon: boolean; href: string; label: string }>
+  buttons: Array<{ label: string; href: string }>
+  images: Array<{ url: string; alt: string; w: number; h: number }>
+  stats: Array<{ value: string; label: string }>
+  faqs: Array<{ q: string; a: string }>
+  listItems: string[]
+  numbered: boolean
+  textLen: number
+}
+export type CapturedSection = { html: string; fp: SectionFP }
+
 export type HeadlessResult = {
   finalUrl: string                              // after any redirects
   html: string                                  // full document HTML after render
   stylesheets: { href: string; css: string }[]  // every loaded external stylesheet
   inlineStyles: string                          // concatenated <style> blocks (after JS)
   resourceCount: number                         // count of all network responses (debug)
-  capturedSections: string[]                    // top-level section/container outerHTML (DOM-split)
+  capturedSections: CapturedSection[]           // top-level sections: outerHTML + fingerprint
 }
 
 // Render `url` with a real browser and return everything the sectionizer needs.
@@ -123,10 +152,155 @@ export async function headlessRender(url: string): Promise<HeadlessResult> {
     // flexbox containers (data-element_type=container / e-parent), classic
     // Elementor sections, and generic <section>. Returns each block's outerHTML.
     const capturedSections = await page.evaluate(() => {
-      const push = (els: Element[], out: string[]) => {
-        for (const el of els) { const h = (el as HTMLElement).outerHTML; if (h && h.length < 400_000) out.push(h) }
+      // ---- in-browser helpers (self-contained; no outer scope) ----
+      const clean = (s: string) => (s || '').replace(/\s+/g, ' ').trim()
+      const abs = (u: string) => { try { return new URL(u, location.href).href } catch { return u } }
+      const bestSrc = (img: HTMLImageElement): string => {
+        const ss = img.getAttribute('srcset') || img.getAttribute('data-srcset')
+        if (ss) {
+          const parts = ss.split(',').map((x) => x.trim().split(/\s+/)).filter((p) => p[0])
+          parts.sort((a, b) => (parseInt(b[1] || '0') - parseInt(a[1] || '0')))
+          if (parts[0]) return abs(parts[0][0])
+        }
+        return abs(img.currentSrc || img.getAttribute('src') || '')
       }
-      // 1) Elementor: top-level sections OR top-level flexbox containers.
+      const rectOf = (el: Element) => { const r = el.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top + window.scrollY) } }
+      const isVisible = (el: Element) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 30 && r.height > 12 && cs.display !== 'none' && cs.visibility !== 'hidden' }
+      const headingOf = (el: Element): string => {
+        const h = el.querySelector('h1,h2,h3,h4,h5,.elementor-heading-title,[class*="title" i]')
+        return h ? clean((h as HTMLElement).innerText).slice(0, 140) : ''
+      }
+      const BTN_SEL = 'a.btn, a.button, a[class*="button" i], a[class*="btn" i], button, [role="button"], .elementor-button, .wp-block-button__link, .wp-element-button'
+      const iconOf = (el: Element) => !!el.querySelector('svg, i[class*="icon" i], i[class*="fa-" i], .elementor-icon')
+
+      // Find the child container that best looks like a row of equal-width
+      // cards/columns (the strongest layout signal for features/cards/stats).
+      const bestRow = (section: Element): { kind: 'grid' | 'flex' | 'stack'; cols: number; kids: Element[] } => {
+        const cands: Element[] = [section, ...Array.from(section.querySelectorAll('*'))].filter((el) => {
+          const d = getComputedStyle(el).display
+          return d === 'flex' || d === 'grid' || d === 'inline-flex' || d === 'inline-grid'
+        }).slice(0, 400)
+        let best: { kind: 'grid' | 'flex' | 'stack'; cols: number; kids: Element[] } = { kind: 'stack', cols: 0, kids: [] }
+        let bestScore = 0
+        for (const el of cands) {
+          const cs = getComputedStyle(el)
+          const kids = Array.from(el.children).filter(isVisible)
+          if (kids.length < 2) continue
+          const tops = kids.map((k) => k.getBoundingClientRect().top)
+          const sameRow = Math.max(...tops) - Math.min(...tops) < 80   // roughly aligned horizontally
+          const widths = kids.map((k) => k.getBoundingClientRect().width)
+          const avg = widths.reduce((a, b) => a + b, 0) / widths.length
+          const equal = avg > 0 && widths.every((w) => Math.abs(w - avg) / avg < 0.35)
+          if (!sameRow && cs.display !== 'grid') continue
+          const kind = cs.display.includes('grid') ? 'grid' : 'flex'
+          const score = kids.length + (equal ? 3 : 0) + (sameRow ? 2 : 0)
+          if (score > bestScore) { bestScore = score; best = { kind, cols: kids.length, kids } }
+        }
+        return best
+      }
+
+      const cardOf = (el: Element) => {
+        const img = el.querySelector('img') as HTMLImageElement | null
+        const p = el.querySelector('p, .elementor-text-editor, [class*="description" i]') as HTMLElement | null
+        const a = el.querySelector('a[href]') as HTMLAnchorElement | null
+        return {
+          heading: headingOf(el),
+          text: p ? clean(p.innerText).slice(0, 400) : '',
+          imgUrl: img ? bestSrc(img) : '',
+          imgAlt: img ? (img.getAttribute('alt') || '') : '',
+          icon: iconOf(el) && !img,
+          href: a ? abs(a.getAttribute('href') || '') : '',
+          label: a ? clean(a.innerText).slice(0, 40) : '',
+        }
+      }
+
+      const statsOf = (section: Element) => {
+        const out: { value: string; label: string }[] = []
+        const leaves = Array.from(section.querySelectorAll('*')).filter((el) => el.children.length === 0)
+        for (const el of leaves) {
+          const t = clean((el as HTMLElement).innerText)
+          if (t.length <= 8 && /^[€$£+]?\d[\d.,]*\s*[%+kKmM]?\+?$/.test(t)) {
+            let label = ''
+            const sib = el.nextElementSibling || el.parentElement?.nextElementSibling
+            if (sib) label = clean((sib as HTMLElement).innerText).slice(0, 48)
+            out.push({ value: t, label })
+          }
+          if (out.length >= 8) break
+        }
+        return out
+      }
+
+      const faqsOf = (section: Element) => {
+        const out: { q: string; a: string }[] = []
+        // details/summary
+        section.querySelectorAll('details').forEach((d) => {
+          const s = d.querySelector('summary')
+          if (s) out.push({ q: clean(s.textContent || '').slice(0, 200), a: clean((d.textContent || '').replace(s.textContent || '', '')).slice(0, 800) })
+        })
+        // Elementor accordion / toggle
+        const titles = section.querySelectorAll('.elementor-accordion-item .elementor-tab-title, .elementor-toggle-item .elementor-tab-title')
+        titles.forEach((t) => {
+          const item = t.closest('.elementor-accordion-item, .elementor-toggle-item')
+          const content = item?.querySelector('.elementor-tab-content')
+          if (content) out.push({ q: clean((t as HTMLElement).innerText).slice(0, 200), a: clean((content as HTMLElement).innerText).slice(0, 800) })
+        })
+        return out.slice(0, 12)
+      }
+
+      const bgOf = (el: Element) => {
+        const cs = getComputedStyle(el)
+        const bi = cs.backgroundImage || ''
+        const m = bi.match(/url\(["']?([^"')]+)["']?\)/i)
+        return { color: cs.backgroundColor || '', hasImage: !!m, imageUrl: m ? abs(m[1]) : '' }
+      }
+
+      const fpOf = (section: Element, index: number): SectionFP => {
+        const imgs = Array.from(section.querySelectorAll('img')).filter(isVisible) as HTMLImageElement[]
+        const buttons = Array.from(section.querySelectorAll(BTN_SEL)).slice(0, 8).map((b) => ({ label: clean((b as HTMLElement).innerText).slice(0, 40), href: abs((b as HTMLElement).getAttribute('href') || '') })).filter((b) => b.label)
+        const row = bestRow(section)
+        const heading = headingOf(section)
+        // kicker = a short text node just before the heading
+        let kicker = ''
+        const hEl = section.querySelector('h1,h2,h3,.elementor-heading-title')
+        if (hEl) {
+          const prev = hEl.previousElementSibling || hEl.parentElement?.previousElementSibling
+          if (prev) { const pt = clean((prev as HTMLElement).innerText); if (pt && pt.length < 40 && pt !== heading) kicker = pt }
+        }
+        const firstP = section.querySelector('p, .elementor-text-editor p, [class*="subtitle" i]')
+        const deck = firstP ? clean((firstP as HTMLElement).innerText).slice(0, 260) : ''
+        const cards = row.cols >= 2 ? row.kids.slice(0, 8).map(cardOf) : []
+        const lists = Array.from(section.querySelectorAll('li')).slice(0, 20).map((li) => clean((li as HTMLElement).innerText)).filter(Boolean)
+        return {
+          tag: section.tagName.toLowerCase(),
+          id: section.id || '',
+          classes: (section.getAttribute('class') || '').slice(0, 200),
+          index, isFirst: index === 0,
+          rect: rectOf(section),
+          bg: bgOf(section),
+          kicker, heading, deck,
+          counts: {
+            img: imgs.length,
+            heading: section.querySelectorAll('h1,h2,h3,h4').length,
+            p: section.querySelectorAll('p').length,
+            li: section.querySelectorAll('li').length,
+            a: section.querySelectorAll('a').length,
+            button: buttons.length,
+            blockquote: section.querySelectorAll('blockquote').length,
+            icon: section.querySelectorAll('svg, i[class*="icon" i], .elementor-icon').length,
+          },
+          row: { kind: row.kind, cols: row.cols },
+          cards,
+          buttons,
+          images: imgs.slice(0, 16).map((im) => ({ url: bestSrc(im), alt: im.getAttribute('alt') || '', w: im.naturalWidth || Math.round(im.getBoundingClientRect().width), h: im.naturalHeight || Math.round(im.getBoundingClientRect().height) })),
+          stats: statsOf(section),
+          faqs: faqsOf(section),
+          listItems: lists,
+          numbered: !!section.querySelector('ol') || /^\s*(step\s*)?\d/i.test(heading),
+          textLen: clean((section as HTMLElement).innerText).length,
+        }
+      }
+
+      // ---- section selection (same strategy as before) ----
       let els = Array.from(document.querySelectorAll(
         '.elementor > .elementor-section.elementor-top-section, ' +
         '.elementor > .e-con.e-parent, ' +
@@ -134,19 +308,21 @@ export async function headlessRender(url: string): Promise<HeadlessResult> {
         '[data-elementor-type="wp-page"] > .e-con, ' +
         '[data-elementor-type] > .elementor-section'
       ))
-      // Some themes nest the elementor wrapper deeper — widen if nothing matched.
       if (els.length < 2) {
         els = Array.from(document.querySelectorAll('.elementor-top-section, .e-con.e-parent'))
           .filter((el) => !el.parentElement?.closest('.e-con, .elementor-section'))
       }
-      // 2) Generic fallback — top-level <section>/<article> in main/body.
       if (els.length < 2) {
         els = Array.from(document.querySelectorAll('main > section, body > section, main > article'))
       }
-      const out: string[] = []
-      push(els, out)
+      const out: { html: string; fp: SectionFP }[] = []
+      let i = 0
+      for (const el of els) {
+        const h = (el as HTMLElement).outerHTML
+        if (h && h.length < 400_000) { out.push({ html: h, fp: fpOf(el, i) }); i++ }
+      }
       return out
-    }).catch(() => [] as string[])
+    }).catch(() => [] as CapturedSection[]) as CapturedSection[]
 
     if (!html && goError) throw goError
     return { finalUrl, html, stylesheets, inlineStyles, resourceCount, capturedSections }
