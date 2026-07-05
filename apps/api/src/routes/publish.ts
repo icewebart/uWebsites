@@ -482,9 +482,14 @@ function renderPage(page: any, body: string, t: any, ws: any, base: string, opts
   const ogImg = seo.ogImage || logo || ''
   const gsc = tSeo.gscVerification ? `<meta name="google-site-verification" content="${esc(tSeo.gscVerification)}">` : ''
   const bing = tSeo.bingVerification ? `<meta name="msvalidate.01" content="${esc(tSeo.bingVerification)}">` : ''
+  // Google Analytics 4: emit gtag.js when a Measurement ID (G-XXXXXXXXXX) is set.
+  const gaId = String(tSeo.ga4Id || '').trim()
+  const ga = /^G-[A-Z0-9]+$/i.test(gaId)
+    ? `<script async src="https://www.googletagmanager.com/gtag/js?id=${esc(gaId)}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${esc(gaId)}');</script>`
+    : ''
   const metaHead = [
     desc ? `<meta name="description" content="${esc(desc)}">` : '',
-    gsc, bing,
+    gsc, bing, ga,
     `<meta property="og:title" content="${esc(page.title)}">`,
     desc ? `<meta property="og:description" content="${esc(desc)}">` : '',
     ogImg ? `<meta property="og:image" content="${esc(ogImg)}">` : '',
