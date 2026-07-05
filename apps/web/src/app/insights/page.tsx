@@ -104,10 +104,13 @@ export default function InsightsPage() {
         <p className="muted" style={{ fontSize: 13 }}>Not connected. <a href="/integrations">Connect Search Console</a>.</p>
       ) : (
         <>
-          {sites.length > 1 && (
-            <select className="inp" style={{ maxWidth: 340, marginBottom: 12 }} value={site} onChange={(e) => setSite(e.target.value)}>
-              {sites.map((s) => <option key={s.siteUrl} value={s.siteUrl}>{s.siteUrl}</option>)}
-            </select>
+          {sites.length > 0 && (
+            <label style={{ display: 'block', marginBottom: 12 }}>
+              <span className="muted" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Website (Search Console property) — you have {sites.length}</span>
+              <select className="inp" style={{ maxWidth: 380 }} value={site} onChange={(e) => setSite(e.target.value)}>
+                {sites.map((s) => <option key={s.siteUrl} value={s.siteUrl}>{s.siteUrl.replace(/^sc-domain:/, '').replace(/^https?:\/\//, '').replace(/\/$/, '')}</option>)}
+              </select>
+            </label>
           )}
           {sites.length === 0 && <p className="muted" style={{ fontSize: 13 }}>No verified properties on this Google account yet.</p>}
           {sc && (
@@ -138,10 +141,13 @@ export default function InsightsPage() {
         <p className="muted" style={{ fontSize: 13 }}>Not connected. <a href="/integrations">Connect Analytics</a> <span style={{ opacity: .7 }}>(works for test users until Google approves the app).</span></p>
       ) : (
         <>
-          {props.length > 1 && (
-            <select className="inp" style={{ maxWidth: 340, marginBottom: 12 }} value={prop} onChange={(e) => setProp(e.target.value)}>
-              {props.map((p) => <option key={p.property} value={p.property}>{p.displayName}{p.account ? ` — ${p.account}` : ''}</option>)}
-            </select>
+          {props.length > 0 && (
+            <label style={{ display: 'block', marginBottom: 12 }}>
+              <span className="muted" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Website (GA4 property) — you have {props.length}</span>
+              <select className="inp" style={{ maxWidth: 380 }} value={prop} onChange={(e) => setProp(e.target.value)}>
+                {props.map((p) => <option key={p.property} value={p.property}>{p.displayName}{p.account ? ` — ${p.account}` : ''}</option>)}
+              </select>
+            </label>
           )}
           {props.length === 0 && <p className="muted" style={{ fontSize: 13 }}>No GA4 properties on this Google account.</p>}
           {ga && (

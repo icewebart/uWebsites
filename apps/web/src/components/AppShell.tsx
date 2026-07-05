@@ -36,12 +36,22 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
   const [wsOpen, setWsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
 
+  const [lastSlug, setLastSlug] = useState<string | null>(null)
   useEffect(() => {
     api<Me>('/auth/me').then(setMe).catch(() => {})
     api<Workspace[]>('/workspaces').then(setWorkspaces).catch(() => {})
+    try { setLastSlug(localStorage.getItem('uw-last-ws')) } catch {}
   }, [])
+  // Remember the workspace you're in, so account-level pages (Insights,
+  // Domains, Integrations — which have no slug in the URL) keep showing it
+  // instead of snapping back to the first workspace in the list.
+  useEffect(() => {
+    if (currentSlug) { try { localStorage.setItem('uw-last-ws', currentSlug) } catch {}; setLastSlug(currentSlug) }
+  }, [currentSlug])
 
-  const current = workspaces.find((w) => w.slug === currentSlug) || workspaces[0] || null
+  const current = workspaces.find((w) => w.slug === currentSlug)
+    || workspaces.find((w) => w.slug === lastSlug)
+    || workspaces[0] || null
   const others = workspaces.filter((w) => w.id !== current?.id)
   const displayName = me?.user?.name?.trim() || (me?.user?.email ? me.user.email.split('@')[0] : 'You')
 
