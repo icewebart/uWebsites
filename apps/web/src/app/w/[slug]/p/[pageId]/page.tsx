@@ -10,6 +10,33 @@ import { ImageField } from '@/components/ImageField'
 
 type Block = { type: string; props: Record<string, any> }
 type Section = { kind: string; name: string; description: string; category: string; defaults: Record<string, any> }
+
+// Carry a section's CONTENT into a new section type when swapping designs, so
+// changing e.g. features-3 → program-cards keeps the text/images instead of
+// resetting to placeholders. Starts from the new type's defaults and overlays
+// whatever maps.
+function carrySectionContent(oldP: Record<string, any>, out: Record<string, any>): Record<string, any> {
+  const SCALARS = ['heading', 'sub', 'eyebrow', 'kicker', 'cta_label', 'cta_href', 'cta2_label', 'cta2_href', 'image_url', 'image_alt', 'image', 'url', 'html', 'quote', 'author', 'role', 'tagline', 'caption', 'variant', 'bg', 'style', 'columns']
+  for (const k of SCALARS) if (oldP[k] != null && oldP[k] !== '' && k in out) out[k] = oldP[k]
+  const oldItems: any[] | null = Array.isArray(oldP.items) ? oldP.items : null
+  const mapItem = (it: any) => ({
+    title: it.title || it.q || it.author || '', desc: it.desc || it.a || it.text || it.quote || '',
+    image_url: it.image_url || it.image || it.url || '', icon: it.icon || '', badge: it.badge || '',
+    quote: it.quote || it.desc || '', author: it.author || it.title || '', role: it.role || '',
+    value: it.value || '', label: it.label || it.caption || '', caption: it.caption || it.title || '',
+    q: it.q || it.title || '', a: it.a || it.desc || '', cta_label: it.cta_label || '', cta_href: it.cta_href || '',
+    rating: it.rating || 5,
+  })
+  if (oldItems && Array.isArray(out.items)) {
+    out.items = oldItems.slice(0, 20).map(mapItem)
+  } else if (oldItems && !Array.isArray(out.items)) {
+    const it = oldItems[0]
+    if (it) { if (!out.heading && (it.title || it.q)) out.heading = it.title || it.q; if (!out.sub && (it.desc || it.a)) out.sub = it.desc || it.a; if ('image_url' in out && !out.image_url && (it.image_url || it.image)) out.image_url = it.image_url || it.image; if ('quote' in out && !out.quote && (it.quote || it.text)) out.quote = it.quote || it.text }
+  } else if (!oldItems && Array.isArray(out.items) && out.items[0]) {
+    out.items[0] = { ...out.items[0], title: oldP.heading || out.items[0].title, desc: oldP.sub || out.items[0].desc, image_url: oldP.image_url || out.items[0].image_url, quote: oldP.quote || out.items[0].quote }
+  }
+  return out
+}
 type PageData = {
   id: string; type: string; slug: string; title: string; status: string
   blocks: Block[]; wsSlug: string; wsName: string
@@ -259,11 +286,13 @@ export default function PageEditor() {
   }
   function addFromCatalog(s: Section) {
     if (pickerMode === 'replace' && selected !== null) {
-      // Keep shared text-y props where it makes sense (heading/sub/title carry over)
+      // Change section type but CARRY THE CONTENT into the new design instead of
+      // wiping it — scalars (heading/sub/cta/image/html/quote…) map straight
+      // across, and item lists map field-by-field. Old single ↔ new list is
+      // bridged too (seed the first item, or lift the first item up).
       const cur = blocks[selected]
-      const carry: Record<string, any> = {}
-      for (const k of ['heading', 'sub', 'title']) if (cur?.props?.[k]) carry[k] = cur.props[k]
-      setBlocks((bs) => bs.map((b, idx) => idx === selected ? { type: s.kind, props: { ...structuredClone(s.defaults), ...carry } } : b))
+      const props = carrySectionContent(cur?.props || {}, structuredClone(s.defaults))
+      setBlocks((bs) => bs.map((b, idx) => idx === selected ? { type: s.kind, props } : b))
     } else {
       setBlocks((bs) => [...bs, { type: s.kind, props: structuredClone(s.defaults) }])
       setSelected(blocks.length)
@@ -603,6 +632,29 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
         <div className="ev-actions" style={{ marginTop: 4 }}>
           <button onClick={() => setItems([...(p.items || []), { icon: '', title: '', desc: '', image_url: '' }])} disabled={(p.items || []).length >= 4}>＋ Add item</button>
           {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
+        </div>
+      </>)
+    case 'post-list':
+      return (<>
+        <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Articles are pulled in automatically (most recent first) when the site is published. Set how they look here.</p>
+        <div className="field"><label>Heading <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} placeholder="e.g. Latest articles" /></div>
+        <div className="field"><label>Design</label>
+          <select className="inp" value={p.style || 'grid'} onChange={(e) => onChange({ style: e.target.value })}>
+            <option value="grid">Grid — image cards</option>
+            <option value="list">List — image left, text right</option>
+            <option value="minimal">Minimal — title + excerpt, no images</option>
+          </select>
+        </div>
+        {(p.style || 'grid') === 'grid' && (
+          <div className="field"><label>Columns</label>
+            <select className="inp" value={p.columns || 3} onChange={(e) => onChange({ columns: Number(e.target.value) })}>
+              <option value={2}>2 columns</option><option value={3}>3 columns</option><option value={4}>4 columns</option>
+            </select>
+          </div>
+        )}
+        <div className="field" style={{ marginBottom: 0 }}><label>How many articles</label>
+          <input className="inp" type="number" min={0} value={p.limit || ''} placeholder="All" onChange={(e) => onChange({ limit: e.target.value ? Number(e.target.value) : 0 })} />
+          <p className="muted" style={{ fontSize: 11, marginTop: 4 }}>Leave blank for all. e.g. 6 shows the 6 most recent.</p>
         </div>
       </>)
     case 'cta-banner':

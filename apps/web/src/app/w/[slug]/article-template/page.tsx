@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
+import { ImageField } from '@/components/ImageField'
 
-type Card = { kind: string; title?: string; text?: string; cta_label?: string; cta_href?: string; placeholder?: string }
+type Card = { kind: string; title?: string; text?: string; cta_label?: string; cta_href?: string; placeholder?: string; image?: string }
 type Tpl = { heroVariant: string; grad_from?: string; grad_to?: string; sidebar: Card[] }
 
 const HEROES: { id: string; name: string; blurb: string }[] = [
@@ -107,6 +108,7 @@ export default function ArticleTemplatePage() {
           </div>
           <div className="field"><label>Title</label><input className="inp" value={c.title || ''} onChange={(e) => setCard(i, { title: e.target.value })} /></div>
           <div className="field"><label>Text</label><input className="inp" value={c.text || ''} onChange={(e) => setCard(i, { text: e.target.value })} /></div>
+          {c.kind === 'cta' && <div className="field"><label>Image <span className="muted" style={{ fontWeight: 400 }}>(optional — shown above the text &amp; button)</span></label><ImageField slug={slug} value={c.image || ''} onChange={(url) => setCard(i, { image: url })} caption={c.title || ''} height={96} /></div>}
           <div className="field" style={{ display: 'flex', gap: 8, marginBottom: 0 }}>
             <div style={{ flex: 1 }}><label>Button label</label><input className="inp" value={c.cta_label || ''} onChange={(e) => setCard(i, { cta_label: e.target.value })} /></div>
             {c.kind === 'cta' && <div style={{ flex: 1 }}><label>Button link</label><input className="inp" value={c.cta_href || ''} onChange={(e) => setCard(i, { cta_href: e.target.value })} /></div>}

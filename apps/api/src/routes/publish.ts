@@ -335,9 +335,11 @@ function articleCard(pg: { slug?: string; title?: string; blocks?: any }) {
 // Fill post-list sections with the site's articles; auto-add one to a blog_index
 // page that doesn't have any yet (so an "empty" blog index just works).
 function resolvePostLists(blocks: any[], cards: any[], pageType?: string): any[] {
-  let out = blocks.map((b) => b?.type === 'post-list' ? { ...b, props: { ...b.props, items: cards } } : b)
+  // Respect a per-block `limit` (how many recent articles to show; 0/undefined = all).
+  const take = (b: any) => { const n = Number(b?.props?.limit); return n > 0 ? cards.slice(0, n) : cards }
+  let out = blocks.map((b) => b?.type === 'post-list' ? { ...b, props: { ...b.props, items: take(b) } } : b)
   if (pageType === 'blog_index' && !out.some((b) => b?.type === 'post-list')) {
-    out = [...out, { type: 'post-list', props: { heading: out.length ? '' : 'Articles', layout: 'grid', items: cards } }]
+    out = [...out, { type: 'post-list', props: { heading: out.length ? '' : 'Articles', style: 'grid', columns: 3, items: cards } }]
   }
   return out
 }

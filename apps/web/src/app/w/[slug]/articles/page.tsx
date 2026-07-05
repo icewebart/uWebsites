@@ -110,14 +110,16 @@ export default function ArticlesPage() {
   }
 
   const [publishing, setPublishing] = useState(false)
+  const [pubUrl, setPubUrl] = useState('')
   // Publishing rebuilds the whole static site — every article goes live at once.
   async function publishAll() {
     if (!articles.length) return
     if (!window.confirm(`Publish now? This rebuilds the site and takes your ${articles.length} article(s) live.`)) return
-    setNote(''); setErr(''); setPublishing(true)
+    setNote(''); setErr(''); setPubUrl(''); setPublishing(true)
     try {
       const r = await api<{ url: string; pages: number }>(`/workspaces/${slug}/publish`, { method: 'POST', body: JSON.stringify({}) })
-      setNote(`Published ✓ — ${articles.length} article(s) live (site rebuilt: ${r.pages} page${r.pages === 1 ? '' : 's'}).`)
+      setPubUrl(r.url || '')
+      setNote(`Published ✓ — ${r.pages} page${r.pages === 1 ? '' : 's'} rebuilt (incl. ${articles.length} article${articles.length === 1 ? '' : 's'}).`)
     } catch (e: any) { setErr(e.message || 'Publish failed') } finally { setPublishing(false) }
   }
 
@@ -136,7 +138,7 @@ export default function ArticlesPage() {
           <button className="btn btn-primary" onClick={newArticle}>＋ New article</button>
         </div>
       </div>
-      {note && <div className="banner-ok" style={{ marginBottom: 14 }}>{note}</div>}
+      {note && <div className="banner-ok" style={{ marginBottom: 14 }}>{note}{pubUrl && <> · <a href={pubUrl} target="_blank" rel="noreferrer"><b>View live site ↗</b></a></>}</div>}
       {err && <div className="err" style={{ marginBottom: 14 }}>{err}</div>}
 
       {articles.length === 0 ? (

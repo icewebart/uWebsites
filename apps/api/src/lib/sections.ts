@@ -716,6 +716,7 @@ main > section.article-hero.ah-cover:first-child{padding-top:0}
 .article-body .ab-content blockquote{border-left:3px solid var(--primary);padding:2px 0 2px 18px;margin:20px 0;font-style:italic;color:color-mix(in srgb, var(--text) 82%, transparent)}
 .article-body .ab-side{position:sticky;top:96px;display:flex;flex-direction:column;gap:14px}
 .article-body .ab-card{background:var(--surface);border:1px solid color-mix(in srgb, var(--text) 8%, transparent);border-radius:var(--card-r);padding:18px}
+.article-body .ab-card .ab-card-img{width:100%;border-radius:calc(var(--card-r) * .7);display:block;margin:0 0 14px;object-fit:cover;aspect-ratio:16/10}
 .article-body .ab-card h4{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:color-mix(in srgb, var(--text) 60%, transparent);margin-bottom:12px}
 .article-body .ab-card p{font-size:.94rem;line-height:1.5;color:color-mix(in srgb, var(--text) 82%, transparent);margin-bottom:12px}
 .article-body .ab-card .btn{padding:9px 16px;font-size:.9rem}
@@ -913,7 +914,21 @@ main > section.article-hero.ah-cover:first-child{padding-top:0}
 /* post-list — auto blog index */
 .post-list .head{max-width:640px;margin:0 auto 34px;text-align:center}
 .post-list .pl-empty{text-align:center;color:color-mix(in srgb,var(--text) 55%,transparent);padding:40px;border:1px dashed color-mix(in srgb,var(--text) 18%,transparent);border-radius:var(--card-r)}
-.post-list .pl-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.post-list .pl-grid{display:grid;grid-template-columns:repeat(var(--pl-cols,3),1fr);gap:24px}
+/* list style — media left, text right, stacked rows */
+.post-list .pl-rows{display:flex;flex-direction:column;gap:16px}
+.post-list.pl-list .pl-row{display:grid;grid-template-columns:240px 1fr;gap:20px;align-items:stretch;background:var(--surface);border:1px solid color-mix(in srgb,var(--text) 8%,transparent);border-radius:var(--card-r);overflow:hidden;text-decoration:none;color:var(--text);box-shadow:var(--shadow);transition:transform .18s ease,box-shadow .18s ease}
+.post-list.pl-list .pl-row:hover{transform:translateY(-2px);box-shadow:0 16px 40px -18px rgba(20,10,40,.24)}
+.post-list.pl-list .pl-row .pl-media img,.post-list.pl-list .pl-row .pl-media.pl-ph{aspect-ratio:auto;height:100%}
+.post-list.pl-list .pl-body{padding:18px 20px}
+/* minimal style — clean title + excerpt list, no images */
+.post-list.pl-minimal .pl-rows{gap:0}
+.post-list.pl-minimal .pl-min{display:flex;justify-content:space-between;align-items:baseline;gap:20px;padding:18px 4px;border-bottom:1px solid color-mix(in srgb,var(--text) 10%,transparent);text-decoration:none;color:var(--text)}
+.post-list.pl-minimal .pl-min h3{font-size:1.12rem;margin:0 0 4px}
+.post-list.pl-minimal .pl-min p{font-size:.92rem;opacity:.7;margin:0;line-height:1.5}
+.post-list.pl-minimal .pl-min:hover h3{color:var(--primary)}
+.post-list.pl-minimal .pl-meta{white-space:nowrap;opacity:.6;font-size:.82rem}
+@media(max-width:640px){.post-list.pl-list .pl-row{grid-template-columns:1fr}.post-list.pl-list .pl-row .pl-media img{aspect-ratio:16/9}}
 .post-list .pl-card{display:flex;flex-direction:column;background:var(--surface);border:1px solid color-mix(in srgb,var(--text) 8%,transparent);border-radius:var(--card-r);overflow:hidden;text-decoration:none;color:var(--text);box-shadow:var(--shadow);transition:transform .18s ease, box-shadow .18s ease}
 .post-list .pl-card:hover{transform:translateY(-4px);box-shadow:0 16px 40px -18px rgba(20,10,40,.28)}
 .post-list .pl-media img,.post-list .pl-media.pl-ph{width:100%;aspect-ratio:16/9;object-fit:cover;display:block}
@@ -1016,10 +1031,12 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
           return `<aside class="ab-card ab-card-news"><h4>${esc(c.title || 'Newsletter')}</h4>${c.text ? `<p>${esc(c.text)}</p>` : ''}<form class="ab-news-form uw-newsletter"><input type="email" name="email" placeholder="${esc(c.placeholder || 'you@email.com')}" required aria-label="Email"><button type="submit" class="btn">${esc(c.cta_label || 'Subscribe')}</button></form><p class="nl-msg" hidden></p></aside>`
         }
         if (c?.kind === 'related') return `<aside class="ab-card ab-card-related"><h4>${esc(c.title || 'Related')}</h4><ul>${(Array.isArray(c.items) ? c.items : []).map((it: any) => `<li><a href="${esc(it.href || '#')}">${esc(it.label || '')}</a></li>`).join('')}</ul></aside>`
-        // generic / cta / author card
+        // generic / cta / author card. Optional image sits above the text +
+        // button with breathing room (padding around it).
         const cta = c?.cta_label ? `<a class="btn" href="${esc(c.cta_href || '#')}">${esc(c.cta_label)}</a>` : ''
         const cls = c?.kind === 'cta' ? ' ab-card-cta' : ''
-        return `<aside class="ab-card${cls}"><h4>${esc(c?.title || '')}</h4>${c?.text ? `<p>${esc(c.text)}</p>` : ''}${cta}</aside>`
+        const img = c?.image ? `<img class="ab-card-img" src="${esc(c.image)}" alt="${esc(c.title || '')}" loading="lazy">` : ''
+        return `<aside class="ab-card${cls}">${img}<h4>${esc(c?.title || '')}</h4>${c?.text ? `<p>${esc(c.text)}</p>` : ''}${cta}</aside>`
       }).join('')
       // Schema.org JSON-LD (Article) — headline is filled in publish.ts head too.
       const jsonLd = `<script type="application/ld+json">${JSON.stringify({
@@ -1207,17 +1224,25 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
     case 'post-list': {
       // items are injected at render time (publish.ts) from the site's articles.
       const items = (Array.isArray(p.items) ? p.items : [])
+      const style = ['grid', 'list', 'minimal'].includes(p.style) ? p.style : 'grid'
+      const cols = Math.max(2, Math.min(4, Number(p.columns) || 3))
       const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
       const head = (p.heading || eyebrow) ? `<div class="head">${eyebrow}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}</div>` : ''
       if (!items.length) {
         return ed ? `<section class="post-list"><div class="container">${head}<div class="pl-empty">Your articles will appear here automatically once published.</div></div></section>` : `<section class="post-list"><div class="container">${head}</div></section>`
       }
+      const meta = (it: any) => [it.date, it.readMins ? `${esc(String(it.readMins))} min` : ''].filter(Boolean).map((m: string) => esc(m)).join(' · ')
       const cards = items.map((it: any) => {
-        const media = it.image ? `<div class="pl-media"><img src="${esc(it.image)}" alt="${esc(it.title || '')}" loading="lazy"></div>` : `<div class="pl-media pl-ph"></div>`
-        const meta = [it.date, it.readMins ? `${esc(String(it.readMins))} min` : ''].filter(Boolean).map((m: string) => esc(m)).join(' · ')
-        return `<a class="pl-card" href="${esc(it.url || '#')}">${media}<div class="pl-body">${it.eyebrow ? `<div class="pl-kicker">${esc(it.eyebrow)}</div>` : ''}<h3>${esc(it.title)}</h3>${it.excerpt ? `<p>${esc(it.excerpt)}</p>` : ''}${meta ? `<div class="pl-meta">${meta}</div>` : ''}</div></a>`
+        const href = esc(it.url || '#'); const title = esc(it.title || ''); const m = meta(it)
+        if (style === 'minimal') {
+          return `<a class="pl-min" href="${href}"><div class="pl-min-txt"><h3>${title}</h3>${it.excerpt ? `<p>${esc(it.excerpt)}</p>` : ''}</div>${m ? `<div class="pl-meta">${m}</div>` : ''}</a>`
+        }
+        const media = it.image ? `<div class="pl-media"><img src="${esc(it.image)}" alt="${title}" loading="lazy"></div>` : `<div class="pl-media pl-ph"></div>`
+        const body = `<div class="pl-body">${it.eyebrow ? `<div class="pl-kicker">${esc(it.eyebrow)}</div>` : ''}<h3>${title}</h3>${it.excerpt ? `<p>${esc(it.excerpt)}</p>` : ''}${m ? `<div class="pl-meta">${m}</div>` : ''}</div>`
+        return `<a class="${style === 'list' ? 'pl-row' : 'pl-card'}" href="${href}">${media}${body}</a>`
       }).join('')
-      return `<section class="post-list" data-anim="stagger"><div class="container">${head}<div class="pl-grid">${cards}</div></div></section>`
+      const wrap = style === 'grid' ? `<div class="pl-grid">${cards}</div>` : `<div class="pl-rows">${cards}</div>`
+      return `<section class="post-list pl-${style}" style="--pl-cols:${cols}" data-anim="stagger"><div class="container">${head}${wrap}</div></section>`
     }
     case 'cta-banner': {
       const solid = p.variant === 'solid' ? ' v-solid' : ''
