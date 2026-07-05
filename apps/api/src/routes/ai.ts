@@ -811,28 +811,47 @@ aiRouter.post('/extract-footer', requireAuth, async (req: AuthRequest, res) => {
   const [page] = await db.select().from(pages).where(and(eq(pages.id, String(pageId)), eq(pages.workspaceId, ws.id))).limit(1)
   if (!page) return res.status(404).json({ ok: false, error: 'page not found' })
   const blocks = Array.isArray(page.blocks) ? JSON.parse(JSON.stringify(page.blocks)) : []
-  const text = (b: any) => String(b?.props?.html || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+  // Pull readable text from ANY block type (not just raw-html) — after the
+  // Structure classifier a page is composed of semantic blocks, and the footer
+  // region can land in a cta-banner / richtext / features section.
+  const text = (b: any) => {
+    const p = b?.props || {}
+    const parts: string[] = []
+    if (typeof p.html === 'string') parts.push(p.html.replace(/<[^>]*>/g, ' '))
+    for (const k of ['heading', 'sub', 'eyebrow', 'tagline', 'cta_label']) if (typeof p[k] === 'string') parts.push(p[k])
+    for (const key of ['items', 'logos', 'tiers']) if (Array.isArray(p[key])) for (const it of p[key]) for (const k of ['title', 'label', 'q', 'desc']) if (typeof it?.[k] === 'string') parts.push(it[k])
+    return parts.join(' ').replace(/\s+/g, ' ').trim()
+  }
+  // Collect footer links from html AND from structured props (cta/items).
+  const linksOf = (b: any): Array<{ href: string; label: string }> => {
+    const p = b?.props || {}, out: Array<{ href: string; label: string }> = []
+    if (typeof p.html === 'string') for (const m of p.html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) out.push({ href: m[1], label: m[2].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() })
+    if (p.cta_href && p.cta_label) out.push({ href: String(p.cta_href), label: String(p.cta_label) })
+    if (Array.isArray(p.items)) for (const it of p.items) {
+      if (it?.href && (it?.label || it?.title)) out.push({ href: String(it.href), label: String(it.label || it.title) })
+      if (it?.cta_href && it?.cta_label) out.push({ href: String(it.cta_href), label: String(it.cta_label) })
+    }
+    return out
+  }
 
   // The footer starts at the first trailing block that reads like a footer.
   const startRe = /newsletter|abonează|aboneaz|fii la curent|©|toate drepturile|drepturile rezervate|all rights reserved|©\s*\d{4}/i
   let start = -1
   for (let i = Math.max(1, Math.floor(blocks.length * 0.4)); i < blocks.length; i++) {
-    if (blocks[i]?.type === 'raw-html' && startRe.test(text(blocks[i]))) { start = i; break }
+    if (startRe.test(text(blocks[i]))) { start = i; break }
   }
-  if (start < 0) return res.status(400).json({ ok: false, error: 'Could not spot a footer region (newsletter / copyright) in the lower half of this page.' })
+  if (start < 0) return res.status(400).json({ ok: false, error: 'Could not spot a footer region (newsletter / copyright) in the lower half of this page. If this page has no footer content in its body, use "Generate with AI" instead.' })
 
   const footerBlocks = blocks.slice(start)
-  const footHtml = footerBlocks.map((b: any) => b?.props?.html || '').join('\n')
   const legalRe = /(termen|privacy|gdpr|confiden|politica|cookie|©|copyright|drepturile)/i
   const items: Array<{ label: string; href: string }> = []
   const seen = new Set<string>()
-  for (const m of footHtml.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-    const href = m[1]
-    const label = m[2].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
+  for (const b of footerBlocks) for (const { href, label } of linksOf(b)) {
     if (label && label.length < 50 && !seen.has(label.toLowerCase()) && !legalRe.test(label)) { seen.add(label.toLowerCase()); items.push({ label, href }) }
     if (items.length >= 20) break
   }
-  const tagline = (footHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/i)?.[1] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, 200)
+  const footHtml = footerBlocks.map((b: any) => b?.props?.html || '').join('\n')
+  const tagline = (footHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/i)?.[1] || text(footerBlocks[0]) || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, 200)
 
   if (items.length) await upsertMenu(ws.id, 'footer', { items })
   if (tagline) {

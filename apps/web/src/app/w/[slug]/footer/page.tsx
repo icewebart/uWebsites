@@ -145,7 +145,15 @@ export default function FooterPage() {
 
       {tab === 'preview' ? (
         <div className="nav-preview-frame footer-frame">
-          <iframe key={previewKey} src={`${API_URL}/workspaces/${slug}/menus/preview?t=${previewKey}#footer`} title="Footer preview" />
+          {(() => {
+            const fs = (footer as any).style || 'columns'
+            const nl = (footer as any).newsletter !== false ? 1 : 0
+            const ctaQ = fs === 'cta' ? `&cta_label=${encodeURIComponent((footer as any).cta?.label || '')}&cta_href=${encodeURIComponent((footer as any).cta?.href || '')}` : ''
+            const src = `${API_URL}/workspaces/${slug}/menus/preview?t=${previewKey}&style=${fs}&nl=${nl}${ctaQ}#footer`
+            // key includes the live selection so picking a layout re-renders the
+            // preview immediately (no Save needed to see the design change).
+            return <iframe key={`${previewKey}-${fs}-${nl}`} src={src} title="Footer preview" />
+          })()}
         </div>
       ) : (
         <MenuTreeEditor tree={footer} onChange={setFooter} maxItems={20} />
@@ -155,7 +163,7 @@ export default function FooterPage() {
       <div className="save-row" style={{ marginTop: 12 }}>
         <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save footer'}</button>
         {savedAt && <span className="saved-tag">Saved {savedAt}</span>}
-        {tab === 'preview' && <span className="muted" style={{ fontSize: 12, marginLeft: 'auto' }}>Preview reflects the last saved state — click Save to update.</span>}
+        {tab === 'preview' && <span className="muted" style={{ fontSize: 12, marginLeft: 'auto' }}>Layout previews live; links & content reflect the last save.</span>}
       </div>
     </AppShell>
   )

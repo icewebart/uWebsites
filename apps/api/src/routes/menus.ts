@@ -62,6 +62,13 @@ menusRouter.get('/:slug/menus/preview', requireAuth, async (req: AuthRequest, re
   const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
   const { header, footer } = await getMenusFor(ws.id)
+  // Live-preview overrides: the footer editor passes the CURRENTLY-SELECTED
+  // (maybe unsaved) layout so the preview updates the moment you pick one,
+  // without needing to Save first.
+  const q = req.query as Record<string, string>
+  if (typeof q.style === 'string' && (FOOTER_STYLES as readonly string[]).includes(q.style)) (footer as any).style = q.style
+  if (q.nl === '0' || q.nl === '1') (footer as any).newsletter = q.nl === '1'
+  if (typeof q.cta_label === 'string') (footer as any).cta = { label: q.cta_label, href: String(q.cta_href || '') }
   const [tokRow] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
   const t: any = tokRow?.tokens ?? DEFAULT_TOKENS
   const logo = t?.brand_assets?.logo?.url || null
@@ -173,7 +180,9 @@ menusRouter.put('/:slug/menus', requireAuth, async (req: AuthRequest, res) => {
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
   const { header, footer } = req.body ?? {}
   if (header !== undefined) await upsertMenu(ws.id, 'header', clean(header, 10))
-  if (footer !== undefined) await upsertMenu(ws.id, 'footer', clean(footer, 20))
+  // Footer styles are a DIFFERENT set (columns/mega/simple/minimal/cta) — pass
+  // them so the chosen layout isn't stripped by the header-style validator.
+  if (footer !== undefined) await upsertMenu(ws.id, 'footer', clean(footer, 20, FOOTER_STYLES))
   res.json({ ok: true, data: await getMenusFor(ws.id) })
 })
 
