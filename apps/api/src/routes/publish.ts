@@ -600,7 +600,15 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
       }).join('\n') + EDIT_SCRIPT
     : composeBody(blocks, (b) => renderBlock(b), decorSvgs(t))
   const menus = await getMenusFor(row.wsId)
-  return renderPage({ title: row.title }, body, t, { name: row.wsName }, '#', menus)
+  // Internal links are stored root-relative (/slug/) so they work on the
+  // published custom domain. In the PREVIEW host (api.uwebsites.net/pages/<id>
+  // /preview) those dead-end at /slug/. Inject a slug→page-id map + a rewrite
+  // script so clicking an internal link opens that page's preview instead.
+  const navPages = await db.select({ id: pages.id, slug: pages.slug }).from(pages).where(eq(pages.workspaceId, row.wsId))
+  const slugMap: Record<string, string> = {}
+  for (const p of navPages) slugMap[String(p.slug || '').replace(/^\/+|\/+$/g, '')] = p.id
+  const previewNav = `<script>(function(){var M=${JSON.stringify(slugMap).replace(/</g, '\\u003c')};if(!/^\\/pages\\/[^\\/]+\\/preview/.test(location.pathname))return;[].forEach.call(document.querySelectorAll('a[href^="/"]'),function(a){var h=a.getAttribute('href');if(!h||h.charAt(1)==='/'||h.indexOf('/pages/')===0||h.indexOf('/p/')===0)return;var s=h.replace(/^\\/+/,'').replace(/[?#].*$/,'').replace(/\\/+$/,'');var id=M[s];if(id){a.setAttribute('href','/pages/'+id+'/preview');}else{a.setAttribute('href','#');a.setAttribute('title','Not a page in this workspace');a.style.cursor='not-allowed';}});})();</script>`
+  return renderPage({ title: row.title }, body + previewNav, t, { name: row.wsName }, '#', menus)
 }
 
 // POST /workspaces/:slug/publish
