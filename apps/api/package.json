@@ -12,6 +12,7 @@
     "@anthropic-ai/sdk": "^0.65.0",
     "@uwebsites/db": "workspace:*",
     "@uwebsites/shared": "workspace:*",
+    "acme-client": "^5.4.0",
     "arctic": "^3.7.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",

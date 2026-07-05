@@ -4,8 +4,10 @@ import { promises as dns } from 'node:dns'
 import { writeFile, unlink } from 'node:fs/promises'
 import { execFile as execFileCb } from 'node:child_process'
 import { promisify } from 'node:util'
-import { db, workspaces, domains } from '@uwebsites/db'
+import { mkdir } from 'node:fs/promises'
+import { db, workspaces, domains, accounts } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
+import { issueCertViaDns, cfZoneId } from '../lib/acme-dns.js'
 
 // Custom domains for a workspace. Flow:
 //   1) POST /domains { hostname } -> stored as pending (with DNS instructions returned)
@@ -21,6 +23,19 @@ const SERVER_IP = process.env.SERVER_IP || '75.119.159.89'
 const SITES_DIR = process.env.SITES_DIR || '/www/wwwroot/_sites'
 const VHOST_DIR = process.env.VHOST_DIR || '/www/server/panel/vhost/nginx'
 const CERTBOT_EMAIL = process.env.CERTBOT_EMAIL || ''  // optional but recommended
+// This box runs OpenResty; `which nginx` and /etc/init.d/nginx point at a
+// DIFFERENT stock binary that can't reload the real server. Always drive the
+// real one.
+const NGINX_BIN = process.env.NGINX_BIN || '/www/server/nginx/sbin/nginx'
+// Where we store issued certs + the ACME account key (persists across deploys).
+const LE_DIR = process.env.LE_DIR || '/www/wwwroot/_le'
+
+// The Cloudflare API token for the workspace's account (stored server-side in
+// accounts.settings; never returned to clients).
+async function cfTokenForWorkspace(accountId: string): Promise<string | null> {
+  const [a] = await db.select({ settings: accounts.settings }).from(accounts).where(eq(accounts.id, accountId)).limit(1)
+  return (a?.settings as any)?.cloudflare?.apiToken || null
+}
 
 // hostname must be lowercase domain (no protocol, no path)
 const HOSTNAME_RE = /^(?!-)[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63})+$/
@@ -62,10 +77,9 @@ server {
 // with the Let's Encrypt cert. We never let `certbot --nginx` edit/reload nginx
 // because this box runs OpenResty and certbot's plugin invokes an nginx that
 // can't load the Lua `resty.core` module (its reload fails and rolls back).
-const LE_LIVE = process.env.LE_LIVE || '/etc/letsencrypt/live'
 function vhostHttps(hostname: string, slug: string) {
-  const cert = `${LE_LIVE}/${hostname}/fullchain.pem`
-  const key = `${LE_LIVE}/${hostname}/privkey.pem`
+  const cert = `${LE_DIR}/${hostname}/fullchain.pem`
+  const key = `${LE_DIR}/${hostname}/privkey.pem`
   return `# uWebsites custom domain (SSL) — ${hostname} -> workspace "${slug}"
 server {
     listen 80;
@@ -94,22 +108,25 @@ async function writeVhost(hostname: string, slug: string) {
 }
 
 async function nginxReload() {
-  // -t first so a bad vhost doesn't tank the running config
-  await execFile('nginx', ['-t'])
-  await execFile('/etc/init.d/nginx', ['reload'])
+  // -t first so a bad vhost doesn't tank the running config. Use the REAL
+  // OpenResty binary — the stock nginx in PATH controls a different server.
+  await execFile(NGINX_BIN, ['-t'])
+  await execFile(NGINX_BIN, ['-s', 'reload'])
 }
 
-// Obtain the cert via the WEBROOT method (drops a challenge file under the
-// site's dir, which our HTTP vhost already serves) — no nginx editing by
-// certbot. Then we swap in the HTTPS vhost and reload nginx ourselves.
-async function issueCert(hostname: string, slug: string) {
-  const args = ['certonly', '--webroot', '-w', `${SITES_DIR}/${slug}`,
-    '--non-interactive', '--agree-tos', '--keep-until-expiring', '-d', hostname]
-  if (isApex(hostname)) args.push('-d', `www.${hostname}`)
-  if (CERTBOT_EMAIL) args.push('--email', CERTBOT_EMAIL)
-  else args.push('--register-unsafely-without-email')
-  await execFile('certbot', args, { timeout: 120_000 })
-  // Cert is now at ${LE_LIVE}/${hostname}/ — write the 443 vhost + reload.
+// Issue the cert via DNS-01 through Cloudflare (no nginx/webroot cooperation
+// needed), write it to LE_DIR, then swap in the HTTPS vhost and reload the real
+// nginx. `cfToken` is the account's Cloudflare API token.
+async function issueCert(hostname: string, slug: string, cfToken: string) {
+  const zoneName = hostname.split('.').slice(-2).join('.')
+  const zoneId = await cfZoneId(zoneName, cfToken)
+  if (!zoneId) throw new Error(`Cloudflare zone "${zoneName}" not found for this token`)
+  const names = isApex(hostname) ? [hostname, `www.${hostname}`] : [hostname]
+  const { cert, key } = await issueCertViaDns(names, { cfToken, zoneId, email: CERTBOT_EMAIL || undefined, dataDir: LE_DIR })
+  const dir = `${LE_DIR}/${hostname}`
+  await mkdir(dir, { recursive: true })
+  await writeFile(`${dir}/fullchain.pem`, cert, 'utf8')
+  await writeFile(`${dir}/privkey.pem`, key, 'utf8')
   await writeFile(`${VHOST_DIR}/${hostname}.conf`, vhostHttps(hostname, slug), 'utf8')
   await nginxReload()
 }
@@ -172,18 +189,25 @@ domainsRouter.post('/:slug/domains/:id/verify', requireAuth, async (req: AuthReq
     return res.status(500).json({ ok: false, error: 'failed to write nginx vhost: ' + (e?.message || 'unknown') })
   }
 
+  // SSL is issued via DNS-01 through Cloudflare — the account must have a
+  // Cloudflare token connected (Integrations). Fail early + clearly if not.
+  const cfToken = await cfTokenForWorkspace(req.user!.accountId)
+  if (!cfToken) {
+    await db.update(domains).set({ status: 'verified', dnsVerifiedAt: new Date(), sslStatus: 'failed', sslError: 'Connect Cloudflare (Integrations) — SSL is issued via Cloudflare DNS.' }).where(eq(domains.id, d.id))
+    return res.status(400).json({ ok: false, error: 'Connect Cloudflare first (Integrations) — HTTPS is issued through your Cloudflare DNS.' })
+  }
+
   await db.update(domains).set({ status: 'verified', dnsVerifiedAt: new Date(), sslStatus: 'issuing', sslError: null }).where(eq(domains.id, d.id))
 
-  // 4) issue cert in the BACKGROUND. certbot takes 20–120s and reloads nginx —
-  // both would break a synchronous response (60s proxy timeout + the reload can
-  // drop this very request's connection -> the client sees "failed to fetch").
-  // So we respond now and let the client poll GET /domains for sslStatus.
+  // 4) issue cert in the BACKGROUND via DNS-01 (30–90s incl. DNS propagation).
+  // We already responded, so the nginx reload can't drop this request and we
+  // never hit the 60s proxy timeout. The client polls GET /domains for status.
   void (async () => {
     try {
-      await issueCert(d.hostname, ws.slug)
+      await issueCert(d.hostname, ws.slug, cfToken)
       await db.update(domains).set({ status: 'connected', sslStatus: 'active', sslError: null }).where(eq(domains.id, d.id))
     } catch (e: any) {
-      await db.update(domains).set({ sslStatus: 'failed', sslError: String(e?.message || 'certbot failed').slice(0, 500) }).where(eq(domains.id, d.id)).catch(() => {})
+      await db.update(domains).set({ sslStatus: 'failed', sslError: String(e?.message || 'SSL issuance failed').slice(0, 500) }).where(eq(domains.id, d.id)).catch(() => {})
     }
   })()
 
@@ -198,8 +222,8 @@ domainsRouter.delete('/:slug/domains/:id', requireAuth, async (req: AuthRequest,
   if (!d) return res.status(404).json({ ok: false, error: 'domain not found' })
   try { await unlink(`${VHOST_DIR}/${d.hostname}.conf`) } catch {}
   try { await nginxReload() } catch {}
-  // best-effort revoke; ignore failures (cert dir may be missing if SSL never issued)
-  try { await execFile('certbot', ['delete', '--cert-name', d.hostname, '--non-interactive'], { timeout: 30_000 }) } catch {}
+  // best-effort: remove the issued cert files (ignore if never issued)
+  try { const { rm } = await import('node:fs/promises'); await rm(`${LE_DIR}/${d.hostname}`, { recursive: true, force: true }) } catch {}
   await db.delete(domains).where(eq(domains.id, d.id))
   res.json({ ok: true, data: null })
 })
