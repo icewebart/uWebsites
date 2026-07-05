@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db, accounts, workspaces, domains, brandingTokens } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
-import { getGoogleConn, saveGoogleConn, hasScope, SCOPE_SEARCH, SCOPE_ANALYTICS, scListSites, scQuery, gaListProperties, gaReport } from '../lib/google-data.js'
+import { getGoogleConn, saveGoogleConn, hasScope, SCOPE_SEARCH, SCOPE_ANALYTICS, scListSites, scQuery, scOpportunities, gaListProperties, gaReport } from '../lib/google-data.js'
 
 // Account-level settings: integrations (Cloudflare) + domains across all
 // workspaces. Secrets are stored in accounts.settings (jsonb) server-side and
@@ -175,6 +175,44 @@ accountRouter.get('/workspaces/:slug/insights', requireAuth, async (req: AuthReq
   if (link.scProperty) { try { out.searchConsole = await scQuery(req.user!.accountId, link.scProperty, days) } catch (e: any) { out.scError = String(e?.message || 'error') } }
   if (link.gaProperty) { try { out.analytics = await gaReport(req.user!.accountId, link.gaProperty, days) } catch (e: any) { out.gaError = String(e?.message || 'error') } }
   res.json({ ok: true, data: out })
+})
+
+// ---------------- Article Plan (keyword pipeline) ----------------
+// A per-workspace list of target keywords the content engine works through.
+// Sources: manual add, bulk paste, "Pull from Search Console", (later) other
+// tools. Stored in tokens.article_plan { items:[], auto:bool }.
+type PlanItem = { id: string; keyword: string; status: 'idea' | 'queued' | 'drafted' | 'published'; priority: number; source: string; impressions?: number; position?: number; pageId?: string; createdAt: string }
+
+accountRouter.get('/workspaces/:slug/article-plan', requireAuth, async (req: AuthRequest, res) => {
+  const r = await ownedWsTokens(String(req.params.slug), req.user!.accountId)
+  if (!r) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const plan = (r.tok?.tokens as any)?.article_plan || { items: [], auto: false }
+  const link = (r.tok?.tokens as any)?.analytics || {}
+  res.json({ ok: true, data: { items: plan.items || [], auto: !!plan.auto, scLinked: !!link.scProperty } })
+})
+
+accountRouter.put('/workspaces/:slug/article-plan', requireAuth, async (req: AuthRequest, res) => {
+  const r = await ownedWsTokens(String(req.params.slug), req.user!.accountId)
+  if (!r) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 500) : []
+  const auto = !!req.body?.auto
+  const tokens = { ...((r.tok?.tokens as any) || {}), article_plan: { items, auto } }
+  if (r.tok) await db.update(brandingTokens).set({ tokens }).where(eq(brandingTokens.id, r.tok.id))
+  else await db.insert(brandingTokens).values({ workspaceId: r.ws.id, tokens })
+  res.json({ ok: true, data: { items, auto } })
+})
+
+// Pull keyword ideas from the workspace's LINKED Search Console property.
+accountRouter.post('/workspaces/:slug/article-plan/pull-search-console', requireAuth, async (req: AuthRequest, res) => {
+  const r = await ownedWsTokens(String(req.params.slug), req.user!.accountId)
+  if (!r) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const link = (r.tok?.tokens as any)?.analytics || {}
+  if (!link.scProperty) return res.status(400).json({ ok: false, error: 'Link a Search Console property on the Tracking page first.' })
+  const days = Math.min(90, Math.max(28, Number(req.body?.days) || 90))
+  try {
+    const rows = await scOpportunities(req.user!.accountId, link.scProperty, days)
+    res.json({ ok: true, data: rows })
+  } catch (e: any) { reauth(res, e) }
 })
 
 // ---------------- Domains ----------------

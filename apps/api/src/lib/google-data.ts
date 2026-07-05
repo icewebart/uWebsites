@@ -98,6 +98,22 @@ export async function scQuery(accountId: string, siteUrl: string, days: number) 
   }
 }
 
+// Content OPPORTUNITIES: queries you already rank for but not at the top
+// (position ~4–20) with real impressions — the sweet spot for a dedicated,
+// keyword-optimised article that could jump into the top results.
+export async function scOpportunities(accountId: string, siteUrl: string, days: number) {
+  const at = await freshAccessToken(accountId)
+  const range = rangeDays(days)
+  const j = await gapi(`https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`, at, {
+    method: 'POST', body: JSON.stringify({ ...range, dimensions: ['query'], rowLimit: 250 }),
+  })
+  return (j.rows || [])
+    .map((r: any) => ({ query: r.keys[0] as string, clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position }))
+    .filter((r: any) => r.position >= 3.5 && r.position <= 20 && r.impressions >= 15)
+    .sort((a: any, b: any) => b.impressions - a.impressions)
+    .slice(0, 40)
+}
+
 // ---- Google Analytics 4 ----
 export async function gaListProperties(accountId: string): Promise<Array<{ property: string; displayName: string; account: string }>> {
   const at = await freshAccessToken(accountId)
