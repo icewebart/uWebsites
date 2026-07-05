@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
-type Domain = { id: string; hostname: string; status: string; sslStatus: string; dnsVerifiedAt: string | null }
+type Domain = { id: string; hostname: string; status: string; sslStatus: string; sslError?: string | null; dnsVerifiedAt: string | null }
 
 export default function DomainsPage() {
   const { slug } = useParams<{ slug: string }>()
@@ -17,11 +17,12 @@ export default function DomainsPage() {
   const [verifyingId, setVerifyingId] = useState<string | null>(null)
   const [verifyErr, setVerifyErr] = useState<Record<string, string>>({})
 
-  async function load() {
+  async function load(): Promise<Domain[]> {
     try {
       const r = await api<{ serverIp: string; domains: Domain[] }>(`/workspaces/${slug}/domains`)
       setServerIp(r.serverIp); setDomains(r.domains)
-    } catch { router.push(`/w/${slug}`) }
+      return r.domains
+    } catch { router.push(`/w/${slug}`); return [] }
   }
   useEffect(() => { load() }, [slug])
 
@@ -36,8 +37,21 @@ export default function DomainsPage() {
   async function verify(d: Domain) {
     setVerifyErr((m) => ({ ...m, [d.id]: '' })); setVerifyingId(d.id)
     try {
+      // POST returns 202 once DNS + vhost are set; certbot then runs in the
+      // background (can take 20–120s). Poll until SSL is active or failed.
       await api(`/workspaces/${slug}/domains/${d.id}/verify`, { method: 'POST' })
-      load()
+      await load()
+      for (let i = 0; i < 45; i++) {
+        await new Promise((r) => setTimeout(r, 4000))
+        const rows = await load()
+        const cur = rows.find((x) => x.id === d.id)
+        if (!cur) break
+        if (cur.sslStatus === 'active' || cur.status === 'connected') break
+        if (cur.sslStatus === 'failed') {
+          setVerifyErr((m) => ({ ...m, [d.id]: 'HTTP works, but SSL issuance failed: ' + (cur.sslError || 'unknown') + '. Make sure DNS points here with the proxy off (grey cloud), then retry.' }))
+          break
+        }
+      }
     } catch (e: any) { setVerifyErr((m) => ({ ...m, [d.id]: e.message || 'Verification failed' })) }
     finally { setVerifyingId(null) }
   }
@@ -72,7 +86,7 @@ export default function DomainsPage() {
                     <a className="btn btn-ghost" href={`https://${d.hostname}/`} target="_blank" rel="noreferrer">Open ↗</a>
                   ) : (
                     <button className="btn btn-primary" onClick={() => verify(d)} disabled={verifyingId === d.id}>
-                      {verifyingId === d.id ? 'Verifying…' : 'Verify & connect'}
+                      {verifyingId === d.id ? (d.sslStatus === 'issuing' ? 'Issuing SSL…' : 'Verifying…') : (d.sslStatus === 'failed' ? 'Retry' : 'Verify & connect')}
                     </button>
                   )}
                   <button className="btn btn-ghost" onClick={() => remove(d)} title="Disconnect">✕</button>

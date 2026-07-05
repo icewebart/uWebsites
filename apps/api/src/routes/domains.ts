@@ -133,19 +133,22 @@ domainsRouter.post('/:slug/domains/:id/verify', requireAuth, async (req: AuthReq
     return res.status(500).json({ ok: false, error: 'failed to write nginx vhost: ' + (e?.message || 'unknown') })
   }
 
-  await db.update(domains).set({ status: 'verified', dnsVerifiedAt: new Date() }).where(eq(domains.id, d.id))
+  await db.update(domains).set({ status: 'verified', dnsVerifiedAt: new Date(), sslStatus: 'issuing', sslError: null }).where(eq(domains.id, d.id))
 
-  // 4) issue cert via certbot --nginx (auto-edits the vhost to add 443+SSL)
-  try {
-    await issueCert(d.hostname)
-  } catch (e: any) {
-    return res.status(502).json({
-      ok: false,
-      error: 'HTTP works, but SSL issuance failed: ' + (e?.message || 'unknown') + '. We will keep trying. You can also retry from this screen.',
-    })
-  }
-  await db.update(domains).set({ status: 'connected', sslStatus: 'active' }).where(eq(domains.id, d.id))
-  res.json({ ok: true, data: { hostname: d.hostname, status: 'connected', url: `https://${d.hostname}/` } })
+  // 4) issue cert in the BACKGROUND. certbot takes 20–120s and reloads nginx —
+  // both would break a synchronous response (60s proxy timeout + the reload can
+  // drop this very request's connection -> the client sees "failed to fetch").
+  // So we respond now and let the client poll GET /domains for sslStatus.
+  void (async () => {
+    try {
+      await issueCert(d.hostname)
+      await db.update(domains).set({ status: 'connected', sslStatus: 'active', sslError: null }).where(eq(domains.id, d.id))
+    } catch (e: any) {
+      await db.update(domains).set({ sslStatus: 'failed', sslError: String(e?.message || 'certbot failed').slice(0, 500) }).where(eq(domains.id, d.id)).catch(() => {})
+    }
+  })()
+
+  res.status(202).json({ ok: true, data: { hostname: d.hostname, status: 'verified', sslStatus: 'issuing', url: `https://${d.hostname}/` } })
 })
 
 // DELETE /workspaces/:slug/domains/:id

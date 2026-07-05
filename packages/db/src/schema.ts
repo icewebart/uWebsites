@@ -62,6 +62,7 @@ export const domains = pgTable('domains', {
   status: text('status').notNull().default('pending'),
   dnsVerifiedAt: timestamp('dns_verified_at'),
   sslStatus: text('ssl_status').notNull().default('none'),
+  sslError: text('ssl_error'),
 })
 
 export const brandingTokens = pgTable('branding_tokens', {
