@@ -9,8 +9,8 @@
 
 export type SectionKind =
   | 'hero' | 'hero-image' | 'hero-blob' | 'richtext' | 'image'
-  | 'features-3' | 'program-cards' | 'cta-banner' | 'steps'
-  | 'testimonials-3' | 'pricing-3' | 'faq' | 'logo-cloud' | 'image-text' | 'stats-row' | 'stats-band'
+  | 'features-3' | 'features-4' | 'program-cards' | 'cta-banner' | 'steps'
+  | 'testimonials-3' | 'testimonials-slider' | 'pricing-3' | 'faq' | 'logo-cloud' | 'image-text' | 'stats-row' | 'stats-band'
   | 'article-hero' | 'article-body' | 'timeline' | 'gallery'
   | 'features-2col' | 'feature-alt' | 'split-hero' | 'bento-grid' | 'carousel-cards' | 'faq-accordion' | 'big-quote'
   | 'cta-ref' | 'post-list'
@@ -81,6 +81,41 @@ export const SECTIONS: SectionMeta[] = [
         { icon: '⚡', title: 'Fast', desc: 'Compiled to static — fast on mobile by default.' },
         { icon: '🔒', title: 'Safe', desc: 'No runtime to attack, mandatory 2FA for owners.' },
         { icon: '🎨', title: 'On-brand', desc: 'One token set restyles every page.' },
+      ],
+    },
+  },
+  {
+    kind: 'features-4',
+    name: 'Features — 4 columns',
+    description: 'Four short value props in a row, each with an icon/emoji. Collapses to 2 columns on tablet, 1 on mobile. Great for a compact feature grid.',
+    category: 'features',
+    defaults: {
+      eyebrow: '',
+      heading: 'What you get',
+      sub: '',
+      items: [
+        { icon: '⚡', title: 'Fast', desc: 'Static output, quick on mobile.' },
+        { icon: '🔒', title: 'Safe', desc: 'No runtime to attack.' },
+        { icon: '🎨', title: 'On-brand', desc: 'One token set styles it all.' },
+        { icon: '📈', title: 'SEO-ready', desc: 'Clean markup + sitemaps.' },
+      ],
+    },
+  },
+  {
+    kind: 'testimonials-slider',
+    name: 'Testimonials — 3-up slider',
+    description: 'A horizontal carousel that shows exactly 3 testimonials at a time and glides to the next set (GSAP-animated), with prev/next arrows and autoplay. Ideal for lots of reviews.',
+    category: 'social-proof',
+    defaults: {
+      eyebrow: 'Loved by parents',
+      heading: 'What families say',
+      autoplay: true,
+      items: [
+        { quote: 'The kids adored every session — they ask when the next one is!', author: 'Andreea M.', role: 'Parent', rating: 5 },
+        { quote: 'Professional, warm and genuinely fun. Highly recommend.', author: 'Radu P.', role: 'Parent', rating: 5 },
+        { quote: 'My daughter went from shy to confident in German in weeks.', author: 'Ioana T.', role: 'Parent', rating: 5 },
+        { quote: 'Great structure and lovely teachers. Worth every leu.', author: 'Mihai D.', role: 'Parent', rating: 5 },
+        { quote: 'Booked again for the summer without hesitation.', author: 'Elena V.', role: 'Parent', rating: 5 },
       ],
     },
   },
@@ -403,6 +438,8 @@ export function sectionHasContent(b: any): boolean {
     case 'article-body': return has(p.html)
     case 'image': return has(p.url)
     case 'features-3': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.desc))
+    case 'features-4': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.desc))
+    case 'testimonials-slider': return arrOk(p.items) && p.items.some((i: any) => has(i?.quote))
     case 'program-cards': return arrOk(p.items) && p.items.some((i: any) => has(i?.title) || has(i?.badge))
     case 'stats-band': return arrOk(p.items) && p.items.some((i: any) => has(i?.value) || has(i?.label))
     case 'cta-banner': return has(p.heading) || has(p.cta_label)
@@ -470,6 +507,40 @@ export const SECTION_CSS = `
 .features-3.v-minimal .item:hover{transform:none;box-shadow:none}
 .features-3.v-minimal .item .icon{background:transparent;color:var(--primary);width:auto;height:auto;font-size:26px;margin-bottom:10px}
 @media(max-width:760px){.features-3 .grid{grid-template-columns:1fr}}
+.features-4{padding:var(--pad) 0}
+.features-4 .head{text-align:center;margin-bottom:34px}
+.features-4 .head .eyebrow{font-weight:700;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+.features-4 .head h2{font-size:calc(1.7rem * var(--scale, 1.2));letter-spacing:-.01em;margin-bottom:8px}
+.features-4 .head .sub{opacity:.7;font-size:1.02rem;max-width:56ch;margin:0 auto;line-height:1.55}
+.features-4 .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.features-4 .item{background:var(--surface);border:var(--bw) solid color-mix(in srgb, var(--primary) 12%, transparent);border-radius:var(--card-r);padding:24px 22px;box-shadow:var(--shadow, 0 6px 24px -14px rgba(30,10,50,.18));transition:transform .18s ease, box-shadow .18s ease}
+.features-4 .item:hover{transform:translateY(-4px);box-shadow:0 18px 40px -20px color-mix(in srgb, var(--primary) 40%, transparent)}
+.features-4 .item .icon{width:42px;height:42px;border-radius:calc(var(--card-r) * .6);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:14px;background:color-mix(in srgb, var(--accent) 20%, var(--surface))}
+.features-4 .item h3{font-size:1.06rem;font-weight:700;margin-bottom:6px}
+.features-4 .item p{font-size:.92rem;opacity:.74;line-height:1.5}
+@media(max-width:900px){.features-4 .grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.features-4 .grid{grid-template-columns:1fr}}
+/* Testimonials 3-up slider (GSAP-animated track; shows exactly 3) */
+.testimonials-slider{padding:var(--pad) 0;overflow:hidden}
+.testimonials-slider .tss-top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:26px}
+.testimonials-slider .head{text-align:left;margin:0}
+.testimonials-slider .head .eyebrow{font-weight:700;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
+.testimonials-slider .head h2{font-size:calc(1.7rem * var(--scale, 1.2));margin-bottom:6px}
+.testimonials-slider .head .sub{opacity:.7;line-height:1.55}
+.tss-ctrls{display:flex;gap:8px;flex:0 0 auto}
+.tss-arrow{width:42px;height:42px;border-radius:999px;border:1px solid color-mix(in srgb,var(--text) 14%,transparent);background:var(--surface);color:var(--text);font-size:22px;line-height:1;cursor:pointer;transition:background .15s ease,border-color .15s ease}
+.tss-arrow:hover{background:color-mix(in srgb,var(--primary) 10%,var(--surface));border-color:var(--primary)}
+.tss-viewport{overflow:hidden}
+.tss-track{display:flex;gap:24px;will-change:transform}
+.tss-card{flex:0 0 calc((100% - 48px) / 3);box-sizing:border-box;background:var(--surface);border:var(--bw) solid color-mix(in srgb,var(--primary) 12%,transparent);border-radius:var(--card-r);padding:26px 24px;box-shadow:var(--shadow, 0 6px 24px -14px rgba(30,10,50,.18))}
+.tss-card .stars{color:#f6b73c;letter-spacing:2px;margin-bottom:10px}
+.tss-card .quote{font-size:1rem;line-height:1.6;margin-bottom:16px}
+.tss-card .who{display:flex;align-items:center;gap:10px}
+.tss-card .who .av{width:38px;height:38px;border-radius:999px;background:color-mix(in srgb,var(--primary) 18%,var(--surface));color:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700}
+.tss-card .who b{display:block;font-size:.94rem}
+.tss-card .who span{font-size:.82rem;opacity:.65}
+@media(max-width:900px){.tss-card{flex-basis:calc((100% - 24px) / 2)}}
+@media(max-width:600px){.tss-card{flex-basis:100%}.testimonials-slider .tss-top{flex-direction:column;align-items:flex-start}}
 
 /* steps — numbered how-it-works */
 .steps{padding:var(--pad) 0}
@@ -959,6 +1030,29 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
       }).join('')
       const eyebrow = p.eyebrow ? `<div class="eyebrow">${esc(p.eyebrow)}</div>` : ''
       return `<section class="features-3${variant}"><div class="container"><div class="head">${eyebrow}<h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div><div class="grid">${grid}</div></div></section>`
+    }
+    case 'features-4': {
+      const items = (Array.isArray(p.items) ? p.items : []).slice(0, 4)
+      const grid = items.map((it: any) => {
+        const icon = it.icon ? `<div class="icon">${esc(it.icon)}</div>` : ''
+        return `<div class="item">${icon}<h3>${esc(it.title)}</h3><p>${esc(it.desc)}</p></div>`
+      }).join('')
+      const eyebrow = p.eyebrow ? `<div class="eyebrow">${esc(p.eyebrow)}</div>` : ''
+      return `<section class="features-4"><div class="container"><div class="head">${eyebrow}<h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div><div class="grid">${grid}</div></div></section>`
+    }
+    case 'testimonials-slider': {
+      const items = (Array.isArray(p.items) ? p.items : []).filter((it: any) => it && it.quote).slice(0, 16)
+      const cards = items.map((it: any) => {
+        const n = Math.max(0, Math.min(5, Number(it.rating) || 0))
+        const stars = n ? `<div class="stars">${'★'.repeat(n)}${'☆'.repeat(5 - n)}</div>` : ''
+        const initial = esc(String(it.author || '?').trim().charAt(0).toUpperCase())
+        return `<div class="tss-card">${stars}<p class="quote">${esc(it.quote)}</p><div class="who"><span class="av" aria-hidden="true">${initial}</span><div><b>${esc(it.author)}</b>${it.role ? `<span>${esc(it.role)}</span>` : ''}</div></div></div>`
+      }).join('')
+      const eyebrow = p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''
+      const head = (p.heading || eyebrow) ? `<div class="head">${eyebrow}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div>` : ''
+      const ctrls = items.length > 3 ? `<div class="tss-ctrls"><button type="button" class="tss-arrow" data-dir="-1" aria-label="Previous">‹</button><button type="button" class="tss-arrow" data-dir="1" aria-label="Next">›</button></div>` : ''
+      // data-uw-gsap makes publish.ts load GSAP + the slider init once per page.
+      return `<section class="testimonials-slider" data-uw-gsap${p.autoplay === false ? '' : ' data-autoplay="1"'}><div class="container"><div class="tss-top">${head}${ctrls}</div><div class="tss-viewport"><div class="tss-track">${cards}</div></div></div></section>`
     }
     case 'steps': {
       const items = (Array.isArray(p.items) ? p.items : []).slice(0, 4)

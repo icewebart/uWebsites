@@ -274,9 +274,16 @@ function composeBody(blocks: any[], renderOne: (b: any, i: number) => string, de
       decorMarkup = `<span class="uw-decor uw-decor-a" aria-hidden="true" style="transform:rotate(${rA}deg)">${a}</span>${b2 ? `<span class="uw-decor uw-decor-b" aria-hidden="true" style="transform:rotate(${rB}deg)">${b2}</span>` : ''}`
       decorIdx += 2
     }
+    // Scroll-reveal: opt MOST content sections into the fade-up motion so the
+    // effect is actually visible (previously only bento/big-quote/post-list had
+    // it). Skip heroes (must show instantly), raw-html/article bodies, and any
+    // section that already declares its own data-anim (e.g. bento's stagger).
+    // The attribute is inert unless the brand's motion is on (MOTION_CSS/SCRIPT).
+    const skipAnim = HERO_KINDS.has(type) || type === 'raw-html' || type === 'article-hero' || type === 'article-body' || /\sdata-anim=/.test(html)
+    const animAttr = skipAnim ? '' : ' data-anim="fade-up"'
     // Always stamp the tone class (incl. tone-surface) so the section-rhythm CSS
     // can tighten same-tone seams. All section renderers start with <section class=".
-    html = html.replace(/<section class="/, `<section data-tone="${tone}" class="tone-${tone}${hasDecor ? ' has-decor' : ''} `)
+    html = html.replace(/<section class="/, `<section${animAttr} data-tone="${tone}" class="tone-${tone}${hasDecor ? ' has-decor' : ''} `)
     if (decorMarkup) html = html.replace(/(<section[^>]*>)/, `$1${decorMarkup}`)
     return html
   }).join('\n')
@@ -466,6 +473,12 @@ const MOTION_CSS = `@media (prefers-reduced-motion:no-preference){
 [data-anim="stagger"].uw-in .bento-tile:nth-child(4){transition-delay:.24s}
 [data-anim="stagger"].uw-in .bento-tile:nth-child(n+5){transition-delay:.32s}
 }`
+// GSAP-powered 3-up testimonials slider. Loaded only when a page actually uses
+// one (body contains data-uw-gsap). GSAP comes from a CDN; the inline init runs
+// after it (the loader script is synchronous + earlier in the DOM).
+const GSAP_SLIDER = `<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script>(function(){function init(){if(!window.gsap)return;document.querySelectorAll('.testimonials-slider').forEach(function(sec){var track=sec.querySelector('.tss-track');if(!track)return;var cards=track.children;var per=3;function maxIdx(){return Math.max(0,cards.length-per)}if(cards.length<=per){sec.querySelectorAll('.tss-arrow').forEach(function(b){b.style.display='none'});return;}var idx=0;function step(){var c=cards[0];var gap=parseFloat(getComputedStyle(track).gap)||24;return c.getBoundingClientRect().width+gap;}function go(n){idx=Math.max(0,Math.min(maxIdx(),n));window.gsap.to(track,{x:-idx*step(),duration:.6,ease:'power2.out'});}sec.querySelectorAll('.tss-arrow').forEach(function(btn){btn.addEventListener('click',function(){var d=parseInt(btn.getAttribute('data-dir'))||1;var next=idx+d*per;if(next>maxIdx())next=0;if(next<0)next=maxIdx();go(next);});});var auto=sec.getAttribute('data-autoplay')==='1';var timer;function play(){if(auto)timer=setInterval(function(){var n=idx+per;if(n>maxIdx())n=0;go(n);},5000);}function stop(){clearInterval(timer);}sec.addEventListener('mouseenter',stop);sec.addEventListener('mouseleave',play);window.addEventListener('resize',function(){window.gsap.set(track,{x:-idx*step()});});play();});}if(document.readyState!=='loading')init();else document.addEventListener('DOMContentLoaded',init);})();</script>`
+
 const MOTION_SCRIPT = `<script>(function(){if(matchMedia('(prefers-reduced-motion:reduce)').matches)return;var els=[].slice.call(document.querySelectorAll('[data-anim]'));if(!('IntersectionObserver'in window)){els.forEach(function(e){e.classList.add('uw-in')});return;}var io=new IntersectionObserver(function(x){x.forEach(function(en){if(en.isIntersecting){en.target.classList.add('uw-in');io.unobserve(en.target)}})},{rootMargin:'0px 0px -8% 0px',threshold:.08});els.forEach(function(e){io.observe(e)})})();</script>`
 
 function renderPage(page: any, body: string, t: any, ws: any, base: string, opts?: { header?: MenuTree; footer?: MenuTree }) {
@@ -487,9 +500,14 @@ function renderPage(page: any, body: string, t: any, ws: any, base: string, opts
   const ga = /^G-[A-Z0-9]+$/i.test(gaId)
     ? `<script async src="https://www.googletagmanager.com/gtag/js?id=${esc(gaId)}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${esc(gaId)}');</script>`
     : ''
+  // Google Tag Manager (GTM-XXXXXXX): head loader + a <noscript> body fallback.
+  const gtmId = String(tSeo.gtmId || '').trim()
+  const gtmValid = /^GTM-[A-Z0-9]+$/i.test(gtmId)
+  const gtm = gtmValid ? `<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${esc(gtmId)}');</script>` : ''
+  const gtmBody = gtmValid ? `<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${esc(gtmId)}" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>` : ''
   const metaHead = [
     desc ? `<meta name="description" content="${esc(desc)}">` : '',
-    gsc, bing, ga,
+    gsc, bing, gtm, ga,
     `<meta property="og:title" content="${esc(page.title)}">`,
     desc ? `<meta property="og:description" content="${esc(desc)}">` : '',
     ogImg ? `<meta property="og:image" content="${esc(ogImg)}">` : '',
@@ -497,6 +515,7 @@ function renderPage(page: any, body: string, t: any, ws: any, base: string, opts
     `<meta name="twitter:card" content="${ogImg ? 'summary_large_image' : 'summary'}">`,
   ].filter(Boolean).join('')
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(page.title)} — ${esc(ws.name)}</title>${metaHead}<link rel="icon" href="/favicon.svg" type="image/svg+xml">${fontsHead(t)}<style>${siteCss(t)}${motionOn ? MOTION_CSS : ''}</style></head><body>
+${gtmBody}
 ${renderHeader(ws, base, opts?.header, logo)}
 <main>${body || ''}</main>
 ${renderFooter(ws, opts?.footer, ba.tagline, footerLogo, { invert: !whiteLogo && !!logo })}
@@ -505,6 +524,7 @@ ${PREVIEW_LINK_SCRIPT}
 ${HEADER_SCRIPT}
 ${NEWSLETTER_SCRIPT}
 ${motionOn ? MOTION_SCRIPT : ''}
+${(body || '').includes('data-uw-gsap') ? GSAP_SLIDER : ''}
 </body></html>`
 }
 

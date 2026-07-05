@@ -728,22 +728,9 @@ export default function Branding() {
           </div>
         </div>
 
-        <div className="dash-h" style={{ marginTop: 22 }}>SEO &amp; Search Console</div>
+        <div className="dash-h" style={{ marginTop: 22 }}>SEO, analytics &amp; verification</div>
         <div className="ctl-group card" style={{ marginBottom: 4 }}>
-          <div className="field">
-            <label>Default meta description</label>
-            <textarea className="inp" rows={2} value={t.seo?.description || ''} placeholder="One or two sentences describing the site — used when a page has no description of its own." onChange={(e) => setT((c) => c ? { ...c, seo: { ...c.seo, description: e.target.value } } : c)} />
-          </div>
-          <div className="field">
-            <label>Google Search Console verification</label>
-            <input value={t.seo?.gscVerification || ''} placeholder="paste the content value of the google-site-verification meta tag" onChange={(e) => setT((c) => c ? { ...c, seo: { ...c.seo, gscVerification: e.target.value.replace(/.*content=["']?([^"'>]+).*/i, '$1').trim() } } : c)} />
-            <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>In Search Console pick <b>HTML tag</b> verification and paste the tag (or just its code) here → Publish → click Verify. We also emit robots.txt + your sitemap automatically.</p>
-          </div>
-          <div className="field" style={{ marginBottom: 0 }}>
-            <label>Google Analytics 4 — Measurement ID</label>
-            <input value={t.seo?.ga4Id || ''} placeholder="G-XXXXXXXXXX" onChange={(e) => setT((c) => c ? { ...c, seo: { ...c.seo, ga4Id: e.target.value.replace(/.*?(G-[A-Z0-9]+).*/i, '$1').trim() } } : c)} />
-            <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>In Google Analytics → Admin → Data Streams, copy your <b>Measurement ID</b> (starts with <code>G-</code>). We load gtag.js on every published page → Publish. That's the whole setup.</p>
-          </div>
+          <p className="muted" style={{ fontSize: 13, margin: 0 }}>Google Tag Manager, Analytics (GA4), Search Console &amp; Bing verification and the default meta description have moved to their own <a href={`/w/${slug}/tracking`}><b>Tracking</b></a> page.</p>
         </div>
 
         <div className="dash-h" style={{ marginTop: 22 }}>Motion</div>
