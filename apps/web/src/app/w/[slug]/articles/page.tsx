@@ -109,6 +109,18 @@ export default function ArticlesPage() {
     setBusyId(null); setNote(`Normalised ${ok}/${articles.length} article(s) ✓`); await load()
   }
 
+  const [publishing, setPublishing] = useState(false)
+  // Publishing rebuilds the whole static site — every article goes live at once.
+  async function publishAll() {
+    if (!articles.length) return
+    if (!window.confirm(`Publish now? This rebuilds the site and takes your ${articles.length} article(s) live.`)) return
+    setNote(''); setErr(''); setPublishing(true)
+    try {
+      const r = await api<{ url: string; pages: number }>(`/workspaces/${slug}/publish`, { method: 'POST', body: JSON.stringify({}) })
+      setNote(`Published ✓ — ${articles.length} article(s) live (site rebuilt: ${r.pages} page${r.pages === 1 ? '' : 's'}).`)
+    } catch (e: any) { setErr(e.message || 'Publish failed') } finally { setPublishing(false) }
+  }
+
   if (loading) return <div className="empty">Loading…</div>
 
   return (
@@ -120,6 +132,7 @@ export default function ArticlesPage() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {articles.length > 0 && <button className="btn btn-secondary" onClick={structureAll} disabled={structuring} title="Give every article the hero + sidebar layout using existing content — instant, no AI credits">{structuring ? 'Structuring…' : '⚡ Structure all (free)'}</button>}
           {articles.length > 1 && <button className="btn btn-secondary" onClick={normaliseAll} title="AI cleanup of messy body markup — costs credits, slow">✦ AI Normalise all</button>}
+          {articles.length > 0 && <button className="btn btn-secondary" onClick={publishAll} disabled={publishing} title="Rebuild the site and take every article live">{publishing ? 'Publishing…' : '↗ Publish all articles'}</button>}
           <button className="btn btn-primary" onClick={newArticle}>＋ New article</button>
         </div>
       </div>

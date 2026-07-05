@@ -97,11 +97,12 @@ export function classifySection(fp: SectionFP): Classification {
   const substantive = cards.filter((x) => x.text.length > 20 || x.imgUrl || x.icon).length
   if (cards.length >= 2 && withHeading >= Math.ceil(cards.length / 2) && substantive >= Math.ceil(cards.length / 2)) {
     // Testimonials: quote-shaped cards (blockquotes / a name + a longer line).
+    // 4+ of them → the 3-up GSAP slider; fewer → a static 3-column grid.
     if (c.blockquote >= 2 || (cards.every((x) => !x.imgUrl && x.text.length > 40) && /testimon|review|p[ăa]rer|recenz/i.test(fp.classes + ' ' + fp.heading))) {
-      return mk('testimonials-3', {
-        eyebrow: clip(fp.kicker, 60), heading: clip(fp.heading, 140), sub: clip(fp.deck, 200),
-        items: cards.slice(0, 6).map((x) => ({ quote: clip(x.text || x.heading, 400), author: clip(x.heading, 60), role: '' })),
-      }, 0.66, 'quote-shaped cards')
+      const items = cards.slice(0, 16).map((x) => ({ quote: clip(x.text || x.heading, 400), author: clip(x.heading, 60), role: '', rating: 5 }))
+      return cards.length > 3
+        ? mk('testimonials-slider', { eyebrow: clip(fp.kicker, 60), heading: clip(fp.heading, 140), autoplay: true, items }, 0.68, `${cards.length} testimonials → slider`)
+        : mk('testimonials-3', { eyebrow: clip(fp.kicker, 60), heading: clip(fp.heading, 140), sub: clip(fp.deck, 200), items: items.slice(0, 6) }, 0.66, 'quote-shaped cards')
     }
     // Two columns, one image + one text → image-text (checked before cards so a
     // 2-up "photo beside a paragraph" doesn't get read as a 2-card grid).
@@ -122,11 +123,12 @@ export function classifySection(fp: SectionFP): Classification {
         items: cards.slice(0, 3).map((x) => ({ badge: '', title: clip(x.heading, 120), desc: clip(x.text, 260), image_url: x.imgUrl, cta_label: clip(x.label, 32), cta_href: x.href })),
       }, 0.8, `${cards.length} image cards`)
     }
-    // Icon/heading/desc feature grid.
-    const kind = fp.row.cols === 2 ? 'features-2col' : 'features-3'
+    // Icon/heading/desc feature grid — pick the column count that matches.
+    const kind = fp.row.cols === 2 ? 'features-2col' : fp.row.cols === 4 ? 'features-4' : 'features-3'
+    const cap = kind === 'features-2col' ? 2 : kind === 'features-4' ? 4 : 6
     return mk(kind, {
       eyebrow: clip(fp.kicker, 60), heading: clip(fp.heading, 140), sub: clip(fp.deck, 200),
-      items: cards.slice(0, kind === 'features-2col' ? 2 : 6).map((x) => ({ icon: '', title: clip(x.heading, 120), desc: clip(x.text, 260) })),
+      items: cards.slice(0, cap).map((x) => ({ icon: '', title: clip(x.heading, 120), desc: clip(x.text, 260) })),
     }, 0.76, `${cards.length}-col feature grid`)
   }
 

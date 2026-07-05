@@ -6,6 +6,7 @@ import { AppShell } from '@/components/AppShell'
 import { SectionPicker } from '@/components/SectionPicker'
 import { AiRebuildModal } from '@/components/AiRebuildModal'
 import { ImageUpload } from '@/components/ImageUpload'
+import { ImageField } from '@/components/ImageField'
 
 type Block = { type: string; props: Record<string, any> }
 type Section = { kind: string; name: string; description: string; category: string; defaults: Record<string, any> }
@@ -502,7 +503,7 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
       return (<>
         <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
         <div className="field"><label>Subheading</label><input className="inp" value={p.sub || ''} onChange={(e) => onChange({ sub: e.target.value })} /></div>
-        <div className="field"><label>Image URL</label><input className="inp" value={p.image_url || ''} onChange={(e) => onChange({ image_url: e.target.value })} placeholder="https://…" /></div>
+        <div className="field"><label>Image</label><ImageField slug={slug} value={p.image_url || ''} onChange={(url) => onChange({ image_url: url })} caption={p.heading || ''} /></div>
         <div className="field"><label>Image alt</label><input className="inp" value={p.image_alt || ''} onChange={(e) => onChange({ image_alt: e.target.value })} /></div>
         <div className="field"><label>CTA label</label><input className="inp" value={p.cta_label || ''} onChange={(e) => onChange({ cta_label: e.target.value })} /></div>
         <div className="field" style={{ marginBottom: 0 }}><label>CTA link</label><input className="inp" value={p.cta_href || ''} onChange={(e) => onChange({ cta_href: e.target.value })} /></div>
@@ -512,7 +513,7 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
         <div className="field"><label>Eyebrow (small kicker)</label><input className="inp" value={p.eyebrow || ''} onChange={(e) => onChange({ eyebrow: e.target.value })} placeholder="Welcome" /></div>
         <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
         <div className="field"><label>Subheading</label><input className="inp" value={p.sub || ''} onChange={(e) => onChange({ sub: e.target.value })} /></div>
-        <div className="field"><label>Image URL</label><input className="inp" value={p.image_url || ''} onChange={(e) => onChange({ image_url: e.target.value })} placeholder="https://…" /></div>
+        <div className="field"><label>Image</label><ImageField slug={slug} value={p.image_url || ''} onChange={(url) => onChange({ image_url: url })} caption={p.heading || ''} /></div>
         <div className="field"><label>Primary button</label><input className="inp" value={p.cta_label || ''} onChange={(e) => onChange({ cta_label: e.target.value })} placeholder="Label" /><input className="inp" style={{ marginTop: 6 }} value={p.cta_href || ''} onChange={(e) => onChange({ cta_href: e.target.value })} placeholder="Link" /></div>
         <div className="field" style={{ marginBottom: 0 }}><label>Secondary button</label><input className="inp" value={p.cta2_label || ''} onChange={(e) => onChange({ cta2_label: e.target.value })} placeholder="Label" /><input className="inp" style={{ marginTop: 6 }} value={p.cta2_href || ''} onChange={(e) => onChange({ cta2_href: e.target.value })} placeholder="Link" /></div>
       </>)
@@ -649,7 +650,7 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
       return (<>
         <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
         <div className="field"><label>Body (HTML)</label><textarea className="inp" value={p.html || ''} onChange={(e) => onChange({ html: e.target.value })} /></div>
-        <div className="field"><label>Image URL</label><input className="inp" value={p.image_url || ''} onChange={(e) => onChange({ image_url: e.target.value })} placeholder="https://…" /></div>
+        <div className="field"><label>Image</label><ImageField slug={slug} value={p.image_url || ''} onChange={(url) => onChange({ image_url: url })} caption={p.heading || ''} /></div>
         <div className="field"><label>Image alt</label><input className="inp" value={p.image_alt || ''} onChange={(e) => onChange({ image_alt: e.target.value })} /></div>
         <div className="field" style={{ marginBottom: 0 }}><label>Image side</label>
           <select className="inp" value={p.image_side || 'right'} onChange={(e) => onChange({ image_side: e.target.value })}>
@@ -830,7 +831,16 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
         <div className="field"><label>Subheading</label><textarea className="inp" value={p.sub || ''} onChange={(e) => onChange({ sub: e.target.value })} /></div>
         <div className="field"><label>Button label</label><input className="inp" value={p.cta_label || ''} onChange={(e) => onChange({ cta_label: e.target.value })} /></div>
         <div className="field"><label>Button link</label><input className="inp" value={p.cta_href || ''} onChange={(e) => onChange({ cta_href: e.target.value })} /></div>
-        <div className="field" style={{ marginBottom: 0 }}><label>Image URL</label><input className="inp" value={p.image_url || ''} onChange={(e) => onChange({ image_url: e.target.value })} /></div>
+        <div className="field"><label>Image</label><ImageField slug={slug} value={p.image_url || ''} onChange={(url) => onChange({ image_url: url })} caption={p.heading || ''} /></div>
+        <div className="field" style={{ marginBottom: 0 }}><label>Media background color <span className="muted" style={{ fontWeight: 400 }}>(brand colors — used behind / instead of the image)</span></label>
+          <select className="inp" value={p.bg || 'surface'} onChange={(e) => onChange({ bg: e.target.value })}>
+            <option value="surface">Surface (neutral)</option>
+            <option value="primary">Primary</option>
+            <option value="accent">Accent</option>
+            <option value="accent2">Accent 2</option>
+            <option value="gradient">Gradient (primary → accent)</option>
+          </select>
+        </div>
       </>)
     case 'bento-grid':
       return (<>
