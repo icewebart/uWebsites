@@ -57,6 +57,38 @@ server {
 `
 }
 
+// HTTPS vhost we write OURSELVES once the cert exists — 80 redirects to 443
+// (but still answers ACME challenges for renewals), 443 serves the static site
+// with the Let's Encrypt cert. We never let `certbot --nginx` edit/reload nginx
+// because this box runs OpenResty and certbot's plugin invokes an nginx that
+// can't load the Lua `resty.core` module (its reload fails and rolls back).
+const LE_LIVE = process.env.LE_LIVE || '/etc/letsencrypt/live'
+function vhostHttps(hostname: string, slug: string) {
+  const cert = `${LE_LIVE}/${hostname}/fullchain.pem`
+  const key = `${LE_LIVE}/${hostname}/privkey.pem`
+  return `# uWebsites custom domain (SSL) — ${hostname} -> workspace "${slug}"
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${serverNames(hostname)};
+    location ~ /\\.well-known/acme-challenge/ { root ${SITES_DIR}/${slug}; allow all; }
+    location / { return 301 https://$host$request_uri; }
+}
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name ${serverNames(hostname)};
+    ssl_certificate ${cert};
+    ssl_certificate_key ${key};
+    root ${SITES_DIR}/${slug};
+    index index.html;
+    location / { try_files $uri $uri/index.html =404; }
+    access_log /www/wwwlogs/${hostname}.log;
+    error_log  /www/wwwlogs/${hostname}.error.log;
+}
+`
+}
+
 async function writeVhost(hostname: string, slug: string) {
   await writeFile(`${VHOST_DIR}/${hostname}.conf`, vhostHttp(hostname, slug), 'utf8')
 }
@@ -67,12 +99,19 @@ async function nginxReload() {
   await execFile('/etc/init.d/nginx', ['reload'])
 }
 
-async function issueCert(hostname: string) {
-  const args = ['--nginx', '--non-interactive', '--agree-tos', '--redirect', '-d', hostname]
+// Obtain the cert via the WEBROOT method (drops a challenge file under the
+// site's dir, which our HTTP vhost already serves) — no nginx editing by
+// certbot. Then we swap in the HTTPS vhost and reload nginx ourselves.
+async function issueCert(hostname: string, slug: string) {
+  const args = ['certonly', '--webroot', '-w', `${SITES_DIR}/${slug}`,
+    '--non-interactive', '--agree-tos', '--keep-until-expiring', '-d', hostname]
   if (isApex(hostname)) args.push('-d', `www.${hostname}`)
   if (CERTBOT_EMAIL) args.push('--email', CERTBOT_EMAIL)
   else args.push('--register-unsafely-without-email')
   await execFile('certbot', args, { timeout: 120_000 })
+  // Cert is now at ${LE_LIVE}/${hostname}/ — write the 443 vhost + reload.
+  await writeFile(`${VHOST_DIR}/${hostname}.conf`, vhostHttps(hostname, slug), 'utf8')
+  await nginxReload()
 }
 
 // GET /workspaces/:slug/domains
@@ -141,7 +180,7 @@ domainsRouter.post('/:slug/domains/:id/verify', requireAuth, async (req: AuthReq
   // So we respond now and let the client poll GET /domains for sslStatus.
   void (async () => {
     try {
-      await issueCert(d.hostname)
+      await issueCert(d.hostname, ws.slug)
       await db.update(domains).set({ status: 'connected', sslStatus: 'active', sslError: null }).where(eq(domains.id, d.id))
     } catch (e: any) {
       await db.update(domains).set({ sslStatus: 'failed', sslError: String(e?.message || 'certbot failed').slice(0, 500) }).where(eq(domains.id, d.id)).catch(() => {})
