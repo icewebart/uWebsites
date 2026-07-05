@@ -700,39 +700,6 @@ export default function Branding() {
           </div>
         </div>
 
-        <div className="dash-h" style={{ marginTop: 22 }}>Vibe — one-click design system</div>
-        <div className="vibe-grid">
-          {VIBES.map((v) => (
-            <button key={v.slug} className={`vibe-card ${t.vibe === v.slug ? 'on' : ''}`} onClick={() => applyVibe(v.slug)}>
-              <div className="vibe-name" style={{ fontFamily: GOOGLE_FONT_NAMES.has(v.font.heading) ? v.font.heading : undefined }}>{v.name}</div>
-              <div className="vibe-blurb">{v.blurb}</div>
-              <div className="vibe-meta">{v.font.heading} + {v.font.body}</div>
-            </button>
-          ))}
-        </div>
-        <VibeFontLoader />
-
-        <div className="dash-h" style={{ marginTop: 22 }}>Brand voice &amp; tagline</div>
-        <div className="ctl-group card" style={{ marginBottom: 4 }}>
-          <p className="muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 12 }}>
-            The AI uses these whenever it writes or rebuilds a page — so every page sounds like <em>you</em>, not a template. Visual identity (colors, fonts, shape) is already set above; this is about words &amp; tone.
-          </p>
-          <div className="field">
-            <label>Tagline</label>
-            <input value={t.tagline || ''} placeholder='e.g. "German for kids, through play"' onChange={(e) => setT((c) => c ? { ...c, tagline: e.target.value } : c)} />
-          </div>
-          <div className="field" style={{ marginBottom: 0 }}>
-            <label>Brand voice / personality</label>
-            <textarea className="inp" rows={3} value={t.voice || ''} placeholder='Describe how your brand should sound. e.g. "Warm and encouraging, speaks directly to parents, concrete outcomes over hype, one light joke is fine, never corporate."' onChange={(e) => setT((c) => c ? { ...c, voice: e.target.value } : c)} />
-            <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>Leave blank to use the auto-detected voice for your industry.</p>
-          </div>
-        </div>
-
-        <div className="dash-h" style={{ marginTop: 22 }}>SEO, analytics &amp; verification</div>
-        <div className="ctl-group card" style={{ marginBottom: 4 }}>
-          <p className="muted" style={{ fontSize: 13, margin: 0 }}>Google Tag Manager, Analytics (GA4), Search Console &amp; Bing verification and the default meta description have moved to their own <a href={`/w/${slug}/tracking`}><b>Tracking</b></a> page.</p>
-        </div>
-
         <div className="dash-h" style={{ marginTop: 22 }}>Motion</div>
         <div className="ctl-group card" style={{ marginBottom: 4 }}>
           <label style={{ display: 'flex', gap: 10, alignItems: 'center', cursor: 'pointer' }}>

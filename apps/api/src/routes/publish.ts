@@ -239,7 +239,7 @@ const renderBlock = renderSection
 // alternate between the plain surface and a soft brand-tinted band, while
 // heroes and already-colored sections (stats-band, cta-banner) stay neutral.
 // Tinted bands also get scattered decorative circles (see .tone-tint CSS).
-const HERO_KINDS = new Set(['hero', 'hero-image', 'hero-blob'])
+const HERO_KINDS = new Set(['hero', 'hero-image', 'hero-blob', 'split-hero'])
 const NEUTRAL_KINDS = new Set(['stats-band', 'cta-banner', 'raw-html'])
 // Uploaded decor SVG markup from the workspace brand assets (Branding →
 // Iconițe & decor). Used as scattered section-background decoration.

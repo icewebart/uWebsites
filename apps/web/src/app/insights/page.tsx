@@ -49,13 +49,22 @@ export default function InsightsPage() {
   useEffect(() => {
     api<GS>('/account/google/status').then(async (s) => {
       setGs(s)
+      // Default the pickers to the property LINKED to the workspace you were
+      // last in (Tracking → "This site's Google data"), not just the first
+      // property in the account.
+      let linked: { scProperty?: string | null; gaProperty?: string | null } = {}
+      try { const ws = localStorage.getItem('uw-last-ws'); if (ws) linked = await api(`/account/workspaces/${ws}/analytics`) } catch {}
       if (s.searchConsole) {
         const list = await api<Site[]>('/account/google/search-console/sites').catch(() => [])
-        setSites(list); if (list[0]) setSite(list[0].siteUrl)
+        setSites(list)
+        const pick = linked.scProperty && list.some((x) => x.siteUrl === linked.scProperty) ? linked.scProperty! : list[0]?.siteUrl
+        if (pick) setSite(pick)
       }
       if (s.analytics) {
         const list = await api<Prop[]>('/account/google/analytics/properties').catch(() => [])
-        setProps(list); if (list[0]) setProp(list[0].property)
+        setProps(list)
+        const pick = linked.gaProperty && list.some((x) => x.property === linked.gaProperty) ? linked.gaProperty! : list[0]?.property
+        if (pick) setProp(pick)
       }
     }).catch(() => router.push('/login'))
   }, [])

@@ -24,6 +24,9 @@ export const IconFooter = ({ size }: P) => (
 export const IconStats = ({ size }: P) => (
   <svg {...wrap(size)}><path d="M3 21h18" /><rect x="5" y="13" width="3.5" height="6" /><rect x="10.25" y="9" width="3.5" height="10" /><rect x="15.5" y="5" width="3.5" height="14" /></svg>
 )
+export const IconTracking = ({ size }: P) => (
+  <svg {...wrap(size)}><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3.5" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
+)
 export const IconAi = ({ size }: P) => (
   <svg {...wrap(size)}><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z" /><path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14z" /></svg>
 )

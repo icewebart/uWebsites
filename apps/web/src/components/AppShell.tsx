@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
-import { IconDashboard, IconWebsite, IconArticles, IconBranding, IconStats, IconAi, IconMenu, IconFooter } from './icons'
+import { IconDashboard, IconWebsite, IconArticles, IconBranding, IconStats, IconTracking, IconAi, IconMenu, IconFooter } from './icons'
 import { ChatPanel } from './ChatPanel'
 
 type Workspace = { id: string; name: string; slug: string }
@@ -18,7 +18,8 @@ const NAV: NavEntry[] = [
   { label: 'Article Template', Icon: IconArticles, sub: true },
   { label: 'Articles', Icon: IconArticles },
   { label: 'Branding', Icon: IconBranding },
-  { label: 'Tracking', Icon: IconStats },
+  { label: 'Brand Voice', Icon: IconAi, sub: true },
+  { label: 'Tracking', Icon: IconTracking },
   { label: 'Insights', Icon: IconStats },
 ]
 const PROFILE_ITEMS = ['Settings', 'Domains', 'Integrations', 'Email Setup', 'Billing']
@@ -76,6 +77,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               : label === 'Article Template' ? `/w/${current.slug}/article-template`
               : label === 'Articles' ? `/w/${current.slug}/articles`
               : label === 'Branding' ? `/w/${current.slug}/branding`
+              : label === 'Brand Voice' ? `/w/${current.slug}/brand-voice`
               : label === 'Tracking' ? `/w/${current.slug}/tracking`
               : undefined
             const cls = `sidebar-link${label === active ? ' active' : ''}${sub ? ' sidebar-sub' : ''}`

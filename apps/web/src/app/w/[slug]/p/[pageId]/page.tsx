@@ -521,13 +521,21 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
       return (<>
         <div className="field"><label>Eyebrow</label><input className="inp" value={p.eyebrow || ''} onChange={(e) => onChange({ eyebrow: e.target.value })} /></div>
         <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        <div className="field"><label>Image shape <span className="muted" style={{ fontWeight: 400 }}>(how card photos are framed)</span></label>
+          <select className="inp" value={p.image_shape || 'landscape'} onChange={(e) => onChange({ image_shape: e.target.value })}>
+            <option value="landscape">Landscape (16:10)</option>
+            <option value="square">Square (1:1)</option>
+            <option value="portrait">Portrait (3:4)</option>
+            <option value="contain">Show whole image (no crop)</option>
+          </select>
+        </div>
         {(p.items || []).map((it: any, j: number) => (
           <div className="field" key={j} style={{ paddingBottom: 8, borderBottom: '1px dashed var(--border)' }}>
             <label>Card {j + 1}</label>
             <input className="inp" placeholder="Badge (e.g. Courses)" value={it.badge || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, badge: e.target.value } : x))} />
             <input className="inp" style={{ marginTop: 6 }} placeholder="Title" value={it.title || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, title: e.target.value } : x))} />
             <input className="inp" style={{ marginTop: 6 }} placeholder="Description" value={it.desc || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, desc: e.target.value } : x))} />
-            <input className="inp" style={{ marginTop: 6 }} placeholder="Image URL (optional)" value={it.image_url || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, image_url: e.target.value } : x))} />
+            <div style={{ marginTop: 6 }}><ImageField slug={slug} value={it.image_url || ''} onChange={(url) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, image_url: url } : x))} caption={it.title || ''} height={96} /></div>
             <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
               <input className="inp" placeholder="Button label" value={it.cta_label || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, cta_label: e.target.value } : x))} />
               <input className="inp" placeholder="Button link" value={it.cta_href || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, cta_href: e.target.value } : x))} />
@@ -571,6 +579,31 @@ function SectionForm({ block, onChange }: { block: Block; onChange: (partial: Re
             <input className="inp" style={{ marginTop: 6 }} placeholder="Description" value={it.desc || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, desc: e.target.value } : x))} />
           </div>
         ))}
+      </>)
+    case 'features-4':
+      return (<>
+        <div className="field"><label>Heading</label><input className="inp" value={p.heading || ''} onChange={(e) => onChange({ heading: e.target.value })} /></div>
+        <div className="field"><label>Subheading</label><input className="inp" value={p.sub || ''} onChange={(e) => onChange({ sub: e.target.value })} /></div>
+        <div className="field"><label>Style</label>
+          <select className="inp" value={p.variant || 'icons'} onChange={(e) => onChange({ variant: e.target.value })}>
+            <option value="icons">Icons (emoji)</option>
+            <option value="images">Square images (image on top, title + text below)</option>
+          </select>
+        </div>
+        {(p.items || []).slice(0, 4).map((it: any, j: number) => (
+          <div className="field" key={j} style={{ paddingBottom: 8, borderBottom: '1px dashed var(--border)' }}>
+            <label>Item {j + 1}</label>
+            {p.variant === 'images'
+              ? <ImageField slug={slug} value={it.image_url || ''} onChange={(url) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, image_url: url } : x))} caption={it.title || ''} height={96} />
+              : <input className="inp" placeholder="Icon (emoji, e.g. ⚡)" value={it.icon || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, icon: e.target.value } : x))} />}
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Title" value={it.title || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, title: e.target.value } : x))} />
+            <input className="inp" style={{ marginTop: 6 }} placeholder="Description" value={it.desc || ''} onChange={(e) => setItems((p.items || []).map((x: any, k: number) => k === j ? { ...x, desc: e.target.value } : x))} />
+          </div>
+        ))}
+        <div className="ev-actions" style={{ marginTop: 4 }}>
+          <button onClick={() => setItems([...(p.items || []), { icon: '', title: '', desc: '', image_url: '' }])} disabled={(p.items || []).length >= 4}>＋ Add item</button>
+          {(p.items || []).length > 0 && <button className="danger" onClick={() => setItems((p.items || []).slice(0, -1))}>− Remove last</button>}
+        </div>
       </>)
     case 'cta-banner':
       return (<>

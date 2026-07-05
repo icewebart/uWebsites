@@ -518,6 +518,11 @@ export const SECTION_CSS = `
 .features-4 .item .icon{width:42px;height:42px;border-radius:calc(var(--card-r) * .6);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:14px;background:color-mix(in srgb, var(--accent) 20%, var(--surface))}
 .features-4 .item h3{font-size:1.06rem;font-weight:700;margin-bottom:6px}
 .features-4 .item p{font-size:.92rem;opacity:.74;line-height:1.5}
+/* image variant: square photo on top, title + text below (no crop worries) */
+.features-4.v-images .item{padding:0;overflow:hidden}
+.features-4.v-images .f4-img{aspect-ratio:1/1;background-size:cover;background-position:center;background-color:color-mix(in srgb,var(--primary) 8%,var(--surface))}
+.features-4.v-images .f4-img-empty{background-image:repeating-linear-gradient(45deg,color-mix(in srgb,var(--accent) 16%,var(--surface)) 0 14px,var(--surface) 14px 28px)}
+.features-4.v-images .f4-txt{padding:16px 18px 20px}
 @media(max-width:900px){.features-4 .grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:520px){.features-4 .grid{grid-template-columns:1fr}}
 /* Testimonials 3-up slider (GSAP-animated track; shows exactly 3) */
@@ -760,6 +765,9 @@ main > section.article-hero.ah-cover:first-child{padding-top:0}
 .program-cards .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
 .program-cards .pc-card{background:var(--surface);border:var(--bw) solid rgba(0,0,0,.07);border-radius:var(--card-r);overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow, 0 4px 20px rgba(30,10,50,.05))}
 .program-cards .pc-top{aspect-ratio:16/10;background-size:cover;background-position:center}
+.program-cards.pc-square .pc-top{aspect-ratio:1/1}
+.program-cards.pc-portrait .pc-top{aspect-ratio:3/4}
+.program-cards.pc-contain .pc-top{background-size:contain;background-repeat:no-repeat;background-color:color-mix(in srgb,var(--primary) 6%,var(--surface))}
 .program-cards .pc-striped{background-image:repeating-linear-gradient(45deg, color-mix(in srgb, var(--pc-accent) 16%, #fff) 0 14px, color-mix(in srgb, var(--pc-accent) 26%, #fff) 14px 28px)}
 .program-cards .pc-body{padding:22px 22px 24px}
 .program-cards .pc-badge{font-weight:800;font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}
@@ -1032,13 +1040,16 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
       return `<section class="features-3${variant}"><div class="container"><div class="head">${eyebrow}<h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div><div class="grid">${grid}</div></div></section>`
     }
     case 'features-4': {
+      const isImg = p.variant === 'images'
       const items = (Array.isArray(p.items) ? p.items : []).slice(0, 4)
       const grid = items.map((it: any) => {
-        const icon = it.icon ? `<div class="icon">${esc(it.icon)}</div>` : ''
-        return `<div class="item">${icon}<h3>${esc(it.title)}</h3><p>${esc(it.desc)}</p></div>`
+        const top = isImg
+          ? (it.image_url ? `<div class="f4-img" style="background-image:url('${esc(it.image_url)}')"></div>` : `<div class="f4-img f4-img-empty"></div>`)
+          : (it.icon ? `<div class="icon">${esc(it.icon)}</div>` : '')
+        return `<div class="item">${top}<div class="f4-txt"><h3>${esc(it.title)}</h3><p>${esc(it.desc)}</p></div></div>`
       }).join('')
       const eyebrow = p.eyebrow ? `<div class="eyebrow">${esc(p.eyebrow)}</div>` : ''
-      return `<section class="features-4"><div class="container"><div class="head">${eyebrow}<h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div><div class="grid">${grid}</div></div></section>`
+      return `<section class="features-4${isImg ? ' v-images' : ''}"><div class="container"><div class="head">${eyebrow}<h2${f('heading')}>${esc(p.heading)}</h2>${p.sub ? `<p class="sub"${f('sub')}>${esc(p.sub)}</p>` : ''}</div><div class="grid">${grid}</div></div></section>`
     }
     case 'testimonials-slider': {
       const items = (Array.isArray(p.items) ? p.items : []).filter((it: any) => it && it.quote).slice(0, 16)
@@ -1078,7 +1089,10 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
       const head = (p.eyebrow || p.heading)
         ? `<div class="head">${p.eyebrow ? `<div class="eyebrow"${f('eyebrow')}>${esc(p.eyebrow)}</div>` : ''}${p.heading ? `<h2${f('heading')}>${esc(p.heading)}</h2>` : ''}</div>`
         : ''
-      return `<section class="program-cards"><div class="container">${head}<div class="grid">${cards}</div></div></section>`
+      // image_shape: landscape (default 16:10 crop) · square (1:1) · portrait
+      // (3:4) · contain (whole image, no crop). Lets the author avoid cropping.
+      const shapeCls = p.image_shape === 'square' ? ' pc-square' : p.image_shape === 'portrait' ? ' pc-portrait' : p.image_shape === 'contain' ? ' pc-contain' : ''
+      return `<section class="program-cards${shapeCls}"><div class="container">${head}<div class="grid">${cards}</div></div></section>`
     }
     case 'stats-band': {
       const items = (Array.isArray(p.items) ? p.items : []).slice(0, 4)
