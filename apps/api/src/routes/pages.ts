@@ -4,6 +4,34 @@ import { db, pages, workspaces, brandingTokens } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { renderPreview } from './publish.js'
 import { articleTemplateOf } from './menus.js'
+import { createImageMirror } from '../lib/image-host.js'
+
+// Copy any EXTERNAL images referenced by a page's blocks (article/richtext body
+// HTML + image props) onto our server, rewriting the URLs to the local mirror.
+// Skips images already on our /p/<slug>/img/ path. Returns how many changed.
+async function autoMirrorBlocks(blocks: any[], slug: string): Promise<{ blocks: any[]; changed: number }> {
+  const mirror = createImageMirror(slug)
+  let changed = 0
+  const isOurs = (u: string) => /\/p\/[^/]+\/img\//.test(u)
+  const one = async (u: any): Promise<any> => {
+    if (typeof u === 'string' && /^https?:\/\//i.test(u) && !isOurs(u)) {
+      try { const m = await mirror.mirror(u); if (m) { changed++; return m } } catch { /* keep original */ }
+    }
+    return u
+  }
+  for (const b of blocks) {
+    const p = b?.props; if (!p) continue
+    if (typeof p.html === 'string' && p.html.includes('<img')) {
+      const urls = new Set<string>()
+      for (const m of p.html.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) urls.add(m[1])
+      for (const u of urls) { const nu = await one(u); if (nu !== u) p.html = p.html.split(u).join(nu) }
+    }
+    for (const k of ['image_url', 'url', 'image']) if (p[k]) { const nu = await one(p[k]); if (nu !== p[k]) { p[`${k}_orig`] = p[k]; p[k] = nu } }
+    if (Array.isArray(p.items)) for (const it of p.items) for (const k of ['image_url', 'image']) if (it[k]) { const nu = await one(it[k]); if (nu !== it[k]) { it[`${k}_orig`] = it[k]; it[k] = nu } }
+    if (Array.isArray(p.sidebar)) for (const c of p.sidebar) if (c?.image) { const nu = await one(c.image); if (nu !== c.image) c.image = nu }
+  }
+  return { blocks, changed }
+}
 
 // Single-page load/save for the block editor. Account-scoped via the page's
 // workspace (page → workspace → account).
@@ -129,4 +157,17 @@ pagesRouter.put('/:id', requireAuth, async (req: AuthRequest, res) => {
 
   const [updated] = await db.update(pages).set(upd).where(eq(pages.id, id)).returning()
   res.json({ ok: true, data: updated })
+
+  // Automatically copy any external images to our server, in the background so
+  // the save stays instant. Only NEW external URLs are downloaded (local ones
+  // are skipped), so this is cheap after the first pass.
+  if (Array.isArray(upd.blocks) && (owned as any).wsSlug) {
+    void (async () => {
+      try {
+        const clone = JSON.parse(JSON.stringify(upd.blocks))
+        const { blocks: mirrored, changed } = await autoMirrorBlocks(clone, (owned as any).wsSlug)
+        if (changed) await db.update(pages).set({ blocks: mirrored }).where(eq(pages.id, id))
+      } catch { /* non-fatal */ }
+    })()
+  }
 })
