@@ -126,6 +126,17 @@ export default function WorkspaceHome() {
       alert(`Found ${r.found} remote image(s): downloaded ${r.downloaded} to your server${r.failed ? `, ${r.failed} failed (source may be down)` : ''}.`)
     } catch (e: any) { alert(e.message || 'Failed') } finally { setSavingImages(false) }
   }
+  const [backfilling, setBackfilling] = useState(false)
+  async function backfillFeatured() {
+    if (!window.confirm('Re-fetch the featured (hero) image for every article that is missing one, straight from the original site? Then run "Save images" to copy them to your server. Free — no AI credits.')) return
+    setBackfilling(true)
+    try {
+      const r = await api<{ filled: number; pagesChanged: number }>('/import/backfill-featured', { method: 'POST', body: JSON.stringify({ slug }) })
+      alert(r.filled
+        ? `Restored ${r.filled} article image(s) across ${r.pagesChanged} page(s). Now click "💾 Save images" to copy them to your server.`
+        : 'No missing article images were found to restore (or the source had none).')
+    } catch (e: any) { alert(e.message || 'Failed') } finally { setBackfilling(false) }
+  }
   const [structuringAll, setStructuringAll] = useState(false)
   async function structureAll() {
     const pgs = (data?.pages || []).filter((p) => p.type !== 'home')
@@ -250,6 +261,9 @@ export default function WorkspaceHome() {
             </button>
             <button className="btn btn-secondary" onClick={verifyLinks} disabled={verifying} title="Rewrite links to the original site into internal links (incl. menu + footer), and resolve placeholder (#) links">
               {verifying ? 'Fixing…' : '🔗 Fix links'}
+            </button>
+            <button className="btn btn-secondary" onClick={backfillFeatured} disabled={backfilling} title="Re-fetch the featured (hero) image for every article missing one, from the original site">
+              {backfilling ? 'Restoring…' : '🖼 Restore article images'}
             </button>
             <button className="btn btn-secondary" onClick={saveImagesToVps} disabled={savingImages} title="Download all remote images to your server — do this before the original site goes offline">
               {savingImages ? 'Saving…' : '💾 Save images'}

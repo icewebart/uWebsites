@@ -309,6 +309,33 @@ function featuredFromEmbed(p: any): { url: string; alt?: string } | null {
   return { url: media.source_url, alt: media.alt_text || '' }
 }
 
+// Resolve a post's featured image URL. WordPress's `_embed` is silently DROPPED
+// when `_fields` is used (it needs `_links` in the field list), so relying on
+// _embedded alone loses every featured image. We instead fetch the media items
+// by id in one call and look them up here. Falls back to _embedded if present.
+async function fetchFeaturedMap(site: string, ids: number[]): Promise<Map<number, { url: string; alt: string }>> {
+  const map = new Map<number, { url: string; alt: string }>()
+  const uniq = [...new Set(ids.filter((n) => Number.isFinite(n) && n > 0))]
+  const CHUNK = 100
+  for (let i = 0; i < uniq.length; i += CHUNK) {
+    const batch = uniq.slice(i, i + CHUNK)
+    const url = `${site}/wp-json/wp/v2/media?include=${batch.join(',')}&per_page=${batch.length}&_fields=id,source_url,alt_text`
+    try {
+      const r = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json' } })
+      if (!r.ok) continue
+      const data = (await r.json()) as any[]
+      for (const m of data) if (m?.id && m?.source_url) map.set(m.id, { url: m.source_url, alt: m.alt_text || '' })
+    } catch { /* best-effort */ }
+  }
+  return map
+}
+function featuredFrom(p: any, mediaMap?: Map<number, { url: string; alt: string }>): { url: string; alt?: string } | null {
+  const id = Number(p?.featured_media)
+  const fromMap = mediaMap?.get(id)
+  if (fromMap?.url) return { url: fromMap.url, alt: fromMap.alt }
+  return featuredFromEmbed(p)
+}
+
 export async function scanSite(rawUrl: string) {
   const site = String(rawUrl).trim().replace(/\/+$/, '').replace(/^(?!https?:\/\/)/, 'https://')
   const [pagesData, posts, cats] = await Promise.all([
@@ -768,6 +795,9 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
   ])
   const bySlug = new Map<string, any>()
   for (const p of [...pagesFull, ...postsFull]) if (p?.slug) bySlug.set(p.slug, p)
+  // Resolve featured images by id (see fetchFeaturedMap — _embed is unreliable
+  // with _fields, so this is how article/hero images actually get populated).
+  const mediaMap = await fetchFeaturedMap(site, [...pagesFull, ...postsFull].map((p) => Number(p?.featured_media)).filter(Boolean))
 
   const existing = new Set(
     (await db.select({ slug: pages.slug }).from(pages).where(eq(pages.workspaceId, ws.id))).map((r) => r.slug),
@@ -790,7 +820,7 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
 
     const src = bySlug.get(item.slug)
     const contentHtml = src?.content?.rendered ?? ''
-    const featured = src ? featuredFromEmbed(src) : null
+    const featured = src ? featuredFrom(src, mediaMap) : null
     const isHome = item.type === 'home'
     const sourceUrl = src?.link || (site + item.path)
 
@@ -1009,6 +1039,56 @@ importRouter.post('/mirror-images', requireAuth, async (req: AuthRequest, res) =
     }
   }
   res.json({ ok: true, data: { found: urls.size, downloaded, failed, pagesChanged, refs } })
+})
+
+// POST /import/backfill-featured { slug } — repair articles imported BEFORE the
+// featured-image fix: for every article whose hero has no image, re-fetch the
+// source post's featured image (by media id) and fill it in. Match source posts
+// to pages by slug (page slug or the last segment of the stored source URL).
+// After this, run "Save images" to mirror the newly-filled URLs locally.
+importRouter.post('/backfill-featured', requireAuth, async (req: AuthRequest, res) => {
+  const { slug } = req.body ?? {}
+  const [ws] = await db.select().from(workspaces).where(and(eq(workspaces.slug, String(slug || '')), eq(workspaces.accountId, req.user!.accountId))).limit(1)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const rows = await db.select().from(pages).where(eq(pages.workspaceId, ws.id))
+
+  // Find the source site URL from any page's stored import_source.
+  let site = ''
+  for (const p of rows) { const u = (p.seo as any)?.import_source?.url; if (u) { site = String(u); break } }
+  if (!site) return res.status(400).json({ ok: false, error: 'No source URL on any page — can\'t reach the original site to fetch featured images.' })
+  const origin = (() => { try { return new URL(site).origin } catch { return '' } })()
+  if (!origin) return res.status(400).json({ ok: false, error: 'Bad source URL.' })
+
+  // Pull posts + pages (id, slug, link, featured_media) and resolve media urls.
+  const [postsFull, pagesFull] = await Promise.all([
+    fetchAll(origin, 'posts', 'id,slug,link,featured_media').catch(() => []),
+    fetchAll(origin, 'pages', 'id,slug,link,featured_media').catch(() => []),
+  ])
+  const all = [...postsFull, ...pagesFull]
+  const mediaMap = await fetchFeaturedMap(origin, all.map((p) => Number(p?.featured_media)).filter(Boolean))
+  const lastSeg = (u: string) => { try { return new URL(u).pathname.replace(/\/+$/, '').split('/').filter(Boolean).pop() || '' } catch { return '' } }
+  const featBySlug = new Map<string, { url: string; alt: string }>()
+  for (const p of all) {
+    const f = mediaMap.get(Number(p?.featured_media)); if (!f?.url) continue
+    if (p?.slug) featBySlug.set(String(p.slug).toLowerCase(), f)
+    const seg = lastSeg(String(p?.link || '')); if (seg) featBySlug.set(seg.toLowerCase(), f)
+  }
+
+  let filled = 0, pagesChanged = 0
+  for (const p of rows) {
+    const blocks = Array.isArray(p.blocks) ? JSON.parse(JSON.stringify(p.blocks)) : []
+    let changed = false
+    for (const b of blocks) {
+      if (b?.type !== 'article-hero' && b?.type !== 'hero-image') continue
+      if (b.props?.image_url) continue // already has one
+      const key = String(p.slug || '').toLowerCase()
+      const srcSeg = lastSeg(String((p.seo as any)?.import_source?.url || '')).toLowerCase()
+      const f = featBySlug.get(key) || (srcSeg ? featBySlug.get(srcSeg) : undefined)
+      if (f?.url) { b.props = { ...b.props, image_url: f.url, image_url_orig: f.url, image_alt: b.props?.image_alt || f.alt || p.title || '' }; changed = true; filled++ }
+    }
+    if (changed) { await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, p.id)); pagesChanged++ }
+  }
+  res.json({ ok: true, data: { filled, pagesChanged, source: origin } })
 })
 
 importRouter.post('/heal-images', requireAuth, async (req: AuthRequest, res) => {
