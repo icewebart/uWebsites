@@ -111,6 +111,7 @@ section.has-decor{overflow:hidden}
 .site-header .container{display:flex;align-items:center;gap:24px;min-height:56px;padding:8px 22px;border-radius:16px;transition:background .2s ease, box-shadow .2s ease}
 .site-header .brand,.site-header .nav .nav-link,.site-header .caret{color:var(--text)}
 main > section:first-child{padding-top:calc(var(--pad) + 76px)}
+main > section.split-hero:first-child{padding-top:0}  /* full-bleed to top */
 /* Imported heroes carry their background on a NESTED element, so our headroom
    would just be a white band above it. Drop the headroom for raw-html first
    sections — the imported hero has its own top padding, and the transparent
@@ -222,6 +223,7 @@ main > section.uw-raw:first-child{padding-top:0}
   .site-header .dropdown a{padding:10px 4px;font-size:15px}
   /* overlay header stays overlaid on the hero — a bit more headroom */
   main > section:first-child{padding-top:calc(var(--pad) + 90px)}
+  main > section.split-hero:first-child{padding-top:0}
   main > section.uw-raw:first-child{padding-top:0}
   /* Footer stacks nicely */
   .site-footer.ft-columns .container,.site-footer.ft-mega .container{grid-template-columns:1fr 1fr;gap:24px;padding:0 18px}

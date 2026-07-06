@@ -199,16 +199,30 @@ export async function headlessRender(url: string): Promise<HeadlessResult> {
         return best
       }
 
+      // Many card designs put the photo as a CSS background (Elementor,
+      // WP themes) rather than an <img> — find the first background-image URL
+      // on the card or a descendant so those images aren't lost.
+      const bgUrlIn = (root: Element): string => {
+        const els: Element[] = [root, ...Array.from(root.querySelectorAll('*')).slice(0, 80)]
+        for (const el of els) {
+          const bi = getComputedStyle(el).backgroundImage || ''
+          if (/gradient/i.test(bi)) continue
+          const m = bi.match(/url\(["']?([^"')]+)["']?\)/i)
+          if (m) return abs(m[1])
+        }
+        return ''
+      }
       const cardOf = (el: Element) => {
         const img = el.querySelector('img') as HTMLImageElement | null
         const p = el.querySelector('p, .elementor-text-editor, [class*="description" i]') as HTMLElement | null
         const a = el.querySelector('a[href]') as HTMLAnchorElement | null
+        const imgUrl = img ? bestSrc(img) : bgUrlIn(el)
         return {
           heading: headingOf(el),
           text: p ? clean(p.innerText).slice(0, 400) : '',
-          imgUrl: img ? bestSrc(img) : '',
+          imgUrl,
           imgAlt: img ? (img.getAttribute('alt') || '') : '',
-          icon: iconOf(el) && !img,
+          icon: iconOf(el) && !imgUrl,
           href: a ? abs(a.getAttribute('href') || '') : '',
           label: a ? clean(a.innerText).slice(0, 40) : '',
         }
