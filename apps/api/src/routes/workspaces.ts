@@ -30,11 +30,32 @@ workspacesRouter.get('/', requireAuth, async (req: AuthRequest, res) => {
 })
 
 // POST /workspaces — add another workspace to the account.
+// Slugify a workspace name into a URL-safe base: strip diacritics first (so
+// Romanian ă/â/î/ș/ț and other accents become a/a/i/s/t rather than being
+// deleted, which would leave an empty slug), then keep [a-z0-9-]. Falls back to
+// 'site' so we NEVER produce an empty slug (an empty slug breaks /w/<slug>
+// routing → "workspace not found" on import).
+function baseSlug(name: string): string {
+  return String(name || '')
+    .toLowerCase()
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'site'
+}
+
 workspacesRouter.post('/', requireAuth, async (req: AuthRequest, res) => {
   const { name } = req.body ?? {}
-  if (!name) return res.status(400).json({ ok: false, error: 'name required' })
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-  const [ws] = await db.insert(workspaces).values({ accountId: req.user!.accountId, name, slug }).returning()
+  if (!name || !String(name).trim()) return res.status(400).json({ ok: false, error: 'name required' })
+  // Ensure the slug is globally unique — the published site is served at
+  // <slug>.uwebsites.net, and workspace lookup is by slug, so a duplicate slug
+  // shadows another workspace (the exact bug behind two "resurse-umane"). Append
+  // -2, -3, … until free.
+  const base = baseSlug(String(name))
+  const taken = new Set((await db.select({ slug: workspaces.slug }).from(workspaces)).map((r) => r.slug))
+  let slug = base
+  for (let i = 2; taken.has(slug); i++) slug = `${base}-${i}`
+  const [ws] = await db.insert(workspaces).values({ accountId: req.user!.accountId, name: String(name).trim(), slug }).returning()
   await db.insert(memberships).values({ userId: req.user!.id, workspaceId: ws.id, role: 'owner' })
   res.json({ ok: true, data: ws })
 })

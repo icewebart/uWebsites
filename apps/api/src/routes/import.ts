@@ -735,7 +735,7 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
 
   const [ws] = await db.select().from(workspaces)
     .where(and(eq(workspaces.slug, slug), eq(workspaces.accountId, req.user!.accountId))).limit(1)
-  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  if (!ws) return res.status(404).json({ ok: false, error: `Workspace "${slug}" not found. Reload the page and try again — if it persists, create the workspace fresh from “＋ New site”.` })
 
   let scan
   try { scan = await scanSite(url) }
