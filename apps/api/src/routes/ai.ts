@@ -8,6 +8,23 @@ import { pickAesthetic, brandVoicePrompt, COPY_RULES, AESTHETICS } from '../lib/
 import { generateImage, generateImageResult, photoPrompt, imageGenEnabled, reasonMessage } from '../lib/imagegen.js'
 import { localImageMissing } from '../lib/image-host.js'
 import { upsertMenu, articleTemplateOf } from './menus.js'
+import { articleBlocksFromImport } from './import.js'
+
+// Default rules the AI follows when writing an article (the Rules page can
+// override these per workspace via tokens.article_rules).
+export const DEFAULT_ARTICLE_RULES = [
+  'Write in the site\'s own language and brand voice; never sound like a generic template.',
+  'Put the target keyword in the title/H1, the first paragraph, the meta description, and 1–2 H2 headings — naturally, never stuffed.',
+  'Open with a specific hook (a number, outcome, or pain), not "Welcome" / "In this article".',
+  'Structure with clear H2/H3 sections; one idea per paragraph; paragraphs under 80 words.',
+  'Be genuinely useful and concrete — real steps, examples, and specifics over fluff.',
+  'Cover related/semantic terms and the questions a reader would ask (search intent).',
+  'End with a short FAQ (3–5 real questions) so it can earn an FAQ rich result.',
+  'Add internal links to relevant pages on this site where it helps the reader.',
+  'Target ~700–1200 words unless the topic clearly needs more; quality over length.',
+  'Semantic HTML only in the body: p, h2, h3, ul, li, strong, em, a — no inline styles or scripts.',
+  'Never invent facts, fake statistics, or fake testimonials.',
+]
 
 // Strip document chrome the model must not emit — the platform wraps every page
 // with its OWN header (menu) + footer, so a <header>/<nav>/<footer> in the
@@ -925,6 +942,55 @@ richtext sections use semantic HTML only (p, h2, h3, ul, li, strong, em, a — n
     res.json({ ok: true, data: { id: created.id, slug: created.slug, title: created.title } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'AI generation failed: ' + (e?.message || 'unknown') })
+  }
+})
+
+// POST /ai/generate-article — write a real, SEO-optimised ARTICLE (article-hero
+// + article-body) for a keyword, using the brand voice + examples + the article
+// rules. Saves a draft article. This is what Article Plan's "Draft now" calls.
+aiRouter.post('/generate-article', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
+  const { slug, keyword, angle } = req.body ?? {}
+  if (!slug || !keyword) return res.status(400).json({ ok: false, error: 'slug and keyword required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const tk = (tok?.tokens as any) || {}
+  const voice = tk.voice ? `BRAND VOICE (write like this): ${tk.voice}` : ''
+  const examples = Array.isArray(tk.voice_examples) && tk.voice_examples.length
+    ? 'WRITING EXAMPLES — mimic this exact style:\n' + tk.voice_examples.filter((e: any) => e?.text).map((e: any) => `« ${e.text} »`).join('\n') : ''
+  const rules = (Array.isArray(tk.article_rules) && tk.article_rules.length ? tk.article_rules : DEFAULT_ARTICLE_RULES)
+  const rulesText = 'ARTICLE RULES (mandatory):\n' + rules.map((r: string, i: number) => `${i + 1}. ${r}`).join('\n')
+  const brief = await siteBrief(ws.id, ws.name)
+  const tmpl = articleTemplateOf(tk)
+  try {
+    const r = await a.messages.create({
+      model: MODEL, max_tokens: 6000,
+      system: `You are an expert SEO content writer. Write a genuinely useful, well-structured article fully optimised for the target keyword, in the site's own language. ${voice}\n${examples}\n\n${rulesText}\n\n${COPY_RULES}${brief ? '\n\nSITE CONTEXT (anchor the topic/audience to this):\n' + brief : ''}`,
+      tools: [{ name: 'article', description: 'The finished article.', input_schema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'H1/title — contains the keyword, compelling, under ~65 chars' },
+          metaDescription: { type: 'string', description: 'Meta description, 140–160 chars, contains the keyword' },
+          deck: { type: 'string', description: 'One-line standfirst under the title' },
+          bodyHtml: { type: 'string', description: 'Article body, semantic HTML only (p, h2, h3, ul, li, strong, em, a). Keyword in the first paragraph + a couple of H2s. End with a FAQ: an <h2> then <h3> questions with <p> answers.' },
+        }, required: ['title', 'metaDescription', 'bodyHtml'],
+      } }],
+      tool_choice: { type: 'tool', name: 'article' },
+      messages: [{ role: 'user', content: `Target keyword: "${keyword}".${angle ? ` Angle: ${angle}.` : ''} Write the full article now.` }],
+    })
+    const tu = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!tu) return res.status(502).json({ ok: false, error: 'Model returned no article' })
+    const { title, metaDescription, deck, bodyHtml } = tu.input as { title: string; metaDescription: string; deck?: string; bodyHtml: string }
+    const html = deck ? `<p><strong>${deck}</strong></p>\n${bodyHtml}` : bodyHtml
+    const blocks = articleBlocksFromImport(title, html, undefined, tmpl)
+    const pslug = String(keyword).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) + '-' + Math.random().toString(36).slice(2, 5)
+    const [created] = await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug: pslug, title, status: 'draft', blocks: blocks as any, seo: { description: metaDescription, keyword } as any }).returning()
+    await logAiJob(ws.id, 'article', 'done', { source: 'generate-article', keyword: String(keyword).slice(0, 200), title }, 1, created.id)
+    res.json({ ok: true, data: { id: created.id, slug: created.slug, title: created.title } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Article generation failed: ' + (e?.message || 'unknown') })
   }
 })
 

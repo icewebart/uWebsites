@@ -211,6 +211,10 @@ main > section.uw-raw:first-child{padding-top:0}
      tappable but move it below the nav list via order (panel is flex-column). */
   .site-header.nav-open .header-cta{position:relative;z-index:2;order:2;margin-top:20px;align-self:flex-start}
   .site-header .burger{display:block}
+  /* CRITICAL: no backdrop-filter on mobile — a backdrop-filter ancestor makes
+     the fullscreen fixed nav panel anchor to the header bar instead of the
+     viewport, so the dropdown/menu breaks once the header goes 'scrolled'. */
+  .site-header.style-glass.scrolled .container{backdrop-filter:none;-webkit-backdrop-filter:none;background:color-mix(in srgb, var(--surface) 94%, transparent)}
   .site-header .nav{position:fixed;top:0;left:0;right:0;bottom:0;background:var(--surface);padding:80px 24px 32px;flex-direction:column;justify-content:flex-start;align-items:stretch;gap:6px;overflow-y:auto;opacity:0;visibility:hidden;transform:translateY(-8px);transition:opacity .2s ease, transform .2s ease, visibility .2s ease;z-index:1}
   .site-header.nav-open .nav{opacity:1;visibility:visible;transform:none}
   .site-header .nav .nav-link{font-size:18px;padding:12px 4px;border-bottom:1px solid color-mix(in srgb,var(--text) 8%,transparent);width:100%}

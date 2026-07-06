@@ -53,11 +53,9 @@ export default function ArticlePlanPage() {
   async function draftNow(it: Item) {
     setBusy(it.id); setErr('')
     try {
-      const prompt = `Write a comprehensive, SEO-optimised article for the keyword "${it.keyword}". Engaging intro, clear H2 sections covering the topic thoroughly with practical detail, and a short FAQ. Optimise naturally for "${it.keyword}" and closely related terms. Use the brand voice.`
-      const r = await api<{ id?: string; pageId?: string }>('/ai/generate-page', { method: 'POST', body: JSON.stringify({ slug, prompt, type: 'article' }) })
-      const pageId = r?.id || r?.pageId
-      persist(items.map((i) => i.id === it.id ? { ...i, status: 'drafted', pageId } : i))
-      setNote(`Drafted "${it.keyword}". Find it in Articles.`)
+      const r = await api<{ id?: string }>('/ai/generate-article', { method: 'POST', body: JSON.stringify({ slug, keyword: it.keyword }) })
+      persist(items.map((i) => i.id === it.id ? { ...i, status: 'drafted', pageId: r?.id } : i))
+      setNote(`Drafted "${it.keyword}" ✓ — it's now a draft in Articles (open it to review, then Publish).`)
     } catch (e: any) { setErr(e.message || 'Draft failed') } finally { setBusy('') }
   }
 
