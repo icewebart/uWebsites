@@ -72,6 +72,9 @@ section.tone-surface:not(.uw-raw) + section.tone-surface:not(.uw-raw){padding-to
    top+bottom padding (override the collapse) plus soft decorative circles in
    the corners so the page never reads as flat white. */
 .tone-tint{background:color-mix(in srgb, var(--primary) 5%, var(--surface));padding-top:var(--pad)!important;overflow:hidden}
+/* Neutral surface variants (no brand hue) — subtle greys for gentle rhythm. */
+.tone-surface-soft{background:color-mix(in srgb, var(--text) 3%, var(--surface))}
+.tone-surface-muted{background:color-mix(in srgb, var(--text) 7%, var(--surface))}
 .tone-hero-wash{background:linear-gradient(160deg, color-mix(in srgb, var(--primary) 8%, var(--surface)), color-mix(in srgb, var(--accent) 7%, var(--surface)));overflow:hidden}
 .tone-tint::before,.tone-hero-wash::before{content:"";position:absolute;width:220px;height:220px;border-radius:50%;background:color-mix(in srgb, var(--accent) 16%, transparent);top:-70px;right:-60px;z-index:0;pointer-events:none}
 .tone-tint::after,.tone-hero-wash::after{content:"";position:absolute;width:150px;height:150px;border-radius:50%;background:color-mix(in srgb, var(--primary) 12%, transparent);bottom:-50px;left:-40px;z-index:0;pointer-events:none}
@@ -257,6 +260,27 @@ const renderBlock = renderSection
 // Tinted bands also get scattered decorative circles (see .tone-tint CSS).
 const HERO_KINDS = new Set(['hero', 'hero-image', 'hero-blob', 'split-hero'])
 const NEUTRAL_KINDS = new Set(['stats-band', 'cta-banner', 'raw-html'])
+// Section-background overrides selectable in the editor (Section background).
+// surface = plain; surface-soft = faint neutral wash; surface-muted = stronger
+// neutral grey; tint = brand wash; dark = brand-color block.
+const VALID_BG = new Set(['surface', 'surface-soft', 'surface-muted', 'tint', 'dark'])
+// Resolve the background tone for each block: honour an explicit section_bg
+// override, else auto-alternate plain/tint bands (heroes + already-colored
+// sections stay neutral). Overridden sections don't disturb the alternation.
+// Shared by composeBody (published) AND the edit-mode canvas so the editor
+// preview shows the exact background you picked.
+function computeTones(blocks: any[]): string[] {
+  let toggle = false
+  return blocks.map((b) => {
+    const type = b?.type
+    const bgOverride = b?.props?.section_bg
+    let tone = 'surface'
+    if (bgOverride && VALID_BG.has(bgOverride)) tone = bgOverride
+    else if (!HERO_KINDS.has(type) && !NEUTRAL_KINDS.has(type)) { toggle = !toggle; if (toggle) tone = 'tint' }
+    if (type === 'hero-blob' && !bgOverride) tone = 'hero-wash'
+    return tone
+  })
+}
 // Uploaded decor SVG markup from the workspace brand assets (Branding →
 // Iconițe & decor). Used as scattered section-background decoration.
 function decorSvgs(t: any): string[] {
@@ -265,25 +289,14 @@ function decorSvgs(t: any): string[] {
 }
 
 function composeBody(blocks: any[], renderOne: (b: any, i: number) => string, decor?: string[]): string {
-  let toggle = false
   let decorIdx = 0
   const decorList = Array.isArray(decor) ? decor.filter(Boolean) : []
+  const tones = computeTones(blocks)
   return blocks.map((b, i) => {
     let html = renderOne(b, i)
     const type = b?.type
-    let tone = 'surface'
-    // Per-section background override (editor: surface/tint/dark); else the
-    // automatic alternating band. Overridden sections don't disturb the
-    // alternation of the rest.
     const bgOverride = b?.props?.section_bg
-    if (bgOverride && ['surface', 'tint', 'dark'].includes(bgOverride)) {
-      tone = bgOverride
-    } else if (!HERO_KINDS.has(type) && !NEUTRAL_KINDS.has(type)) {
-      toggle = !toggle
-      if (toggle) tone = 'tint'
-    }
-    // hero-blob gets a very soft wash so the opening doesn't read as flat white
-    if (type === 'hero-blob' && !bgOverride) tone = 'hero-wash'
+    const tone = tones[i]
     // Tinted bands get decoration: the workspace's uploaded decor SVGs, cycled
     // + rotated so no two sections look the same. Falls back to the CSS circles
     // when no decor has been uploaded (Branding → Iconițe & decor).
@@ -680,13 +693,17 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
     const cards = siblings.filter((x) => ARTICLE_LIST_TYPES.has(x.type as string) && x.slug !== row.slug).map(articleCard)
     blocks = resolvePostLists(blocks, cards, row.type)
   }
+  const editTones = computeTones(blocks)
   const body = opts?.edit
     ? blocks.map((b, i) => {
         const empty = !sectionHasContent(b)
         const isSel = i === opts.selectedIndex
         const sel = isSel ? 'outline:3px solid #1D9E75;outline-offset:-3px;' : ''
         const emptyAttr = empty ? ' data-empty="true"' : ''
-        return `<div data-section-index="${i}" data-section-kind="${esc(b.type)}"${emptyAttr}${isSel ? ' data-selected="1"' : ''} style="${sel}">${empty ? '' : renderSection(b, { edit: true })}</div>`
+        // Stamp the tone class so the editor canvas shows the exact background
+        // (surface/soft/muted/tint/dark) you picked — same as the published site.
+        const inner = empty ? '' : renderSection(b, { edit: true }).replace(/<section class="/, `<section data-tone="${editTones[i]}" class="tone-${editTones[i]} `)
+        return `<div data-section-index="${i}" data-section-kind="${esc(b.type)}"${emptyAttr}${isSel ? ' data-selected="1"' : ''} style="${sel}">${inner}</div>`
       }).join('\n') + EDIT_SCRIPT
     : composeBody(blocks, (b) => renderBlock(b), decorSvgs(t))
   const menus = await getMenusFor(row.wsId)

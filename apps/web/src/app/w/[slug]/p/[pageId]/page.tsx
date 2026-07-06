@@ -267,8 +267,25 @@ export default function PageEditor() {
     return () => window.removeEventListener('message', onMsg)
   }, [])
 
-  function upd(i: number, partial: Record<string, any>) {
+  function upd(i: number, partial: Record<string, any>, reload = false) {
+    if (reload) {
+      // Structural changes (e.g. section background/decor) only show in the
+      // server-rendered preview once persisted — save + refresh immediately so
+      // the pick is visible without a manual Save. Discrete (select) events, so
+      // reading current `blocks` from closure is safe.
+      const next = blocks.map((b, idx) => (idx === i ? { ...b, props: { ...b.props, ...partial } } : b))
+      setBlocks(next)
+      void persist(next)
+      return
+    }
     setBlocks((bs) => bs.map((b, idx) => (idx === i ? { ...b, props: { ...b.props, ...partial } } : b)))
+  }
+  async function persist(nextBlocks: Block[]) {
+    try {
+      await api(`/pages/${pageId}`, { method: 'PUT', body: JSON.stringify({ title, blocks: nextBlocks, status }) })
+      setSavedAt(new Date().toLocaleTimeString())
+      setPreviewKey((k) => k + 1)
+    } catch (e: any) { setErr(e.message || 'Save failed') }
   }
   function move(i: number, dir: number) {
     setBlocks((bs) => {
@@ -458,14 +475,16 @@ export default function PageEditor() {
               {!['hero', 'hero-image', 'hero-blob', 'split-hero', 'raw-html', 'article-hero', 'article-body'].includes(sel.type) && (
                 <div className="field" style={{ marginTop: 12, borderTop: '1px dashed var(--border)', paddingTop: 12 }}>
                   <label>Section background</label>
-                  <select className="inp" value={sel.props?.section_bg || 'auto'} onChange={(e) => upd(selected, { section_bg: e.target.value })}>
+                  <select className="inp" value={sel.props?.section_bg || 'auto'} onChange={(e) => upd(selected, { section_bg: e.target.value }, true)}>
                     <option value="auto">Auto (alternating)</option>
                     <option value="surface">Surface — plain</option>
+                    <option value="surface-soft">Surface — soft (neutral)</option>
+                    <option value="surface-muted">Surface — muted (neutral)</option>
                     <option value="tint">Tint — soft brand wash</option>
                     <option value="dark">Dark — brand color block</option>
                   </select>
                   <label style={{ fontSize: 13, marginTop: 8, display: 'block' }}>Decorations</label>
-                  <select className="inp" value={sel.props?.section_decor || 'auto'} onChange={(e) => upd(selected, { section_decor: e.target.value })}>
+                  <select className="inp" value={sel.props?.section_decor || 'auto'} onChange={(e) => upd(selected, { section_decor: e.target.value }, true)}>
                     <option value="auto">Auto</option>
                     <option value="on">Show (brand decor SVGs)</option>
                     <option value="off">None</option>

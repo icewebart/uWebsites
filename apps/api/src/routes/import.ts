@@ -942,20 +942,37 @@ importRouter.post('/mirror-images', requireAuth, async (req: AuthRequest, res) =
   const localRe = new RegExp(`/p/${ws.slug.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}/img/`)
   const isExternal = (u: string) => /^https?:\/\//i.test(u) && !localRe.test(u) && !/^data:/i.test(u)
 
-  // 1) collect every external image URL across all pages (deduped).
+  // A string value is an image if it lives under an image-ish key OR ends in an
+  // image extension. `url` alone is ambiguous (often a page link) so it only
+  // counts with an image extension. `*_orig` keys hold the ORIGINAL source URL
+  // we keep for healing — never rewrite those, but they're fine to download.
+  const IMG_KEY = /^(image|image_url|imageurl|img|cover|banner|media|background|bg|bg_image|photo|avatar|logo|poster|thumb|thumbnail|icon|featured|hero_image)$/i
+  const IMG_EXT = /\.(jpe?g|png|gif|webp|avif|svg|bmp|ico)(\?|#|$)/i
+  const looksHtml = (s: string) => /<img|background(?:-image)?\s*:\s*url\(|srcset=/i.test(s)
+
+  // 1) collect every external image URL across all pages (deduped) — deep-walk
+  // the ENTIRE props tree (any depth, any array) plus the page's seo blob, so
+  // no image-bearing key or nested card/slide/logo is missed.
   const urls = new Set<string>()
   const collectFromHtml = (html: string) => {
     for (const m of html.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) if (isExternal(m[1])) urls.add(m[1])
     for (const m of html.matchAll(/background(?:-image)?\s*:\s*url\(["']?([^"')]+)["']?\)/gi)) if (isExternal(m[1])) urls.add(m[1])
     for (const m of html.matchAll(/srcset=["']([^"']+)["']/gi)) for (const part of m[1].split(',')) { const u = part.trim().split(/\s+/)[0]; if (u && isExternal(u)) urls.add(u) }
   }
-  const collect = (props: any) => {
-    if (!props || typeof props !== 'object') return
-    for (const k of ['image_url', 'url', 'image']) if (typeof props[k] === 'string' && isExternal(props[k])) urls.add(props[k])
-    if (typeof props.html === 'string') collectFromHtml(props.html)
-    for (const key of ['items', 'tiers', 'sidebar']) if (Array.isArray(props[key])) for (const it of props[key]) collect(it)
+  const collect = (node: any) => {
+    if (Array.isArray(node)) { for (const v of node) collect(v); return }
+    if (!node || typeof node !== 'object') return
+    for (const [k, v] of Object.entries(node)) {
+      if (typeof v === 'string') {
+        if (looksHtml(v)) collectFromHtml(v)
+        if (isExternal(v) && (IMG_KEY.test(k) || IMG_EXT.test(v))) urls.add(v)
+      } else collect(v)
+    }
   }
-  for (const p of rows) for (const b of (Array.isArray(p.blocks) ? p.blocks as any[] : [])) collect(b?.props)
+  for (const p of rows) {
+    for (const b of (Array.isArray(p.blocks) ? p.blocks as any[] : [])) collect(b?.props)
+    collect(p.seo)
+  }
 
   // 2) download each (bounded concurrency) → remap old→local.
   const list = [...urls]
@@ -967,19 +984,29 @@ importRouter.post('/mirror-images', requireAuth, async (req: AuthRequest, res) =
     await Promise.all(batch.map(async (u) => { const local = await mirror.mirror(u); if (local) { remap.set(u, local); downloaded++ } else failed++ }))
   }
 
-  // 3) rewrite every reference in the blocks.
+  // 3) rewrite every reference (deep-walk again). Skip `*_orig` keys so the
+  // original source URL stays available for later healing.
   let pagesChanged = 0, refs = 0
-  const rewriteProps = (props: any) => {
-    if (!props || typeof props !== 'object') return
-    for (const k of ['image_url', 'url', 'image']) if (typeof props[k] === 'string' && remap.has(props[k])) { props[k] = remap.get(props[k]); refs++ }
-    if (typeof props.html === 'string') for (const [from, to] of remap) if (props.html.includes(from)) { props.html = props.html.split(from).join(to); refs++ }
-    for (const key of ['items', 'tiers', 'sidebar']) if (Array.isArray(props[key])) for (const it of props[key]) rewriteProps(it)
+  const rewrite = (node: any) => {
+    if (Array.isArray(node)) { for (const v of node) rewrite(v); return }
+    if (!node || typeof node !== 'object') return
+    for (const [k, v] of Object.entries(node)) {
+      if (typeof v === 'string') {
+        if (k.endsWith('_orig')) continue
+        if (remap.has(v)) { (node as any)[k] = remap.get(v); refs++ }
+        else if (looksHtml(v)) { let s = v; for (const [from, to] of remap) if (s.includes(from)) { s = s.split(from).join(to); refs++ } if (s !== v) (node as any)[k] = s }
+      } else rewrite(v)
+    }
   }
   for (const p of rows) {
     const blocks = Array.isArray(p.blocks) ? JSON.parse(JSON.stringify(p.blocks)) : []
-    const before = JSON.stringify(blocks)
-    for (const b of blocks) rewriteProps(b?.props)
-    if (JSON.stringify(blocks) !== before) { await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, p.id)); pagesChanged++ }
+    const seo = p.seo ? JSON.parse(JSON.stringify(p.seo)) : p.seo
+    const before = JSON.stringify(blocks) + JSON.stringify(seo ?? null)
+    for (const b of blocks) rewrite(b?.props)
+    rewrite(seo)
+    if (JSON.stringify(blocks) + JSON.stringify(seo ?? null) !== before) {
+      await db.update(pages).set({ blocks: blocks as any, seo: seo as any, updatedAt: new Date() }).where(eq(pages.id, p.id)); pagesChanged++
+    }
   }
   res.json({ ok: true, data: { found: urls.size, downloaded, failed, pagesChanged, refs } })
 })
