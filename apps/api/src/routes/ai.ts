@@ -825,6 +825,34 @@ aiRouter.post('/polish-site', requireAuth, async (req: AuthRequest, res) => {
   res.json({ ok: true, data: { pages: perPage } })
 })
 
+// Pull the footer links + tagline straight from the ORIGINAL site's <footer>
+// (fetch the source HTML, take the last <footer> block). Used as a fallback when
+// the imported page's body has no footer content.
+// Drop only the "© 2024 … all rights reserved" copyright line when it's wrapped
+// in an <a>; keep genuine legal-page links (Terms / Privacy / Cookies) — those
+// are exactly what belongs in a footer.
+const FOOTER_LEGAL_RE = /(©|copyright|toate drepturile|drepturile rezervate|all rights reserved)/i
+async function extractFooterFromSource(url: string): Promise<{ items: Array<{ href: string; label: string }>; tagline: string }> {
+  let html = ''
+  try {
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; uWebsitesImporter/1.0)' }, signal: AbortSignal.timeout(15000) })
+    html = await r.text()
+  } catch { return { items: [], tagline: '' } }
+  const matches = [...html.matchAll(/<footer[\s\S]*?<\/footer>/gi)]
+  const footHtml = matches.length ? matches[matches.length - 1][0] : ''
+  if (!footHtml) return { items: [], tagline: '' }
+  const items: Array<{ href: string; label: string }> = []
+  const seen = new Set<string>()
+  for (const m of footHtml.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    const href = m[1]
+    const label = m[2].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
+    if (href && !/^(#|javascript:)/i.test(href) && label && label.length < 50 && !seen.has(label.toLowerCase()) && !FOOTER_LEGAL_RE.test(label)) { seen.add(label.toLowerCase()); items.push({ href, label }) }
+    if (items.length >= 20) break
+  }
+  const tagline = (footHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/i)?.[1] || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, 200)
+  return { items, tagline }
+}
+
 // POST /ai/extract-footer — sniff out the trailing footer sections of a page
 // (newsletter / copyright / footer nav, even when split across several raw-html
 // blocks), move their links + tagline into the SITE footer, and remove them
@@ -866,7 +894,24 @@ aiRouter.post('/extract-footer', requireAuth, async (req: AuthRequest, res) => {
   for (let i = Math.max(1, Math.floor(blocks.length * 0.4)); i < blocks.length; i++) {
     if (startRe.test(text(blocks[i]))) { start = i; break }
   }
-  if (start < 0) return res.status(400).json({ ok: false, error: 'Could not spot a footer region (newsletter / copyright) in the lower half of this page. If this page has no footer content in its body, use "Generate with AI" instead.' })
+  if (start < 0) {
+    // Fallback: pull the footer straight from the ORIGINAL site's <footer>.
+    let src = (page.seo as any)?.import_source?.url
+    if (!src) { const [home] = await db.select({ seo: pages.seo }).from(pages).where(and(eq(pages.workspaceId, ws.id), eq(pages.type, 'home' as any))).limit(1); src = (home?.seo as any)?.import_source?.url }
+    if (src) {
+      const fromSrc = await extractFooterFromSource(src)
+      if (fromSrc.items.length) {
+        await upsertMenu(ws.id, 'footer', { items: fromSrc.items })
+        if (fromSrc.tagline) {
+          const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+          if (tok) await db.update(brandingTokens).set({ tokens: { ...(tok.tokens as any), brand_assets: { ...((tok.tokens as any)?.brand_assets || {}), tagline: fromSrc.tagline } } as any }).where(eq(brandingTokens.id, tok.id))
+        }
+        await logAiJob(ws.id, 'edit', 'done', { source: 'extract-footer-source', pageId: page.id, links: fromSrc.items.length }, 1, page.id)
+        return res.json({ ok: true, data: { source: 'site', removedSections: 0, footerLinks: fromSrc.items.length, tagline: !!fromSrc.tagline } })
+      }
+    }
+    return res.status(400).json({ ok: false, error: 'No footer content in this page, and couldn\'t read a <footer> from the source site either. Use "Generate with AI" to build one.' })
+  }
 
   const footerBlocks = blocks.slice(start)
   const legalRe = /(termen|privacy|gdpr|confiden|politica|cookie|©|copyright|drepturile)/i

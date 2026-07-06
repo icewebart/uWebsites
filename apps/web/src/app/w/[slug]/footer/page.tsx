@@ -53,16 +53,18 @@ export default function FooterPage() {
 
   async function extractFromPage() {
     if (!extractPageId) return
-    if (!window.confirm('Detect the trailing footer sections (newsletter / copyright / footer links) of the selected page, move them into this site footer, and remove those blocks from the page body?')) return
+    if (!window.confirm('Pull the footer links into your site footer — from the page\'s own footer sections if present, otherwise straight from the original site\'s footer. (Footer blocks found in the page body are moved out of it.)')) return
     setErr(''); setNote(''); setExtracting(true)
     try {
-      const r = await api<{ removedSections: number; footerLinks: number }>('/ai/extract-footer', {
+      const r = await api<{ removedSections: number; footerLinks: number; source?: string }>('/ai/extract-footer', {
         method: 'POST', body: JSON.stringify({ slug, pageId: extractPageId }),
       })
       const m = await api<{ footer: Tree }>(`/workspaces/${slug}/menus`)
       setFooter((f) => ({ ...(f as any), ...(m.footer as any), items: m.footer.items || [] }))
       setPreviewKey((k) => k + 1)
-      setNote(`Extracted ${r.footerLinks} link(s) from ${r.removedSections} section(s) on that page.`)
+      setNote(r.source === 'site'
+        ? `Pulled ${r.footerLinks} link(s) from the original site's footer. Review, then Save.`
+        : `Extracted ${r.footerLinks} link(s) from ${r.removedSections} section(s) on that page.`)
     } catch (e: any) { setErr(e.message || 'Extract failed') } finally { setExtracting(false) }
   }
 
