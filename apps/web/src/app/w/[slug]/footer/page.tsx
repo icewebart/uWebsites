@@ -3,7 +3,16 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
-import { MenuTreeEditor, type Tree } from '@/components/MenuTreeEditor'
+import { MenuTreeEditor, type Tree, type SocialLink } from '@/components/MenuTreeEditor'
+
+// Networks whose ids match the inline SVG icons rendered in the footer
+// (see SOCIAL_ICONS in publish.ts). 'link' is the generic globe fallback.
+const SOCIAL_NETWORKS: [string, string][] = [
+  ['facebook', 'Facebook'], ['instagram', 'Instagram'], ['linkedin', 'LinkedIn'],
+  ['youtube', 'YouTube'], ['twitter', 'Twitter / X'], ['tiktok', 'TikTok'],
+  ['pinterest', 'Pinterest'], ['whatsapp', 'WhatsApp'], ['telegram', 'Telegram'],
+  ['link', 'Other / website'],
+]
 
 type PageStub = { id: string; type: string; title: string }
 type PagesResp = { pages: PageStub[] }
@@ -50,6 +59,9 @@ export default function FooterPage() {
       .catch(() => router.push(`/w/${slug}`))
       .finally(() => setLoading(false))
   }, [slug])
+
+  const social: SocialLink[] = (footer as any).social || []
+  const setSocial = (s: SocialLink[]) => setFooter((f) => ({ ...(f as any), social: s }))
 
   async function extractFromPage() {
     if (!extractPageId) return
@@ -120,6 +132,24 @@ export default function FooterPage() {
             <input className="inp" style={{ maxWidth: 180 }} placeholder="CTA link (/contact/)" value={(footer as any).cta?.href || ''} onChange={(e) => setFooter((f) => ({ ...f, cta: { ...(f as any).cta, href: e.target.value } } as any))} />
           </div>
         )}
+      </div>
+
+      <div className="dash-h" style={{ marginTop: 0 }}>Social media</div>
+      <div className="dash-sub" style={{ marginBottom: 12 }}>
+        Icons shown in the footer. Pick the network and paste the full profile URL. Auto-filled from the imported site when available.
+      </div>
+      <div className="ctl-group card" style={{ marginBottom: 22 }}>
+        {social.length === 0 && <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>No social links yet.</div>}
+        {social.map((s, i) => (
+          <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+            <select className="inp" style={{ maxWidth: 170 }} value={s.network} onChange={(e) => setSocial(social.map((x, k) => k === i ? { ...x, network: e.target.value } : x))}>
+              {SOCIAL_NETWORKS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+            <input className="inp" style={{ flex: 1 }} placeholder="https://facebook.com/yourpage" value={s.href} onChange={(e) => setSocial(social.map((x, k) => k === i ? { ...x, href: e.target.value } : x))} />
+            <button className="btn-mini danger" title="Remove" onClick={() => setSocial(social.filter((_, k) => k !== i))}>✕</button>
+          </div>
+        ))}
+        <button className="btn-mini" style={{ marginTop: 4 }} onClick={() => setSocial([...social, { network: 'facebook', href: '' }])} disabled={social.length >= 8}>＋ Add social link</button>
       </div>
 
       <div className="ev-actions-row">

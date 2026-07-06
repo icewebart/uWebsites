@@ -2,7 +2,8 @@
 
 export type Item = { label: string; href: string; children?: Item[] }
 export type HeaderStyle = 'glass' | 'solid' | 'minimal'
-export type Tree = { items: Item[]; cta?: { label: string; href: string } | null; style?: HeaderStyle }
+export type SocialLink = { network: string; href: string }
+export type Tree = { items: Item[]; cta?: { label: string; href: string } | null; style?: HeaderStyle; social?: SocialLink[] }
 
 export function MenuTreeEditor({ tree, onChange, maxItems, showCta }: { tree: Tree; onChange: (t: Tree) => void; maxItems: number; showCta?: boolean }) {
   const setItems = (items: Item[]) => onChange({ ...tree, items })
