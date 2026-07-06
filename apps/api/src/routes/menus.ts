@@ -14,7 +14,8 @@ export const menusRouter = Router()
 type MenuItem = { label: string; href: string; children?: MenuItem[] }
 export type HeaderStyle = 'glass' | 'solid' | 'minimal'
 export const HEADER_STYLES: HeaderStyle[] = ['glass', 'solid', 'minimal']
-export type MenuTree = { items: MenuItem[]; cta?: { label: string; href: string } | null; style?: HeaderStyle }
+export type SocialLink = { network: string; href: string }
+export type MenuTree = { items: MenuItem[]; cta?: { label: string; href: string } | null; style?: HeaderStyle; social?: SocialLink[] }
 
 // Map an imported nav tree ({ text, href, children }) to menu items
 // ({ label, href, children }). One level of children is kept — enough for
@@ -127,7 +128,13 @@ function clean(tree: any, maxItems: number, validStyles: readonly string[] = HEA
     : null
   const style = validStyles.includes(tree.style) ? tree.style : undefined
   const newsletter = typeof tree.newsletter === 'boolean' ? tree.newsletter : undefined
-  return { items, cta, ...(style ? { style } : {}), ...(newsletter !== undefined ? { newsletter } : {}) }
+  const social = Array.isArray(tree.social)
+    ? tree.social
+        .map((s: any) => ({ network: String(s?.network || '').trim().toLowerCase().slice(0, 24), href: String(s?.href || '').trim().slice(0, 500) }))
+        .filter((s: any) => s.network && s.href)
+        .slice(0, 8)
+    : undefined
+  return { items, cta, ...(style ? { style } : {}), ...(newsletter !== undefined ? { newsletter } : {}), ...(social && social.length ? { social } : {}) }
 }
 
 // POST /workspaces/:slug/menus/refresh — re-fetch the source site (using the

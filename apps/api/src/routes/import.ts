@@ -651,6 +651,8 @@ export async function richBranding(url: string) {
     nav: navFlat,                    // keep flat for menu seeding (back-compat)
     nav_tree: navTree,               // hierarchical for the mega-menu
     has_mega_menu: dom?.hasMegaMenu || false,
+    footer: dom?.footer || { links: [], tagline: '', social: [] },
+    tagline: (cssResult.brand_assets as any)?.tagline || dom?.footer?.tagline || '',
   }
   ;(tokens as any).brand_assets = brand_assets
 
@@ -734,6 +736,17 @@ importRouter.post('/commit', requireAuth, async (req: AuthRequest, res) => {
       const navItems = fromTree.length ? fromTree : (b.brand_assets?.nav || []).map((n: any) => ({ label: n.text, href: n.href }))
       if (navItems.length || brandCta) {
         await upsertMenu(ws.id, 'header', { items: navItems, cta: brandCta })
+      }
+      // Seed the FOOTER menu from the footer we captured out of the live DOM
+      // (reliable even for JS-built footers). Only when we actually got links —
+      // don't clobber an existing footer with an empty one.
+      const fLinks = ((b.brand_assets as any)?.footer?.links || []) as Array<{ text: string; href: string }>
+      const fSocial = ((b.brand_assets as any)?.footer?.social || []) as Array<{ network: string; href: string }>
+      if (fLinks.length) {
+        await upsertMenu(ws.id, 'footer', {
+          items: fLinks.slice(0, 20).map((l) => ({ label: l.text, href: l.href })),
+          social: fSocial,
+        } as any)
       }
       brandingApplied = true
     } catch { /* swallow — pages still import */ }

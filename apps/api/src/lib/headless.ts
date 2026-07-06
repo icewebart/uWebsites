@@ -368,6 +368,7 @@ export type BrandExtract = {
   nav: NavNode[]
   navFlat: { text: string; href: string }[]
   hasMegaMenu: boolean
+  footer: { links: { text: string; href: string }[]; tagline: string; social: { network: string; href: string }[] }
 }
 
 export async function extractBrandFromDom(url: string): Promise<BrandExtract> {
@@ -525,7 +526,68 @@ export async function extractBrandFromDom(url: string): Promise<BrandExtract> {
       const navFlat = nav.map((n) => ({ text: n.text, href: n.href }))
       const hasMegaMenu = nav.some((n) => n.children && n.children.length >= 4)
 
-      return { logo, palette: { cssVars, sampled }, fonts, nav, navFlat, hasMegaMenu }
+      // ---- FOOTER ----
+      // Read the footer straight out of the rendered DOM (reliable even when the
+      // site builds its footer with JS or doesn't use a <footer> tag). Pick the
+      // footer-like container that sits lowest on the page and holds the most
+      // links, then harvest its nav links, tagline, and social icons.
+      const footerOut: { links: { text: string; href: string }[]; tagline: string; social: { network: string; href: string }[] } = { links: [], tagline: '', social: [] }
+      try {
+        const cands = Array.from(document.querySelectorAll(
+          'footer, [role="contentinfo"], .site-footer, #colophon, #footer, .elementor-location-footer, [data-elementor-type="footer"], [class*="footer" i]'
+        )) as HTMLElement[]
+        const pageH = document.documentElement.scrollHeight || window.innerHeight
+        let fEl: HTMLElement | null = null, fScore = -1
+        for (const el of cands) {
+          const r = el.getBoundingClientRect()
+          const top = r.top + window.scrollY
+          const linkN = el.querySelectorAll('a').length
+          if (linkN === 0) continue
+          // Reward being near the bottom of the page and having several links;
+          // penalise huge containers (a wrapper that swallows the whole page).
+          const nearBottom = top > pageH * 0.5 ? 40 : 0
+          const score = nearBottom + Math.min(linkN, 30) + top / 1000
+          if (score > fScore) { fScore = score; fEl = el }
+        }
+        // Prefer the innermost matching footer if the winner just wraps another.
+        if (fEl) {
+          const inner = fEl.querySelector('footer, [role="contentinfo"], .site-footer, #colophon') as HTMLElement | null
+          if (inner && inner.querySelectorAll('a').length >= 3 && inner !== fEl) fEl = inner
+        }
+        if (fEl) {
+          const SOCIAL = /facebook|instagram|twitter|x\.com|linkedin|youtube|tiktok|pinterest|whatsapp|telegram/i
+          const seen = new Set<string>()
+          const legalRe = /^(©|copyright)|toate drepturile|drepturile rezervate|all rights reserved/i
+          for (const a of Array.from(fEl.querySelectorAll('a')) as HTMLAnchorElement[]) {
+            const href = abs(a.getAttribute('href'))
+            const text = norm(a.textContent || '')
+            if (!href || href.startsWith('javascript:') || /^#/.test(a.getAttribute('href') || '')) continue
+            // Social links: keyed by network, label from the URL host.
+            const m = href.match(SOCIAL)
+            if (m && (!text || text.length < 3 || a.querySelector('svg,img,i'))) {
+              const network = m[0].replace(/\.com/, '').toLowerCase()
+              if (!footerOut.social.some((s) => s.network === network)) footerOut.social.push({ network, href })
+              continue
+            }
+            if (!text || text.length > 48 || legalRe.test(text)) continue
+            const key = text.toLowerCase()
+            if (seen.has(key)) continue
+            seen.add(key)
+            footerOut.links.push({ text, href })
+            if (footerOut.links.length >= 24) break
+          }
+          // Tagline: the longest short paragraph in the footer (skip copyright).
+          const ps = Array.from(fEl.querySelectorAll('p, .elementor-widget-text-editor')) as HTMLElement[]
+          let best = ''
+          for (const p of ps) {
+            const t = norm(p.textContent || '')
+            if (t.length >= 20 && t.length <= 220 && !legalRe.test(t) && t.length > best.length) best = t
+          }
+          footerOut.tagline = best
+        }
+      } catch { /* ignore */ }
+
+      return { logo, palette: { cssVars, sampled }, fonts, nav, navFlat, hasMegaMenu, footer: footerOut }
     })
 
     return { finalUrl: page.url(), ...(data as any) }

@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { mkdir, writeFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { db, workspaces, pages, brandingTokens, builds } from '@uwebsites/db'
@@ -157,6 +157,9 @@ main > section.uw-raw:first-child{padding-top:0}
 .site-footer.ft-columns .container,.site-footer.ft-mega .container{display:grid;grid-template-columns:1.4fr 1fr 1fr 1.4fr;gap:40px;align-items:start}
 .site-footer.ft-mega .container{grid-template-columns:1.6fr repeat(4,1fr) 1.4fr;gap:36px}
 .site-footer .brand-col{display:flex;flex-direction:column;gap:16px}
+.site-footer .ft-social{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.site-footer .ft-social a{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;color:var(--footer-fg);opacity:.75;background:color-mix(in srgb,var(--footer-fg) 12%,transparent);transition:opacity .15s,background .15s}
+.site-footer .ft-social a:hover{opacity:1;background:color-mix(in srgb,var(--footer-fg) 22%,transparent)}
 /* --- simple: centered stack --- */
 .site-footer.ft-simple .container{text-align:center}
 .site-footer.ft-simple .ft-center{display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:22px}
@@ -455,13 +458,33 @@ export const HEADER_SCRIPT = `<script>(function(){
 // get hoisted to the bottom bar. This keeps the flat items[] data shape while
 // giving the render the multi-column structure the Kids.ro system uses.
 export const FOOTER_STYLES = ['columns', 'mega', 'simple', 'minimal', 'cta'] as const
+// Inline SVG social icons (no external requests). Keyed by the network name we
+// capture from footer links during import.
+const SOCIAL_ICONS: Record<string, string> = {
+  facebook: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12Z"/></svg>',
+  instagram: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>',
+  twitter: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18.9 2H22l-7.3 8.3L23 22h-6.6l-5.2-6.8L5.3 22H2.2l7.8-8.9L1.5 2h6.8l4.7 6.2L18.9 2Zm-1.2 18h1.8L7.1 3.9H5.2L17.7 20Z"/></svg>',
+  x: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18.9 2H22l-7.3 8.3L23 22h-6.6l-5.2-6.8L5.3 22H2.2l7.8-8.9L1.5 2h6.8l4.7 6.2L18.9 2Zm-1.2 18h1.8L7.1 3.9H5.2L17.7 20Z"/></svg>',
+  linkedin: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M4.98 3.5A2.5 2.5 0 1 0 5 8.5a2.5 2.5 0 0 0 0-5ZM3 9h4v12H3V9Zm6 0h3.8v1.7h.1c.5-1 1.8-2 3.7-2 4 0 4.7 2.6 4.7 6V21h-4v-5.4c0-1.3 0-3-1.8-3s-2.1 1.4-2.1 2.9V21H9V9Z"/></svg>',
+  youtube: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M23 12s0-3.2-.4-4.7a2.5 2.5 0 0 0-1.8-1.8C19.3 5 12 5 12 5s-7.3 0-8.8.4a2.5 2.5 0 0 0-1.8 1.8C1 8.8 1 12 1 12s0 3.2.4 4.7a2.5 2.5 0 0 0 1.8 1.8C4.7 19 12 19 12 19s7.3 0 8.8-.4a2.5 2.5 0 0 0 1.8-1.8C23 15.2 23 12 23 12ZM9.8 15.3V8.7l5.7 3.3-5.7 3.3Z"/></svg>',
+  tiktok: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16 3c.3 2.1 1.6 3.7 3.8 4v2.6c-1.3 0-2.6-.4-3.8-1.1v5.7A5.6 5.6 0 1 1 10.4 8v2.7a2.9 2.9 0 1 0 2 2.8V3H16Z"/></svg>',
+  pinterest: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.6 19.3c-.1-.8-.2-2 0-2.9l1.2-5s-.3-.6-.3-1.5c0-1.4.8-2.5 1.9-2.5.9 0 1.3.7 1.3 1.5 0 .9-.6 2.2-.9 3.5-.2 1 .5 1.9 1.6 1.9 1.9 0 3.2-2.4 3.2-5.3 0-2.2-1.5-3.8-4.1-3.8a4.7 4.7 0 0 0-4.9 4.7c0 .9.3 1.5.7 2 .2.2.2.3.1.5l-.2.9c-.1.3-.3.4-.5.2-1.3-.5-1.9-2-1.9-3.6 0-2.7 2.3-5.9 6.8-5.9 3.6 0 6 2.6 6 5.4 0 3.7-2 6.4-5 6.4-1 0-2-.5-2.3-1.2l-.6 2.4c-.2.8-.7 1.7-1 2.3A10 10 0 1 0 12 2Z"/></svg>',
+  whatsapp: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.5 15.2L2 22l4.9-1.3A10 10 0 1 0 12 2Zm5.8 14.1c-.2.7-1.4 1.3-2 1.4-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.7-.6-3-1.3-4.9-4.3-5-4.5-.2-.2-1.2-1.6-1.2-3s.7-2.1 1-2.4c.2-.3.5-.4.7-.4h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6c-.2.2-.4.4-.2.7.2.4.9 1.4 1.9 2.3 1.3 1.1 2.3 1.5 2.6 1.6.3.1.5.1.7-.1l.9-1c.2-.2.4-.2.6-.1l2 1c.3.1.4.2.5.3.1.2.1.9-.1 1.6Z"/></svg>',
+  telegram: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M22 3 2.5 10.5c-.9.4-.9 1.3-.1 1.6l4.9 1.5 1.9 5.9c.2.6.4.7.9.5l2.7-2.1 4.6 3.4c.6.4 1.2.2 1.4-.6L23 4.3c.2-.9-.3-1.6-1-1.3Zm-3.4 4.4-7.2 6.6-.3 3.1-1.6-4.8 9.1-5.4c.3-.2.6.1.4.5Z"/></svg>',
+  link: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/></svg>',
+}
+
 export function renderFooter(ws: any, footer: any, tagline?: string | null, logoUrl?: string | null, opts?: { invert?: boolean }): string {
   const style = (FOOTER_STYLES as readonly string[]).includes(footer?.style) ? footer.style : 'columns'
   const wantNl = footer?.newsletter !== false && (style === 'columns' || style === 'mega')
   const linkFor = (i: MenuItem) => `<a href="${esc(i.href)}">${esc(i.label)}</a>`
   const logoImg = logoUrl ? `<img${opts?.invert ? ' class="foot-logo-invert"' : ''} src="${esc(logoUrl)}" alt="${esc(ws.name)}">` : esc(ws.name)
   const brandLogo = `<div class="brand">${logoImg}</div>`
-  const brand = `<div class="brand-col">${brandLogo}${tagline ? `<p>${esc(tagline)}</p>` : ''}</div>`
+  const social: { network: string; href: string }[] = Array.isArray(footer?.social) ? footer.social : []
+  const socialHtml = social.length
+    ? `<div class="ft-social">${social.map((s) => `<a href="${esc(s.href)}" target="_blank" rel="noopener" aria-label="${esc(s.network)}">${SOCIAL_ICONS[s.network] || SOCIAL_ICONS.link}</a>`).join('')}</div>`
+    : ''
+  const brand = `<div class="brand-col">${brandLogo}${tagline ? `<p>${esc(tagline)}</p>` : ''}${socialHtml}</div>`
   const nl = wantNl ? `<div class="col newsletter"><h4>Newsletter</h4><form class="uw-newsletter" data-ws="${esc(ws.slug || '')}"><input type="email" name="email" placeholder="your@email.com" aria-label="Email" required><button type="submit">Subscribe</button></form><p class="nl-msg" hidden></p></div>` : ''
   const year = new Date().getFullYear()
 
@@ -485,13 +508,13 @@ export function renderFooter(ws: any, footer: any, tagline?: string | null, logo
 
   switch (style) {
     case 'simple':
-      return `<footer class="site-footer ft-simple"><div class="container"><div class="ft-center">${brandLogo}${tagline ? `<p class="ft-tag">${esc(tagline)}</p>` : ''}</div><nav class="ft-links">${flatLinks}</nav>${bottomBar(bottomItems.map(linkFor).join(' · '))}</div></footer>`
+      return `<footer class="site-footer ft-simple"><div class="container"><div class="ft-center">${brandLogo}${tagline ? `<p class="ft-tag">${esc(tagline)}</p>` : ''}${socialHtml}</div><nav class="ft-links">${flatLinks}</nav>${bottomBar(bottomItems.map(linkFor).join(' · '))}</div></footer>`
     case 'minimal':
-      return `<footer class="site-footer ft-minimal"><div class="container"><div class="ft-row">${brandLogo}<nav class="ft-links">${flatLinks}</nav></div><div class="bottom"><div>© ${year} ${esc(ws.name)}</div><div>${bottomItems.map(linkFor).join(' · ')}</div></div></div></footer>`
+      return `<footer class="site-footer ft-minimal"><div class="container"><div class="ft-row">${brandLogo}<nav class="ft-links">${flatLinks}</nav>${socialHtml}</div><div class="bottom"><div>© ${year} ${esc(ws.name)}</div><div>${bottomItems.map(linkFor).join(' · ')}</div></div></div></footer>`
     case 'cta': {
       const ctaLabel = footer?.cta?.label, ctaHref = footer?.cta?.href || '#'
       const band = ctaLabel ? `<div class="ft-cta-band"><h3>${esc(tagline || 'Ready to get started?')}</h3><a class="btn" href="${esc(ctaHref)}">${esc(ctaLabel)}</a></div>` : ''
-      return `<footer class="site-footer ft-cta"><div class="container">${band}<div class="ft-row">${brandLogo}<nav class="ft-links">${flatLinks}</nav></div>${bottomBar(bottomItems.map(linkFor).join(' · '))}</div></footer>`
+      return `<footer class="site-footer ft-cta"><div class="container">${band}<div class="ft-row">${brandLogo}<nav class="ft-links">${flatLinks}</nav>${socialHtml}</div>${bottomBar(bottomItems.map(linkFor).join(' · '))}</div></footer>`
     }
     case 'mega':
       return `<footer class="site-footer ft-mega"><div class="container">${brand}${columnsHtml(4)}${nl}${bottomBar(bottomItems.map(linkFor).join(' · '))}</div></footer>`
@@ -732,6 +755,13 @@ publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) 
     const initial = (ws.name || 'u').slice(0, 1).toUpperCase()
     await writeFile(path.join(outDir, 'favicon.svg'),
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${primary}"/><text x="32" y="42" font-family="system-ui,sans-serif" font-size="32" font-weight="700" text-anchor="middle" fill="${accent}">${esc(initial)}</text></svg>`)
+
+    // Flip every page we just wrote live from draft → published in the DB, so
+    // the Articles list (and anything else that reads status) reflects reality.
+    // Previously we rendered them live but never updated status, leaving newly
+    // published articles stuck showing "draft".
+    const publishedIds = publishable.map((p) => p.id)
+    if (publishedIds.length) await db.update(pages).set({ status: 'published' }).where(inArray(pages.id, publishedIds))
 
     await db.insert(builds).values({ workspaceId: ws.id, status: 'deployed', artifactRef: outDir, deployedAt: new Date() })
     res.json({ ok: true, data: { url: `${base}/`, pages: count } })

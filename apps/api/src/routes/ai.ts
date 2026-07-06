@@ -9,6 +9,7 @@ import { generateImage, generateImageResult, photoPrompt, imageGenEnabled, reaso
 import { localImageMissing } from '../lib/image-host.js'
 import { upsertMenu, articleTemplateOf } from './menus.js'
 import { articleBlocksFromImport } from './import.js'
+import { extractBrandFromDom } from '../lib/headless.js'
 import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities } from '../lib/google-data.js'
 
 // Default rules the AI follows when writing an article (the Rules page can
@@ -895,11 +896,20 @@ aiRouter.post('/extract-footer', requireAuth, async (req: AuthRequest, res) => {
     if (startRe.test(text(blocks[i]))) { start = i; break }
   }
   if (start < 0) {
-    // Fallback: pull the footer straight from the ORIGINAL site's <footer>.
+    // Fallback: pull the footer straight from the ORIGINAL site — first by
+    // rendering it in a headless browser (reliable even for JS-built footers),
+    // then, if that turns up nothing, by regex over the raw source <footer>.
     let src = (page.seo as any)?.import_source?.url
     if (!src) { const [home] = await db.select({ seo: pages.seo }).from(pages).where(and(eq(pages.workspaceId, ws.id), eq(pages.type, 'home' as any))).limit(1); src = (home?.seo as any)?.import_source?.url }
     if (src) {
-      const fromSrc = await extractFooterFromSource(src)
+      let fromSrc: { items: Array<{ href: string; label: string }>; tagline: string } = { items: [], tagline: '' }
+      try {
+        const dom = await extractBrandFromDom(src)
+        if (dom?.footer?.links?.length) {
+          fromSrc = { items: dom.footer.links.slice(0, 20).map((l) => ({ href: l.href, label: l.text })), tagline: dom.footer.tagline || '' }
+        }
+      } catch { /* fall through to regex */ }
+      if (!fromSrc.items.length) fromSrc = await extractFooterFromSource(src)
       if (fromSrc.items.length) {
         await upsertMenu(ws.id, 'footer', { items: fromSrc.items })
         if (fromSrc.tagline) {
