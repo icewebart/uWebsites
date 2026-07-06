@@ -709,6 +709,11 @@ main > section.article-hero.ah-cover:first-child{padding-top:0}
 .article-body .ab-content :where(p,ul,ol){margin-bottom:1.1em}
 .article-body .ab-content :where(ul,ol){padding-left:1.4em}
 .article-body .ab-content a{color:var(--primary);text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1.5px}
+.article-body .ab-content table{width:100%;border-collapse:collapse;margin:1.5em 0;font-size:.96rem}
+.article-body .ab-content :where(th,td){border:1px solid color-mix(in srgb,var(--text) 14%,transparent);padding:10px 13px;text-align:left;vertical-align:top}
+.article-body .ab-content th{background:color-mix(in srgb,var(--primary) 10%,var(--surface));font-weight:700}
+.article-body .ab-content tbody tr:nth-child(even){background:color-mix(in srgb,var(--primary) 3%,var(--surface))}
+@media(max-width:640px){.article-body .ab-content table{display:block;overflow-x:auto;white-space:nowrap}}
 .article-body .ab-content img{display:block;width:100%;height:auto!important;border-radius:var(--card-r);margin:18px 0;object-fit:cover}
 .article-body .ab-content :where(figure,p) img{margin:0}
 .article-body .ab-content figure{margin:18px 0}

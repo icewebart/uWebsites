@@ -8,17 +8,25 @@ type Tokens = { article_rules?: string[] } & Record<string, any>
 
 // Kept in sync with DEFAULT_ARTICLE_RULES on the server.
 const DEFAULT_RULES = [
-  "Write in the site's own language and brand voice; never sound like a generic template.",
-  'Put the target keyword in the title/H1, the first paragraph, the meta description, and 1–2 H2 headings — naturally, never stuffed.',
+  'Match the dominant search intent for the keyword (informational / how-to / comparison / commercial) and use the format searchers expect for it.',
+  "Write in the site's own language and brand voice; never sound like a generic template or obvious AI filler.",
+  'Answer the main question directly in the first 2–3 sentences (featured-snippet ready), then expand.',
+  'Put the keyword near the front of the title (≤60 chars, click-worthy) and in the first 100 words, the meta description, and 1–2 H2s — naturally, never stuffed.',
   'Open with a specific hook (a number, outcome, or pain), not "Welcome" / "In this article".',
-  'Structure with clear H2/H3 sections; one idea per paragraph; paragraphs under 80 words.',
-  'Be genuinely useful and concrete — real steps, examples, and specifics over fluff.',
-  'Cover related/semantic terms and the questions a reader would ask (search intent).',
+  'Cover the topic comprehensively: the main query plus the sub-questions and related searches a reader asks; match or exceed the depth of what already ranks.',
+  'Turn "People Also Ask"-style questions into H2/H3 headings and answer each concisely.',
+  'Use ordered lists for step-by-step processes and a comparison table when weighing options (snippet-friendly).',
+  "Include the keyword's close variants and related entities/terms naturally (semantic coverage).",
+  'Structure with a clear H1 → H2 → H3 hierarchy; one idea per paragraph; paragraphs under ~80 words; short sentences.',
+  'Make it scannable: descriptive subheads, bullet lists, and bold the key takeaways.',
+  'Add internal links to relevant pages on this site with descriptive anchor text (never "click here"); link to the hub/pillar and sibling pages.',
+  'Add 1–2 links to authoritative external sources where a claim needs backing.',
+  'Be genuinely useful and specific — real steps, examples, numbers — and include at least one insight the top results lack (E-E-A-T).',
+  "Never invent facts, statistics, or testimonials; if you don't have a number, leave the claim out.",
+  'Write evergreen: avoid phrasing that dates quickly ("this year"); prefer absolute references.',
+  'Every image needs descriptive, keyword-aware alt text.',
   'End with a short FAQ (3–5 real questions) so it can earn an FAQ rich result.',
-  'Add internal links to relevant pages on this site where it helps the reader.',
-  'Target ~700–1200 words unless the topic clearly needs more; quality over length.',
-  'Semantic HTML only in the body: p, h2, h3, ul, li, strong, em, a — no inline styles or scripts.',
-  'Never invent facts, fake statistics, or fake testimonials.',
+  'Semantic HTML only in the body: p, h2, h3, ul, ol, li, table, thead, tbody, tr, th, td, strong, em, a — no inline styles or scripts.',
 ]
 
 export default function ArticleRulesPage() {

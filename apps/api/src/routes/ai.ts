@@ -9,21 +9,30 @@ import { generateImage, generateImageResult, photoPrompt, imageGenEnabled, reaso
 import { localImageMissing } from '../lib/image-host.js'
 import { upsertMenu, articleTemplateOf } from './menus.js'
 import { articleBlocksFromImport } from './import.js'
+import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities } from '../lib/google-data.js'
 
 // Default rules the AI follows when writing an article (the Rules page can
 // override these per workspace via tokens.article_rules).
 export const DEFAULT_ARTICLE_RULES = [
-  'Write in the site\'s own language and brand voice; never sound like a generic template.',
-  'Put the target keyword in the title/H1, the first paragraph, the meta description, and 1–2 H2 headings — naturally, never stuffed.',
+  'Match the dominant search intent for the keyword (informational / how-to / comparison / commercial) and use the format searchers expect for it.',
+  "Write in the site's own language and brand voice; never sound like a generic template or obvious AI filler.",
+  'Answer the main question directly in the first 2–3 sentences (featured-snippet ready), then expand.',
+  'Put the keyword near the front of the title (≤60 chars, click-worthy) and in the first 100 words, the meta description, and 1–2 H2s — naturally, never stuffed.',
   'Open with a specific hook (a number, outcome, or pain), not "Welcome" / "In this article".',
-  'Structure with clear H2/H3 sections; one idea per paragraph; paragraphs under 80 words.',
-  'Be genuinely useful and concrete — real steps, examples, and specifics over fluff.',
-  'Cover related/semantic terms and the questions a reader would ask (search intent).',
+  'Cover the topic comprehensively: the main query plus the sub-questions and related searches a reader asks; match or exceed the depth of what already ranks.',
+  'Turn "People Also Ask"-style questions into H2/H3 headings and answer each concisely.',
+  'Use ordered lists for step-by-step processes and a comparison table when weighing options (snippet-friendly).',
+  "Include the keyword's close variants and related entities/terms naturally (semantic coverage).",
+  'Structure with a clear H1 → H2 → H3 hierarchy; one idea per paragraph; paragraphs under ~80 words; short sentences.',
+  'Make it scannable: descriptive subheads, bullet lists, and bold the key takeaways.',
+  'Add internal links to relevant pages on this site with descriptive anchor text (never "click here"); link to the hub/pillar and sibling pages.',
+  'Add 1–2 links to authoritative external sources where a claim needs backing.',
+  'Be genuinely useful and specific — real steps, examples, numbers — and include at least one insight the top results lack (E-E-A-T).',
+  "Never invent facts, statistics, or testimonials; if you don't have a number, leave the claim out.",
+  'Write evergreen: avoid phrasing that dates quickly ("this year"); prefer absolute references.',
+  'Every image needs descriptive, keyword-aware alt text.',
   'End with a short FAQ (3–5 real questions) so it can earn an FAQ rich result.',
-  'Add internal links to relevant pages on this site where it helps the reader.',
-  'Target ~700–1200 words unless the topic clearly needs more; quality over length.',
-  'Semantic HTML only in the body: p, h2, h3, ul, li, strong, em, a — no inline styles or scripts.',
-  'Never invent facts, fake statistics, or fake testimonials.',
+  'Semantic HTML only in the body: p, h2, h3, ul, ol, li, table, thead, tbody, tr, th, td, strong, em, a — no inline styles or scripts.',
 ]
 
 // Strip document chrome the model must not emit — the platform wraps every page
@@ -964,17 +973,42 @@ aiRouter.post('/generate-article', requireAuth, async (req: AuthRequest, res) =>
   const rulesText = 'ARTICLE RULES (mandatory):\n' + rules.map((r: string, i: number) => `${i + 1}. ${r}`).join('\n')
   const brief = await siteBrief(ws.id, ws.name)
   const tmpl = articleTemplateOf(tk)
+
+  // (1) INTERNAL LINKS — give the writer the real pages it can link to (with
+  //     root-relative /slug/ URLs) so links point somewhere real.
+  const siteRows = await db.select({ slug: pages.slug, title: pages.title, type: pages.type }).from(pages).where(eq(pages.workspaceId, ws.id))
+  const linkTargets = siteRows
+    .filter((p) => p.title && p.slug)
+    .slice(0, 60)
+    .map((p) => `- "${p.title}" → ${p.slug === 'home' ? '/' : `/${p.slug}/`}`)
+  const internalLinks = linkTargets.length ? `INTERNAL PAGES you may link to (use these exact root-relative URLs with descriptive anchor text — link 2–4 where genuinely relevant):\n${linkTargets.join('\n')}` : ''
+
+  // (2) RELATED SEARCHES — from the workspace's linked Search Console property,
+  //     the near-ranking queries textually related to this keyword, so coverage
+  //     matches real demand. Best-effort; skipped if not connected.
+  let relatedSearches = ''
+  try {
+    const scProp = tk?.analytics?.scProperty
+    const conn = await getGoogleConn(req.user!.accountId)
+    if (scProp && conn && hasScope(conn, SCOPE_SEARCH)) {
+      const kwTokens = String(keyword).toLowerCase().split(/\s+/).filter((w) => w.length > 3)
+      const opps = await scOpportunities(req.user!.accountId, scProp, 90)
+      const related = opps.filter((o: any) => kwTokens.some((tk2) => o.query.toLowerCase().includes(tk2))).slice(0, 10).map((o: any) => o.query)
+      if (related.length) relatedSearches = `RELATED SEARCHES people use (cover these naturally / as FAQ questions):\n${related.map((q: string) => `- ${q}`).join('\n')}`
+    }
+  } catch { /* non-fatal */ }
+
   try {
     const r = await a.messages.create({
       model: MODEL, max_tokens: 6000,
-      system: `You are an expert SEO content writer. Write a genuinely useful, well-structured article fully optimised for the target keyword, in the site's own language. ${voice}\n${examples}\n\n${rulesText}\n\n${COPY_RULES}${brief ? '\n\nSITE CONTEXT (anchor the topic/audience to this):\n' + brief : ''}`,
+      system: `You are an expert SEO content writer. Write a genuinely useful, well-structured article fully optimised for the target keyword, in the site's own language. ${voice}\n${examples}\n\n${rulesText}\n\n${COPY_RULES}${brief ? '\n\nSITE CONTEXT (anchor the topic/audience to this):\n' + brief : ''}${internalLinks ? '\n\n' + internalLinks : ''}${relatedSearches ? '\n\n' + relatedSearches : ''}`,
       tools: [{ name: 'article', description: 'The finished article.', input_schema: {
         type: 'object',
         properties: {
-          title: { type: 'string', description: 'H1/title — contains the keyword, compelling, under ~65 chars' },
-          metaDescription: { type: 'string', description: 'Meta description, 140–160 chars, contains the keyword' },
-          deck: { type: 'string', description: 'One-line standfirst under the title' },
-          bodyHtml: { type: 'string', description: 'Article body, semantic HTML only (p, h2, h3, ul, li, strong, em, a). Keyword in the first paragraph + a couple of H2s. End with a FAQ: an <h2> then <h3> questions with <p> answers.' },
+          title: { type: 'string', description: 'H1/title — keyword near the front, click-worthy, MAX 60 characters.' },
+          metaDescription: { type: 'string', description: 'Meta description, 140–160 characters, contains the keyword, ends with a soft benefit/CTA.' },
+          deck: { type: 'string', description: 'One-line standfirst under the title.' },
+          bodyHtml: { type: 'string', description: 'Article body, semantic HTML only (p, h2, h3, ul, ol, li, table, strong, em, a). RULES: (1) first 2–3 sentences directly answer the query; (2) keyword in the first paragraph + a couple of H2s; (3) turn related searches into H2/H3 questions; (4) use <ol> for steps, a <table> for comparisons; (5) add 2–4 internal links (descriptive anchors) from the provided list + 1–2 authoritative external links; (6) end with a FAQ: an <h2> then <h3> questions with <p> answers.' },
         }, required: ['title', 'metaDescription', 'bodyHtml'],
       } }],
       tool_choice: { type: 'tool', name: 'article' },
