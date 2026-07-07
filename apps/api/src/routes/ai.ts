@@ -8,7 +8,7 @@ import { pickAesthetic, brandVoicePrompt, COPY_RULES, AESTHETICS } from '../lib/
 import { generateImage, generateImageResult, photoPrompt, imageGenEnabled, reasonMessage } from '../lib/imagegen.js'
 import { localImageMissing } from '../lib/image-host.js'
 import { upsertMenu, articleTemplateOf } from './menus.js'
-import { articleBlocksFromImport } from './import.js'
+import { articleBlocksFromImport, structureFromSource } from './import.js'
 import { extractBrandFromDom } from '../lib/headless.js'
 import { fpFromHtml, fitSection, looksStructured } from '../lib/section-classifier.js'
 import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities } from '../lib/google-data.js'
@@ -515,6 +515,58 @@ ${brief ? '\n\nSITE CONTEXT (anchor industry, audience, voice; reflect it in the
     res.json({ ok: true, data: { id: created.id, slug: created.slug, title: created.title } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'AI generation failed: ' + (e?.message || 'unknown') })
+  }
+})
+
+// POST /ai/build-from-design — REPRODUCE a pasted design faithfully as editable
+// sections. Unlike generate-freeform (which invents a new page in the brand),
+// this interprets the design's brand AND renders the HTML headless, then runs
+// the deterministic fitter — so the result LOOKS like what you uploaded, as
+// editable typed sections. No AI credits.
+aiRouter.post('/build-from-design', requireAuth, async (req: AuthRequest, res) => {
+  const { slug, designHtml, type } = req.body ?? {}
+  if (!slug || typeof designHtml !== 'string' || designHtml.trim().length < 40) return res.status(400).json({ ok: false, error: 'slug and designHtml required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+
+  // 1) Interpret the design into the brand (colors/fonts/shape/space/logo/faces) + save.
+  const [tokRow] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const t: any = tokRow?.tokens || {}
+  const b = brandFromHtml(designHtml)
+  t.color = { ...(t.color || {}), ...b.color }
+  t.font = { ...(t.font || {}), ...b.font }
+  t.shape = { ...(t.shape || {}), ...b.shape }
+  t.space = { ...(t.space || {}), ...b.space }
+  if (b.logo || b.fontFaces.length) {
+    t.brand_assets = t.brand_assets || {}
+    if (b.logo) { t.brand_assets.logo_rich = b.logo; if (b.logo.kind === 'img') t.brand_assets.logo = { url: b.logo.url, alt: ws.name } }
+    if (b.fontFaces.length) { const ex = (t.brand_assets.font_faces || []) as Array<{ family: string }>; const merged = [...ex]; for (const f of b.fontFaces) if (!merged.some((x) => x.family === f.family)) merged.push(f); t.brand_assets.font_faces = merged }
+  }
+  if (tokRow) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tokRow.id))
+  else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
+
+  // 2) Render the design headless + fit it into sections that match the layout.
+  try {
+    const out = await structureFromSource('', ws.slug, { primary: t.color?.primary, accent: t.color?.accent }, { heading: t.font?.heading, body: t.font?.body }, designHtml)
+    if (!out || !out.blocks.length) return res.status(422).json({ ok: false, error: 'Could not read any sections from that design. Make sure it is the full HTML with its styles.' })
+    const title = ws.name
+    const pageType = type === 'home' || !type ? 'home' : String(type)
+    let created: any
+    if (pageType === 'home') {
+      const [existingHome] = await db.select().from(pages).where(and(eq(pages.workspaceId, ws.id), eq(pages.type, 'home'))).limit(1)
+      const rows = existingHome
+        ? await db.update(pages).set({ blocks: out.blocks as any, updatedAt: new Date() }).where(eq(pages.id, existingHome.id)).returning()
+        : await db.insert(pages).values({ workspaceId: ws.id, type: 'home' as any, slug: 'home', title, status: 'draft', blocks: out.blocks as any }).returning()
+      created = rows[0]
+    } else {
+      const pageSlug = (title || 'page').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) + '-' + Math.random().toString(36).slice(2, 6)
+      const rows = await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug: pageSlug, title, status: 'draft', blocks: out.blocks as any }).returning()
+      created = rows[0]
+    }
+    await logAiJob(ws.id, 'import', 'done', { source: 'build-from-design', ...out.stats }, 0, created.id)
+    res.json({ ok: true, data: { id: created.id, slug: created.slug, title: created.title, stats: out.stats } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Build from design failed: ' + (e?.message || 'unknown') })
   }
 })
 

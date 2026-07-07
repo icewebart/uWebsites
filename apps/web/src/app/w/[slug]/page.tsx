@@ -31,6 +31,7 @@ export default function WorkspaceHome() {
   const [kitName, setKitName] = useState('')
   const [kitText, setKitText] = useState('')
   const [pullBrand, setPullBrand] = useState(true)
+  const [designMode, setDesignMode] = useState<'reproduce' | 'freestyle'>('reproduce')
 
   function onKitFile(file?: File) {
     if (!file) { setKitName(''); setKitText(''); return }
@@ -40,11 +41,20 @@ export default function WorkspaceHome() {
   }
 
   async function buildWithAi() {
-    if (!aiPrompt.trim()) return
+    // "Reproduce this design" faithfully sectionises the uploaded HTML (no prompt
+    // needed); otherwise the AI generates from the prompt (+ optional design kit).
+    const reproduce = mode === 'freeform' && !!kitText && designMode === 'reproduce'
+    if (!reproduce && !aiPrompt.trim()) return
     setBuildErr(''); setBuilding(true)
-    const endpoint = mode === 'freeform' ? '/ai/generate-freeform' : '/ai/generate-page'
-    const body: any = { slug, prompt: aiPrompt.trim(), type: 'home' }
-    if (mode === 'freeform' && kitText) { body.kitHtml = kitText; body.pullBrand = pullBrand }
+    let endpoint: string; let body: any
+    if (reproduce) {
+      endpoint = '/ai/build-from-design'
+      body = { slug, designHtml: kitText, type: 'home' }
+    } else {
+      endpoint = mode === 'freeform' ? '/ai/generate-freeform' : '/ai/generate-page'
+      body = { slug, prompt: aiPrompt.trim(), type: 'home' }
+      if (mode === 'freeform' && kitText) { body.kitHtml = kitText; body.pullBrand = pullBrand }
+    }
     // Fire the generation. A long free-form build can exceed the proxy timeout,
     // but the page still saves server-side — so we ALSO poll for the new page
     // and open it the moment it exists, whichever happens first.
@@ -233,10 +243,22 @@ export default function WorkspaceHome() {
                   onChange={(e) => { const v = e.target.value; setKitText(v); setKitName(v.trim() ? 'Pasted design' : '') }}
                   style={{ marginTop: 6, fontFamily: 'ui-monospace, monospace', fontSize: 12 }} />
                 {kitName && (
-                  <label className="muted" style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, marginTop: 6, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={pullBrand} onChange={(e) => setPullBrand(e.target.checked)} style={{ width: 'auto' }} />
-                    Pull this design's <b>colors &amp; fonts</b> as the brand
-                  </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8, fontSize: 13 }}>
+                    <label className="muted" style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                      <input type="radio" name="dmode" checked={designMode === 'reproduce'} onChange={() => setDesignMode('reproduce')} style={{ width: 'auto' }} />
+                      <b>Reproduce this design</b> — match its layout, as editable sections (no prompt needed)
+                    </label>
+                    <label className="muted" style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                      <input type="radio" name="dmode" checked={designMode === 'freestyle'} onChange={() => setDesignMode('freestyle')} style={{ width: 'auto' }} />
+                      Freestyle a new page inspired by it (uses your prompt)
+                    </label>
+                    {designMode === 'freestyle' && (
+                      <label className="muted" style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer', paddingLeft: 22 }}>
+                        <input type="checkbox" checked={pullBrand} onChange={(e) => setPullBrand(e.target.checked)} style={{ width: 'auto' }} />
+                        Pull this design's <b>colors, fonts &amp; shape</b> as the brand
+                      </label>
+                    )}
+                  </div>
                 )}
               </>
             )}
@@ -250,9 +272,14 @@ export default function WorkspaceHome() {
             </div>
             {buildErr && <div className="err" style={{ marginTop: 10 }}>{buildErr}</div>}
             <div className="build-actions">
-              <button className="btn btn-primary" onClick={buildWithAi} disabled={building || !aiPrompt.trim()}>
-                {building ? (mode === 'freeform' ? 'Designing your page… (~40s)' : 'Building your homepage… (~20s)') : '✦ Build with AI'}
-              </button>
+              {(() => {
+                const reproduce = mode === 'freeform' && !!kitText && designMode === 'reproduce'
+                return (
+                  <button className="btn btn-primary" onClick={buildWithAi} disabled={building || (!aiPrompt.trim() && !reproduce)}>
+                    {building ? (reproduce ? 'Reproducing your design… (~30s)' : mode === 'freeform' ? 'Designing your page… (~40s)' : 'Building your homepage… (~20s)') : reproduce ? '✨ Reproduce design' : '✦ Build with AI'}
+                  </button>
+                )
+              })()}
               <span className="muted" style={{ fontSize: 13 }}>or <a href={`/w/${slug}/import`}>import an existing site</a></span>
             </div>
           </div>

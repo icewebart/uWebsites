@@ -905,8 +905,9 @@ export async function structureFromSource(
   slug: string,
   brandColors: { primary?: string | null; accent?: string | null } = {},
   brandFonts: { heading?: string | null; body?: string | null } = {},
+  designHtml?: string,
 ): Promise<{ blocks: any[]; stats: { total: number; semantic: number; raw: number } } | null> {
-  const r = await headlessRender(sourceUrl)
+  const r = await headlessRender(sourceUrl, designHtml ? { html: designHtml } : undefined)
   if (!r.capturedSections.length) return null
   const mirror = createImageMirror(slug)
 

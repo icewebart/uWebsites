@@ -71,7 +71,9 @@ export type HeadlessResult = {
 
 // Render `url` with a real browser and return everything the sectionizer needs.
 // Times out after 30s; resources are released even on failure.
-export async function headlessRender(url: string): Promise<HeadlessResult> {
+// Pass opts.html to render a pasted HTML fragment/document (via setContent)
+// instead of navigating to a URL — used by "reproduce this design" (Path 2).
+export async function headlessRender(url: string, opts?: { html?: string }): Promise<HeadlessResult> {
   // Mutex — serialize so we never have two concurrent renders on the same
   // small VPS. Memory budget rules over parallelism here.
   let release: () => void = () => {}
@@ -108,11 +110,18 @@ export async function headlessRender(url: string): Promise<HeadlessResult> {
     // Try networkidle first (everything settled). Some pages with chat widgets
     // / analytics never go idle — fall back to domcontentloaded + a 4s nudge.
     let goError: Error | null = null
-    try {
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 })
-    } catch (e: any) {
-      goError = e
-      try { await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 }) } catch { /* keep first error */ }
+    if (opts?.html) {
+      // Render pasted markup. Wrap a bare fragment so it's a valid document.
+      const doc = /<html[\s>]/i.test(opts.html) ? opts.html : `<!doctype html><html><head><meta charset="utf-8"></head><body>${opts.html}</body></html>`
+      try { await page.setContent(doc, { waitUntil: 'networkidle', timeout: 30_000 }) }
+      catch (e: any) { goError = e; try { await page.setContent(doc, { waitUntil: 'domcontentloaded', timeout: 30_000 }) } catch { /* keep first error */ } }
+    } else {
+      try {
+        await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 })
+      } catch (e: any) {
+        goError = e
+        try { await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 }) } catch { /* keep first error */ }
+      }
     }
 
     // Trigger lazy-load on images that use IntersectionObserver: scroll to the
@@ -135,7 +144,7 @@ export async function headlessRender(url: string): Promise<HeadlessResult> {
       })
     }).catch(() => {/* ignore */})
 
-    const finalUrl = page.url()
+    const finalUrl = opts?.html ? (url || '') : page.url()
     const html = await page.content()
     // Concatenate every <style> block currently in the DOM (after any JS-added
     // styles). Cap each at 250KB.
@@ -328,6 +337,16 @@ export async function headlessRender(url: string): Promise<HeadlessResult> {
       }
       if (els.length < 2) {
         els = Array.from(document.querySelectorAll('main > section, body > section, main > article'))
+      }
+      if (els.length < 2) {
+        // Generic pasted design (Claude/Canva artifact) with no semantic
+        // <section>s — treat the top-level block children as sections.
+        const host = (document.querySelector('main') || document.body) as HTMLElement
+        els = Array.from(host.children).filter((el) => {
+          if (['SCRIPT', 'STYLE', 'LINK', 'HEADER', 'FOOTER', 'NAV', 'NOSCRIPT'].includes(el.tagName)) return false
+          const r = el.getBoundingClientRect()
+          return r.height > 60 && r.width > 200
+        })
       }
       const out: { html: string; fp: SectionFP }[] = []
       let i = 0
