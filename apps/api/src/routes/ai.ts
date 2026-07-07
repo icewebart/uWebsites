@@ -1768,3 +1768,46 @@ aiRouter.post('/redesign-section', requireAuth, async (req: AuthRequest, res) =>
     res.status(502).json({ ok: false, error: 'Redesign failed: ' + (e?.message || 'unknown') })
   }
 })
+
+// POST /ai/redesign-page — sweep EVERY raw-html block on the page through the
+// fitter. Deterministic for all (free); AI typify only for the structured-grid
+// blocks the extractor can't resolve, capped so the cost is bounded.
+const REDESIGN_AI_CAP = 12
+aiRouter.post('/redesign-page', requireAuth, async (req: AuthRequest, res) => {
+  const { pageId } = req.body ?? {}
+  if (!pageId) return res.status(400).json({ ok: false, error: 'pageId required' })
+  const [row] = await db.select({ id: pages.id, blocks: pages.blocks, wsId: pages.workspaceId, accId: workspaces.accountId })
+    .from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id))
+    .where(eq(pages.id, String(pageId))).limit(1)
+  if (!row || row.accId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'page not found' })
+  const blocks = (Array.isArray(row.blocks) ? JSON.parse(JSON.stringify(row.blocks)) : []) as any[]
+  const a = ai()
+
+  let redesigned = 0, aiUsed = 0, kept = 0
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i]
+    if (b?.type !== 'raw-html' || typeof b.props?.html !== 'string') continue
+    const html = b.props.html
+    const fp = fpFromHtml(html)
+    const fit = fitSection(fp, html)
+    const wantAi = fit.needsAi || (['richtext', 'image', 'gallery'].includes(fit.kind) && looksStructured(fp))
+    try {
+      if (wantAi && a && aiUsed < REDESIGN_AI_CAP) {
+        const r = await a.messages.create({
+          model: MODEL, max_tokens: 1500,
+          system: `Convert an HTML fragment into one of our typed catalog sections: ${SECTION_KINDS_LIST.join(', ')}. Pick the BEST-matching kind. Extract text verbatim into the kind's props. Use image URLs that already appear in the HTML — never invent. Return via the section tool.`,
+          tools: [{ name: 'section', description: 'The typed section.', input_schema: TYPIFY_SCHEMA as any }],
+          tool_choice: { type: 'tool', name: 'section' },
+          messages: [{ role: 'user', content: `HTML fragment:\n${html.slice(0, 24000)}` }],
+        })
+        const toolUse = r.content.find((x: any) => x.type === 'tool_use') as any
+        if (toolUse) { const { type, props } = toolUse.input as any; blocks[i] = { type, props: props || {} }; redesigned++; aiUsed++; continue }
+      }
+      if (fit.block && !fit.needsAi) { blocks[i] = fit.block; redesigned++ } else kept++
+    } catch { kept++ }
+  }
+
+  await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, row.id))
+  await logAiJob(row.wsId, 'edit', 'done', { source: 'redesign-page', redesigned, aiUsed }, aiUsed, row.id)
+  res.json({ ok: true, data: { blocks, redesigned, aiUsed, kept } })
+})

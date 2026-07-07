@@ -247,6 +247,21 @@ export default function PageEditor() {
     } catch (e: any) { setErr(e.message || 'Redesign failed') } finally { setRedesigningIdx(null) }
   }
 
+  // Redesign the WHOLE page: sweep every raw-html block through the fitter.
+  const [redesigningPage, setRedesigningPage] = useState(false)
+  async function redesignPage() {
+    if (!window.confirm('Redesign every raw-HTML section on this page into editable typed sections? Deterministic and free where possible; a few complex grids may use AI. Your text, links and images are kept.')) return
+    setErr(''); setRedesigningPage(true)
+    try {
+      const r = await api<{ blocks: any[]; redesigned: number; aiUsed: number; kept: number }>('/ai/redesign-page', {
+        method: 'POST', body: JSON.stringify({ pageId }),
+      })
+      setBlocks(r.blocks); setPreviewKey((k) => k + 1); setSelected(null)
+      setSavedAt(`Redesigned ${r.redesigned} section${r.redesigned === 1 ? '' : 's'}${r.aiUsed ? ` (${r.aiUsed} via AI)` : ''}${r.kept ? `, ${r.kept} kept as-is` : ''}`)
+    } catch (e: any) { setErr(e.message || 'Redesign page failed') } finally { setRedesigningPage(false) }
+  }
+  const [repairOpen, setRepairOpen] = useState(false)
+
   async function sectionizeFromSource() {
     if (!window.confirm('Re-import this page from its source URL? This will replace the current blocks with pixel-faithful sections — colors/fonts swap to your brand, images get mirrored locally. Your text edits will be overwritten.')) return
     setErr(''); setSectionizing(true)
@@ -401,28 +416,30 @@ export default function PageEditor() {
                 </div>
               )}
             </div>
-            {blocks.some((b) => (b.type === 'raw-html' || b.type === 'richtext') && b.props?.html) && (
-              <button className="btn btn-secondary" onClick={structurePage} disabled={structuring} title="Free, no AI — rebuild into a clean hero + content + CTA from existing text/images">
-                {structuring ? 'Structuring…' : '⚡ Structure'}
+            {blocks.some((b) => b.type === 'raw-html' && b.props?.html) && (
+              <button className="btn btn-secondary" onClick={redesignPage} disabled={redesigningPage} title="Fit every raw-HTML section into the best editable section — deterministic + free where possible, AI only for complex grids. Keeps your text, links, images.">
+                {redesigningPage ? 'Redesigning…' : '✨ Redesign page'}
               </button>
             )}
-            <button className="btn btn-secondary" onClick={polishDesign} disabled={polishing} title="AI design pass — redesigns imported sections, or sharpens the copy on typed pages; keeps your links + images">
+            <button className="btn btn-secondary" onClick={polishDesign} disabled={polishing} title="AI design pass — sharpens the copy + layout on-brand; keeps your links + images">
               {polishing ? 'Polishing…' : '✦ Polish design'}
             </button>
-            <button className="btn btn-secondary" onClick={fixLinks} disabled={fixingLinks} title="Rewrite links to the original site into internal links, and resolve placeholder (#) links">
-              {fixingLinks ? 'Fixing…' : '🔗 Fix links'}
-            </button>
-            <button className="btn btn-secondary" onClick={healImages} disabled={healing} title="Copy any missing image files from sibling workspaces (fixes broken images without a full re-import)">
-              {healing ? 'Healing…' : '⚕ Fix images'}
-            </button>
-            {page?.seo?.import_source && (
-              <>
-                <button className="btn btn-secondary" onClick={sectionizeFromSource} disabled={sectionizing} title="Pixel-faithful import — recopy the source page's layout, swap colors/fonts to your brand, mirror images locally.">
-                  {sectionizing ? 'Importing…' : '⌕ Re-import'}
-                </button>
-                <button className="btn btn-secondary" onClick={() => setRebuildOpen(true)} title="Restructure into a designed layout using the section catalog">✦ AI rebuild</button>
-              </>
-            )}
+            {/* Repair — maintenance utilities, grouped out of the design flow */}
+            <div className="img-gen-wrap" style={{ position: 'relative' }}>
+              <button className="btn btn-secondary" onClick={() => setRepairOpen((v) => !v)} disabled={fixingLinks || healing || sectionizing} title="Repair utilities — links, images, re-import">
+                {fixingLinks ? 'Fixing links…' : healing ? 'Fixing images…' : sectionizing ? 'Importing…' : '🔧 Repair ▾'}
+              </button>
+              {repairOpen && !(fixingLinks || healing || sectionizing) && (
+                <div className="img-gen-menu" onMouseLeave={() => setRepairOpen(false)}>
+                  <button onClick={() => { setRepairOpen(false); fixLinks() }}><b>🔗 Fix links</b><span>Rewrite old-site links to internal + resolve # placeholders</span></button>
+                  <button onClick={() => { setRepairOpen(false); healImages() }}><b>⚕ Fix images</b><span>Recover missing image files without a full re-import</span></button>
+                  {page?.seo?.import_source && (<>
+                    <button onClick={() => { setRepairOpen(false); sectionizeFromSource() }}><b>⌕ Re-import</b><span>Pixel-faithful recopy of the source layout</span></button>
+                    <button onClick={() => { setRepairOpen(false); setRebuildOpen(true) }}><b>✦ AI rebuild</b><span>Restructure into a designed layout from the catalog</span></button>
+                  </>)}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
