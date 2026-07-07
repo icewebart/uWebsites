@@ -163,6 +163,134 @@ export function classifySection(fp: SectionFP): Classification {
   return { block: null, confidence: 0, kind: 'none', reason: 'nothing recognised' }
 }
 
+// ---- the FITTER (the deterministic "Redesign" engine) ----
+// classifySection is a precise cascade that bails to raw-html when unsure. The
+// fitter instead ALWAYS tries to land on an editable, brand-styled section: it
+// takes the confident classifier result when there is one, and otherwise maps
+// whatever content the fingerprint extracted into the best-fit catalog section
+// (looser bars, column count from item count, alternating image side). It only
+// returns { needsAi:true } when a region has NO mappable content at all (a bare
+// form / map / embed), which the caller can hand to AI or keep as raw-html.
+// This is what turns "boxes of raw HTML" into real sections — with zero AI.
+export type FitResult = Classification & { needsAi?: boolean }
+
+// Convert a section's messy source HTML into clean, editable semantic richtext
+// WITHOUT losing body copy: drop non-content elements, unwrap divs/spans, keep a
+// whitelist (p/h2/h3/ul/ol/li/strong/em/a/blockquote), normalise headings + bold/
+// italic, and wrap any loose text in <p>. Used by the fitter's text fallbacks so
+// a multi-paragraph section becomes a full, editable richtext block (not a blob).
+export function htmlToRichtext(raw: string): string {
+  if (!raw) return ''
+  let s = String(raw)
+  s = s.replace(/<(script|style|svg|noscript|form|iframe|nav|header|footer|button|select|textarea)\b[\s\S]*?<\/\1>/gi, '')
+  s = s.replace(/<!--[\s\S]*?-->/g, '')
+  s = s.replace(/<br\b[^>]*>/gi, '\n').replace(/<(img|input|hr|source|track)\b[^>]*>/gi, '')
+  s = s.replace(/<\/?h1\b[^>]*>/gi, (m) => m[1] === '/' ? '</h2>' : '<h2>')
+  s = s.replace(/<\/?h[4-6]\b[^>]*>/gi, (m) => m[1] === '/' ? '</h3>' : '<h3>')
+  const KEEP = /^(p|h2|h3|ul|ol|li|strong|em|b|i|a|blockquote)$/i
+  s = s.replace(/<(\/?)([a-zA-Z0-9]+)\b([^>]*)>/g, (_m, slash: string, tag: string, attrs: string) => {
+    if (!KEEP.test(tag)) return ''                                  // unwrap: strip tag, keep content
+    const t = tag.toLowerCase() === 'b' ? 'strong' : tag.toLowerCase() === 'i' ? 'em' : tag.toLowerCase()
+    if (t === 'a' && !slash) {
+      const href = (attrs.match(/href\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/i)?.[1] || '').replace(/^['"]|['"]$/g, '')
+      return href ? `<a href="${href.replace(/"/g, '&quot;')}">` : '<a>'
+    }
+    return `<${slash}${t}>`
+  })
+  s = s.replace(/&nbsp;/gi, ' ').replace(/[ \t ]+/g, ' ')
+  s = s.replace(/<(p|h2|h3|li|blockquote)>\s*<\/\1>/gi, '')          // drop empties
+  // Wrap loose top-level text (sections whose copy sat in bare divs) in <p>.
+  if (!/<(p|h2|h3|ul|ol|blockquote)[ >]/i.test(s)) {
+    const txt = s.replace(/<[^>]+>/g, '').trim()
+    if (txt) s = `<p>${s.trim()}</p>`
+  }
+  return s.replace(/\n{2,}/g, '\n').trim().slice(0, 20000)
+}
+
+export function fitSection(fp: SectionFP, html?: string): FitResult {
+  // 1) Trust the precise classifier when it's confident.
+  const primary = classifySection(fp)
+  if (primary.block && primary.confidence >= 0.55) return primary
+
+  const c = fp.counts
+  const cards = fp.cards || []
+  const withImg = cards.filter((x) => x.imgUrl).length
+  const cta = fp.buttons[0]
+  const mk = (type: string, props: any, confidence: number, reason: string): FitResult =>
+    ({ block: { type, props }, confidence, kind: type, reason })
+
+  const hasText = !!(fp.heading || fp.deck || fp.listItems.length || c.p > 0)
+  const anyContent = hasText || cards.length > 0 || c.img > 0 || fp.stats.length > 0 || fp.faqs.length > 0 || fp.buttons.length > 0
+  // Nothing extractable (a form/map/embed widget) → AI or raw-html preserves it.
+  if (!anyContent) return { block: null, confidence: 0, kind: 'none', reason: 'no mappable content', needsAi: true }
+
+  // 2) Card / feature rows (looser than the strict classifier).
+  if (cards.length >= 2) {
+    const substantive = cards.filter((x) => x.text.length > 12 || x.imgUrl || x.icon).length
+    if (substantive >= 2) {
+      // Image-topped cards → program-cards.
+      if (fp.row.cols <= 3 && withImg >= Math.max(2, cards.length - 1)) {
+        return mk('program-cards', {
+          eyebrow: clip(fp.kicker, 60), heading: clip(fp.heading, 140),
+          items: cards.slice(0, 3).map((x) => ({ badge: '', title: clip(x.heading, 120), desc: clip(x.text, 260), image_url: x.imgUrl, cta_label: clip(x.label, 32), cta_href: x.href })),
+        }, 0.55, 'image cards (fitter)')
+      }
+      // Column count follows how many cards there are.
+      const kind = fp.row.cols === 2 ? 'features-2col' : cards.length >= 4 ? 'features-4' : 'features-3'
+      const cap = kind === 'features-2col' ? 2 : kind === 'features-4' ? 4 : 6
+      return mk(kind, {
+        eyebrow: clip(fp.kicker, 60), heading: clip(fp.heading, 140), sub: clip(fp.deck, 200),
+        items: cards.slice(0, cap).map((x) => ({ icon: '', title: clip(x.heading, 120), desc: clip(x.text, 260) })),
+      }, 0.55, `${cards.length}-col features (fitter)`)
+    }
+  }
+
+  // 3) Stats row.
+  const stats = fp.stats.filter((s) => s.value && s.label)
+  if (stats.length >= 2) {
+    return mk('stats-row', { heading: clip(fp.heading, 140), items: stats.slice(0, 6).map((s) => ({ value: clip(s.value, 12), label: clip(s.label, 48) })) }, 0.55, 'stats (fitter)')
+  }
+
+  // 4) Image-heavy → gallery, or a strip of tiny images → logo cloud.
+  if (c.img >= 3 && fp.textLen < c.img * 90) {
+    const small = fp.images.filter((im) => (im.h || 999) <= 90).length
+    if (small >= 3 && fp.textLen < 120) {
+      return mk('logo-cloud', { heading: clip(fp.heading, 140), logos: fp.images.slice(0, 12).map((im) => ({ url: im.url, alt: im.alt })) }, 0.5, 'logos (fitter)')
+    }
+    return mk('gallery', { eyebrow: clip(fp.kicker, 60), heading: clip(fp.heading, 140), items: fp.images.slice(0, 12).map((im) => ({ image_url: im.url, caption: clip(im.alt, 120) })) }, 0.5, 'gallery (fitter)')
+  }
+
+  // Full body copy from the real HTML (so we never drop paragraphs 2+); falls
+  // back to the fingerprint's deck+list when no HTML was passed.
+  const bodyRich = (html && htmlToRichtext(html)) || proseFromFp(fp) || (fp.deck ? `<p>${esc(clip(fp.deck, 1200))}</p>` : '')
+
+  // 5) One image beside text → image-text, alternating side down the page.
+  if (c.img >= 1 && hasText) {
+    const im = fp.images.find((x) => (x.w || 0) >= 120 || (x.h || 0) >= 120) || fp.images[0]
+    return mk('image-text', {
+      heading: clip(fp.heading, 140), html: bodyRich,
+      image_url: im?.url || '', image_alt: clip(im?.alt || fp.heading, 140),
+      image_side: (fp.index % 2 === 0) ? 'right' : 'left',
+    }, 0.5, 'image + text (fitter)')
+  }
+
+  // 6) Short heading + button → CTA banner.
+  if (fp.buttons.length >= 1 && fp.textLen < 320 && fp.heading) {
+    return mk('cta-banner', { heading: clip(fp.heading, 140), sub: clip(fp.deck, 200), cta_label: cta?.label || '', cta_href: cta?.href || '' }, 0.5, 'cta (fitter)')
+  }
+
+  // 7) Universal text catch-all → editable richtext (NOT a raw-html blob). Use
+  //    the full HTML so all paragraphs survive; the heading is already inside it.
+  const rich = (html && htmlToRichtext(html)) ||
+    `${fp.heading ? `<h2>${esc(clip(fp.heading, 160))}</h2>` : ''}${proseFromFp(fp) || (fp.deck ? `<p>${esc(clip(fp.deck, 1200))}</p>` : '')}`
+  if (rich && rich.replace(/<[^>]+>/g, '').trim()) return mk('richtext', { html: rich }, 0.5, 'text catch-all (fitter)')
+
+  // 8) Only an image, nothing else → a single image block.
+  if (c.img >= 1) return mk('image', { url: fp.images[0].url, alt: clip(fp.images[0].alt, 140) }, 0.45, 'image only (fitter)')
+
+  return { block: null, confidence: 0, kind: 'none', reason: 'unfit', needsAi: true }
+}
+
 // ---- image mirroring: rewrite every image URL in a classified block to the
 // workspace's /img mirror, stamping the ORIGINAL source URL so heal can always
 // recover it later (Phase 4). Mutates + returns the block. ----

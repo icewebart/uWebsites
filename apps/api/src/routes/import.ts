@@ -8,7 +8,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { sectionizeHtml } from '../lib/html-sectionizer.js'
 import { createImageMirror, localImageMissing } from '../lib/image-host.js'
 import { headlessRender, extractBrandFromDom, type NavNode } from '../lib/headless.js'
-import { classifySection, mirrorBlockImages } from '../lib/section-classifier.js'
+import { fitSection, mirrorBlockImages } from '../lib/section-classifier.js'
 import { parseDesignSystem, preprocessLandingHtml } from '../lib/design-system.js'
 
 // ---- Color scale generation (for the design-system palette display) ----
@@ -900,7 +900,6 @@ export async function sectionizeUrl(
 // styled raw-html for that exact section so fidelity is never lost. Images are
 // mirrored to the workspace's /img dir. This is the engine behind the Structure
 // button: it "understands the whole page and reproduces it" without AI.
-const STRUCT_CONF = 0.55
 export async function structureFromSource(
   sourceUrl: string,
   slug: string,
@@ -931,8 +930,11 @@ export async function structureFromSource(
   const n = Math.min(r.capturedSections.length, 24)
   for (let i = 0; i < n; i++) {
     const cap = r.capturedSections[i]
-    const cls = classifySection(cap.fp)
-    if (cls.block && cls.confidence >= STRUCT_CONF) {
+    // The fitter maps almost every region to an editable typed section; it only
+    // sets needsAi (→ raw-html fallback below) for regions with no mappable
+    // content (forms/maps/embeds). This replaces the old raw-html-heavy path.
+    const cls = fitSection(cap.fp, cap.html)
+    if (cls.block && !cls.needsAi) {
       await mirrorBlockImages(cls.block, mirror)
       blocks.push(cls.block); semantic++
       continue
