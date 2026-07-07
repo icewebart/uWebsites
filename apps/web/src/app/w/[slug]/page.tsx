@@ -223,10 +223,15 @@ export default function WorkspaceHome() {
               <>
                 <label className="build-kit">
                   <input type="file" accept=".html,.htm,text/html" style={{ display: 'none' }} onChange={(e) => onKitFile(e.target.files?.[0])} />
-                  <span className="build-kit-btn">📎 {kitName ? `Design: ${kitName}` : 'Attach a design (.html from Claude/Canva) — optional'}</span>
-                  {kitName && <button type="button" className="build-kit-x" onClick={(e) => { e.preventDefault(); onKitFile(undefined) }}>✕</button>}
+                  <span className="build-kit-btn">📎 {kitName && kitName !== 'Pasted design' ? `Design: ${kitName}` : 'Attach a design (.html from Claude/Canva) — optional'}</span>
+                  {kitName && kitName !== 'Pasted design' && <button type="button" className="build-kit-x" onClick={(e) => { e.preventDefault(); onKitFile(undefined) }}>✕</button>}
                   <span className="muted" style={{ fontSize: 12 }}>The AI reuses the real names, offers and wording from it.</span>
                 </label>
+                <textarea className="inp" rows={2}
+                  placeholder="…or paste the design's HTML here (from a Claude artifact or Canva export)"
+                  value={kitName === 'Pasted design' ? kitText : ''}
+                  onChange={(e) => { const v = e.target.value; setKitText(v); setKitName(v.trim() ? 'Pasted design' : '') }}
+                  style={{ marginTop: 6, fontFamily: 'ui-monospace, monospace', fontSize: 12 }} />
                 {kitName && (
                   <label className="muted" style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, marginTop: 6, cursor: 'pointer' }}>
                     <input type="checkbox" checked={pullBrand} onChange={(e) => setPullBrand(e.target.checked)} style={{ width: 'auto' }} />

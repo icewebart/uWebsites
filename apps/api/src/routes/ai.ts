@@ -340,7 +340,7 @@ function _rgbToHex(rgb: string): string { const p = rgb.split(',').map((x) => pa
 function _lum(hex: string) { const { r, g, b } = _hexRgb(hex); return r * 0.299 + g * 0.587 + b * 0.114 }
 function _gray(hex: string) { const { r, g, b } = _hexRgb(hex); return Math.max(r, g, b) - Math.min(r, g, b) < 18 }
 function _dist(a: string, b: string) { const x = _hexRgb(a), y = _hexRgb(b); return Math.abs(x.r - y.r) + Math.abs(x.g - y.g) + Math.abs(x.b - y.b) }
-export function brandFromHtml(html: string): { color: Record<string, string>; font: Record<string, string>; shape: Record<string, string>; space: Record<string, string> } {
+export function brandFromHtml(html: string): { color: Record<string, string>; font: Record<string, string>; shape: Record<string, string>; space: Record<string, string>; logo: { kind: 'img'; url: string } | { kind: 'svg'; svg: string } | null } {
   const s = String(html || '').slice(0, 400000)
   const hits: string[] = []
   for (const m of s.matchAll(/#[0-9a-fA-F]{6}\b/g)) hits.push(m[0].toLowerCase())
@@ -385,7 +385,19 @@ export function brandFromHtml(html: string): { color: Record<string, string>; fo
   const pads = [...s.matchAll(/padding(?:-top|-bottom)?\s*:\s*([0-9.]+)px/gi)].map((m) => parseFloat(m[1])).filter((n) => n >= 40 && n <= 140)
   const cp = mode(pads); if (cp) space.sectionPaddingY = `${cp}px`
 
-  return { color, font, shape, space }
+  // Logo: an <img>/<svg> that reads as the brand mark (logo/brand hint, or the
+  // first inline SVG in the top region of the design).
+  let logo: { kind: 'img'; url: string } | { kind: 'svg'; svg: string } | null = null
+  const logoImg = s.match(/<img\b[^>]*(?:class|alt|src|id)=["'][^"']*(?:logo|brand)[^"']*["'][^>]*>/i)
+  const logoSrc = logoImg?.[0].match(/\bsrc=["']([^"']+)["']/i)?.[1]
+  if (logoSrc && /^(https?:|\/|data:)/.test(logoSrc)) logo = { kind: 'img', url: logoSrc }
+  if (!logo) {
+    const head = s.slice(0, Math.max(6000, Math.floor(s.length * 0.3)))
+    const svg = head.match(/<svg\b[\s\S]*?<\/svg>/i)?.[0]
+    if (svg && svg.length < 60000) logo = { kind: 'svg', svg }
+  }
+
+  return { color, font, shape, space, logo }
 }
 
 // POST /ai/generate-freeform — "no restrictions" mode: Claude authors a
@@ -412,6 +424,11 @@ aiRouter.post('/generate-freeform', requireAuth, async (req: AuthRequest, res) =
     t.font = { ...(t.font || {}), ...b.font }
     t.shape = { ...(t.shape || {}), ...b.shape }
     t.space = { ...(t.space || {}), ...b.space }
+    if (b.logo) {
+      t.brand_assets = t.brand_assets || {}
+      t.brand_assets.logo_rich = b.logo
+      if (b.logo.kind === 'img') t.brand_assets.logo = { url: b.logo.url, alt: ws.name }
+    }
     if (tokRow) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tokRow.id))
     else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
   }
