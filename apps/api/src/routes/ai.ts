@@ -330,21 +330,69 @@ aiRouter.post('/fill-images', requireAuth, async (req: AuthRequest, res) => {
   res.json({ ok: true, data: { filled, requested: gaps.length } })
 })
 
+// ---- brand extraction from a pasted design (Path 2 "freestyle from a design")
+// Pull a palette + fonts straight out of a design's HTML/CSS so the generated
+// page adopts the DESIGN'S look, not the workspace default. Regex over inline
+// styles + <style> blocks; ranks brand colors by frequency, skips grays/near-
+// white/near-black for primary/accent.
+function _hexRgb(hex: string) { const h = hex.replace('#', ''); return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) } }
+function _rgbToHex(rgb: string): string { const p = rgb.split(',').map((x) => parseInt(x.trim(), 10)); if (p.length < 3 || p.some((n) => isNaN(n))) return ''; return '#' + p.slice(0, 3).map((n) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0')).join('') }
+function _lum(hex: string) { const { r, g, b } = _hexRgb(hex); return r * 0.299 + g * 0.587 + b * 0.114 }
+function _gray(hex: string) { const { r, g, b } = _hexRgb(hex); return Math.max(r, g, b) - Math.min(r, g, b) < 18 }
+function _dist(a: string, b: string) { const x = _hexRgb(a), y = _hexRgb(b); return Math.abs(x.r - y.r) + Math.abs(x.g - y.g) + Math.abs(x.b - y.b) }
+export function brandFromHtml(html: string): { color: Record<string, string>; font: Record<string, string> } {
+  const s = String(html || '').slice(0, 400000)
+  const hits: string[] = []
+  for (const m of s.matchAll(/#[0-9a-fA-F]{6}\b/g)) hits.push(m[0].toLowerCase())
+  for (const m of s.matchAll(/rgba?\(([^)]+)\)/gi)) { const h = _rgbToHex(m[1]); if (h) hits.push(h) }
+  const freq: Record<string, number> = {}
+  for (const c of hits) freq[c] = (freq[c] || 0) + 1
+  const ranked = Object.entries(freq).sort((a, b) => b[1] - a[1]).map(([c]) => c)
+  const vivid = ranked.filter((c) => !_gray(c) && _lum(c) < 235 && _lum(c) > 32)
+  const primary = vivid[0]
+  const accent = vivid.find((c) => c !== primary && _dist(c, primary) > 90) || vivid[1]
+  const surface = ranked.find((c) => _lum(c) > 240) || '#ffffff'
+  const text = ranked.find((c) => _lum(c) < 40) || '#16242e'
+  const fonts: string[] = []
+  for (const m of s.matchAll(/font-family\s*:\s*([^;}<]+)/gi)) {
+    const fam = m[1].split(',')[0].replace(/["']/g, '').trim()
+    if (fam && !/^(inherit|initial|unset|sans-serif|serif|monospace|-apple-system|blinkmacsystemfont|system-ui|ui-sans-serif|var\()/i.test(fam)) fonts.push(fam)
+  }
+  const uf = [...new Set(fonts)]
+  const color: Record<string, string> = { surface, text }
+  if (primary) color.primary = primary
+  if (accent) color.accent = accent
+  const font: Record<string, string> = {}
+  if (uf[0]) font.heading = uf[0]
+  if (uf[1] || uf[0]) font.body = uf[1] || uf[0]
+  return { color, font }
+}
+
 // POST /ai/generate-freeform — "no restrictions" mode: Claude authors a
 // complete landing page as one self-contained HTML fragment (not the section
 // catalog), themed with the workspace's brand tokens + fonts, with image-slot
 // placeholders to fill later. Saved as a single raw-html home block. Optionally
-// seeded with a pasted design-kit's visible text for content context.
+// seeded with a pasted design-kit's visible text for content context, and — when
+// pullBrand is set — its palette + fonts are extracted and saved as the brand.
 aiRouter.post('/generate-freeform', requireAuth, async (req: AuthRequest, res) => {
   const a = ai()
   if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
-  const { slug, prompt, kitHtml, type } = req.body ?? {}
+  const { slug, prompt, kitHtml, type, pullBrand } = req.body ?? {}
   if (!slug || !prompt) return res.status(400).json({ ok: false, error: 'slug and prompt required' })
   const ws = await ownedWs(String(slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
 
   const [tokRow] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
   const t: any = tokRow?.tokens || {}
+  // Path 2 "freestyle from a design": adopt the pasted design's palette + fonts
+  // as the workspace brand so the generated page matches the design's look.
+  if (pullBrand && typeof kitHtml === 'string' && kitHtml.length > 40) {
+    const b = brandFromHtml(kitHtml)
+    t.color = { ...(t.color || {}), ...b.color }
+    t.font = { ...(t.font || {}), ...b.font }
+    if (tokRow) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tokRow.id))
+    else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
+  }
   const c = t.color || {}, f = t.font || {}
   const brief = await siteBrief(ws.id, ws.name)
   // Extract just the visible text from a pasted kit for content grounding.

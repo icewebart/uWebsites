@@ -30,6 +30,7 @@ export default function WorkspaceHome() {
   const [mode, setMode] = useState<'structured' | 'freeform'>('structured')
   const [kitName, setKitName] = useState('')
   const [kitText, setKitText] = useState('')
+  const [pullBrand, setPullBrand] = useState(true)
 
   function onKitFile(file?: File) {
     if (!file) { setKitName(''); setKitText(''); return }
@@ -43,7 +44,7 @@ export default function WorkspaceHome() {
     setBuildErr(''); setBuilding(true)
     const endpoint = mode === 'freeform' ? '/ai/generate-freeform' : '/ai/generate-page'
     const body: any = { slug, prompt: aiPrompt.trim(), type: 'home' }
-    if (mode === 'freeform' && kitText) body.kitHtml = kitText
+    if (mode === 'freeform' && kitText) { body.kitHtml = kitText; body.pullBrand = pullBrand }
     // Fire the generation. A long free-form build can exceed the proxy timeout,
     // but the page still saves server-side — so we ALSO poll for the new page
     // and open it the moment it exists, whichever happens first.
@@ -219,12 +220,20 @@ export default function WorkspaceHome() {
               placeholder="e.g. A German-language summer camp for kids aged 8–14 in Cluj. Friendly and playful, with courses, camps, testimonials and a signup CTA." />
 
             {mode === 'freeform' && (
-              <label className="build-kit">
-                <input type="file" accept=".html,.htm,text/html" style={{ display: 'none' }} onChange={(e) => onKitFile(e.target.files?.[0])} />
-                <span className="build-kit-btn">📎 {kitName ? `Kit: ${kitName}` : 'Attach a design kit (.html) — optional'}</span>
-                {kitName && <button type="button" className="build-kit-x" onClick={(e) => { e.preventDefault(); onKitFile(undefined) }}>✕</button>}
-                <span className="muted" style={{ fontSize: 12 }}>The AI reuses the real names, offers and wording from the kit.</span>
-              </label>
+              <>
+                <label className="build-kit">
+                  <input type="file" accept=".html,.htm,text/html" style={{ display: 'none' }} onChange={(e) => onKitFile(e.target.files?.[0])} />
+                  <span className="build-kit-btn">📎 {kitName ? `Design: ${kitName}` : 'Attach a design (.html from Claude/Canva) — optional'}</span>
+                  {kitName && <button type="button" className="build-kit-x" onClick={(e) => { e.preventDefault(); onKitFile(undefined) }}>✕</button>}
+                  <span className="muted" style={{ fontSize: 12 }}>The AI reuses the real names, offers and wording from it.</span>
+                </label>
+                {kitName && (
+                  <label className="muted" style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, marginTop: 6, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={pullBrand} onChange={(e) => setPullBrand(e.target.checked)} style={{ width: 'auto' }} />
+                    Pull this design's <b>colors &amp; fonts</b> as the brand
+                  </label>
+                )}
+              </>
             )}
 
             <div className="build-suggestions">
