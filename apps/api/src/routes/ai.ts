@@ -417,6 +417,105 @@ export function brandFromHtml(html: string): { color: Record<string, string>; fo
   return { color, font, shape, space, logo, fontFaces }
 }
 
+// Decode an image reference into base64 for the vision API. Accepts a data: URL
+// (what the browser sends after a file upload) or an http(s) URL we fetch.
+type VisionMedia = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
+function normMedia(ct: string): VisionMedia | null {
+  const c = ct.toLowerCase().trim()
+  if (c === 'image/jpeg' || c === 'image/jpg') return 'image/jpeg'
+  if (c === 'image/png') return 'image/png'
+  if (c === 'image/webp') return 'image/webp'
+  if (c === 'image/gif') return 'image/gif'
+  return null
+}
+async function imageToBase64(src: string): Promise<{ data: string; mediaType: VisionMedia } | null> {
+  try {
+    if (src.startsWith('data:')) {
+      const m = src.match(/^data:([^;]+);base64,(.+)$/s)
+      if (!m) return null
+      const mt = normMedia(m[1])
+      if (!mt) return null
+      // Anthropic caps base64 images at ~5 MB decoded (~6.8M b64 chars).
+      if (m[2].length > 6_800_000) return null
+      return { mediaType: mt, data: m[2] }
+    }
+    if (/^https?:\/\//i.test(src)) {
+      const r = await fetch(src)
+      if (!r.ok) return null
+      const mt = normMedia((r.headers.get('content-type') || 'image/png').split(';')[0])
+      if (!mt) return null
+      const buf = Buffer.from(await r.arrayBuffer())
+      if (buf.length > 6_000_000) return null
+      return { mediaType: mt, data: buf.toString('base64') }
+    }
+    return null
+  } catch { return null }
+}
+
+// Shared core for freeform page generation: given a workspace + its (already
+// saved) brand tokens + a prompt, ask Claude to author one self-contained
+// landing page themed with the brand, and save it as a raw-html home/article
+// block. Used by /generate-freeform and /vision-design.
+async function generateFreeformPage(
+  a: Anthropic,
+  ws: { id: string; name: string; slug: string },
+  t: any,
+  prompt: string,
+  kitText: string,
+  type?: string,
+): Promise<{ id: string; slug: string; title: string }> {
+  const c = t.color || {}, f = t.font || {}, sh = t.shape || {}, sp = t.space || {}
+  const brief = await siteBrief(ws.id, ws.name)
+  const r = await a.messages.create({
+    model: MODEL,
+    max_tokens: 12000,
+    system: `You are an elite product/brand web designer. Author ONE complete, opinionated marketing landing page as a SINGLE self-contained HTML fragment.
+
+OUTPUT RULES (critical):
+- Return ONLY the page body markup — a series of <section>…</section> blocks. Do NOT emit <html>, <head>, <body>, a site <header>/<nav>, or a <footer>; the platform wraps the page with those.
+- Colors: use ONLY these CSS variables so the page re-themes with the brand — var(--primary) ${c.primary || ''}, var(--accent) ${c.accent || ''}, var(--surface) ${c.surface || ''}, var(--text) ${c.text || ''}. Derive tints with color-mix(in srgb, var(--primary) 8%, #fff) etc. Never hardcode brand hexes.
+- Fonts: headings use '${f.heading || 'inherit'}', body uses '${f.body || 'inherit'}' (set font-family inline where needed; the fonts are already loaded).
+- SHAPE + SPACING — match the design's own language via these variables (do NOT hardcode): button/pill radius var(--btn-r${sh.buttonRadius ? ',' + sh.buttonRadius : ''}), card/image radius var(--card-r${sh.cardRadius ? ',' + sh.cardRadius : ''}), border weight var(--bw${sh.borderWidth ? ',' + sh.borderWidth : ''}).
+- Every section full-bleed background with an inner container: max-width:var(--container${sp.container ? ',' + sp.container : ',1180px'});margin:0 auto;padding:var(--pad${sp.sectionPaddingY ? ',' + sp.sectionPaddingY : ',72px'}) 24px. Alternate surface / soft-tinted section backgrounds for rhythm.
+- PHOTOS: never use external image URLs. For every image use a placeholder exactly like <div class="uw-img-slot" data-caption="SPECIFIC description of the wanted photo" style="width:100%;aspect-ratio:4/3;border-radius:var(--card-r,16px)"></div>. We fill these with real images afterward.
+- Decorative flourishes (soft blobs, stars) via inline SVG or CSS circles are welcome when on-brand.
+- Buttons: use border-radius:var(--btn-r,999px), background var(--primary) or var(--accent).
+
+CONTENT RULES:
+- Real, SPECIFIC copy in the brand's voice — never lorem ipsum, never "Your text here". Concrete headlines, benefits, and CTAs.
+- A rich page: hero, a value/benefits grid, a "how it works" or programs section, social proof/testimonials, a stats or trust strip, and a strong closing CTA. 6–9 sections.
+${brief ? '\n\nSITE CONTEXT (anchor industry, audience, voice; reflect it in the copy):\n' + brief : ''}${kitText ? '\n\nSOURCE KIT TEXT (reuse the real names, offers and wording from here where relevant):\n' + kitText : ''}`,
+    tools: [{ name: 'page', description: 'The generated landing page.', input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Concise, SEO-friendly page title' },
+        html: { type: 'string', description: 'The full page body markup — a sequence of <section> blocks, self-contained, themed with the brand CSS variables.' },
+      },
+      required: ['title', 'html'],
+    } as any }],
+    tool_choice: { type: 'tool', name: 'page' },
+    messages: [{ role: 'user', content: prompt }],
+  })
+  const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
+  if (!toolUse) throw new Error('Model returned no page')
+  const { title, html } = toolUse.input as { title: string; html: string }
+  const blocks = [{ type: 'raw-html', props: { html: stripPageChrome(html), sourceLabel: 'AI · free-form' } }]
+  const pageType = type === 'home' || !type ? 'home' : String(type)
+  let created: any
+  if (pageType === 'home') {
+    const [existingHome] = await db.select().from(pages).where(and(eq(pages.workspaceId, ws.id), eq(pages.type, 'home'))).limit(1)
+    const rows = existingHome
+      ? await db.update(pages).set({ title, blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, existingHome.id)).returning()
+      : await db.insert(pages).values({ workspaceId: ws.id, type: 'home' as any, slug: 'home', title, status: 'draft', blocks: blocks as any }).returning()
+    created = rows[0]
+  } else {
+    const pageSlug = (title || 'page').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) + '-' + Math.random().toString(36).slice(2, 6)
+    const rows = await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug: pageSlug, title, status: 'draft', blocks: blocks as any }).returning()
+    created = rows[0]
+  }
+  return { id: created.id, slug: created.slug, title: created.title }
+}
+
 // POST /ai/generate-freeform — "no restrictions" mode: Claude authors a
 // complete landing page as one self-contained HTML fragment (not the section
 // catalog), themed with the workspace's brand tokens + fonts, with image-slot
@@ -456,63 +555,15 @@ aiRouter.post('/generate-freeform', requireAuth, async (req: AuthRequest, res) =
     if (tokRow) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tokRow.id))
     else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
   }
-  const c = t.color || {}, f = t.font || {}, sh = t.shape || {}, sp = t.space || {}
-  const brief = await siteBrief(ws.id, ws.name)
   // Extract just the visible text from a pasted kit for content grounding.
   const kitText = typeof kitHtml === 'string'
     ? kitHtml.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 6000)
     : ''
 
   try {
-    const r = await a.messages.create({
-      model: MODEL,
-      max_tokens: 12000,
-      system: `You are an elite product/brand web designer. Author ONE complete, opinionated marketing landing page as a SINGLE self-contained HTML fragment.
-
-OUTPUT RULES (critical):
-- Return ONLY the page body markup — a series of <section>…</section> blocks. Do NOT emit <html>, <head>, <body>, a site <header>/<nav>, or a <footer>; the platform wraps the page with those.
-- Colors: use ONLY these CSS variables so the page re-themes with the brand — var(--primary) ${c.primary || ''}, var(--accent) ${c.accent || ''}, var(--surface) ${c.surface || ''}, var(--text) ${c.text || ''}. Derive tints with color-mix(in srgb, var(--primary) 8%, #fff) etc. Never hardcode brand hexes.
-- Fonts: headings use '${f.heading || 'inherit'}', body uses '${f.body || 'inherit'}' (set font-family inline where needed; the fonts are already loaded).
-- SHAPE + SPACING — match the design's own language via these variables (do NOT hardcode): button/pill radius var(--btn-r${sh.buttonRadius ? ',' + sh.buttonRadius : ''}), card/image radius var(--card-r${sh.cardRadius ? ',' + sh.cardRadius : ''}), border weight var(--bw${sh.borderWidth ? ',' + sh.borderWidth : ''}).
-- Every section full-bleed background with an inner container: max-width:var(--container${sp.container ? ',' + sp.container : ',1180px'});margin:0 auto;padding:var(--pad${sp.sectionPaddingY ? ',' + sp.sectionPaddingY : ',72px'}) 24px. Alternate surface / soft-tinted section backgrounds for rhythm.
-- PHOTOS: never use external image URLs. For every image use a placeholder exactly like <div class="uw-img-slot" data-caption="SPECIFIC description of the wanted photo" style="width:100%;aspect-ratio:4/3;border-radius:var(--card-r,16px)"></div>. We fill these with real images afterward.
-- Decorative flourishes (soft blobs, stars) via inline SVG or CSS circles are welcome when on-brand.
-- Buttons: use border-radius:var(--btn-r,999px), background var(--primary) or var(--accent).
-
-CONTENT RULES:
-- Real, SPECIFIC copy in the brand's voice — never lorem ipsum, never "Your text here". Concrete headlines, benefits, and CTAs.
-- A rich page: hero, a value/benefits grid, a "how it works" or programs section, social proof/testimonials, a stats or trust strip, and a strong closing CTA. 6–9 sections.
-${brief ? '\n\nSITE CONTEXT (anchor industry, audience, voice; reflect it in the copy):\n' + brief : ''}${kitText ? '\n\nSOURCE KIT TEXT (reuse the real names, offers and wording from here where relevant):\n' + kitText : ''}`,
-      tools: [{ name: 'page', description: 'The generated landing page.', input_schema: {
-        type: 'object',
-        properties: {
-          title: { type: 'string', description: 'Concise, SEO-friendly page title' },
-          html: { type: 'string', description: 'The full page body markup — a sequence of <section> blocks, self-contained, themed with the brand CSS variables.' },
-        },
-        required: ['title', 'html'],
-      } as any }],
-      tool_choice: { type: 'tool', name: 'page' },
-      messages: [{ role: 'user', content: String(prompt) }],
-    })
-    const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
-    if (!toolUse) return res.status(502).json({ ok: false, error: 'Model returned no page' })
-    const { title, html } = toolUse.input as { title: string; html: string }
-    const blocks = [{ type: 'raw-html', props: { html: stripPageChrome(html), sourceLabel: 'AI · free-form' } }]
-    const pageType = type === 'home' || !type ? 'home' : String(type)
-    let created: any
-    if (pageType === 'home') {
-      const [existingHome] = await db.select().from(pages).where(and(eq(pages.workspaceId, ws.id), eq(pages.type, 'home'))).limit(1)
-      const rows = existingHome
-        ? await db.update(pages).set({ title, blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, existingHome.id)).returning()
-        : await db.insert(pages).values({ workspaceId: ws.id, type: 'home' as any, slug: 'home', title, status: 'draft', blocks: blocks as any }).returning()
-      created = rows[0]
-    } else {
-      const pageSlug = (title || 'page').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) + '-' + Math.random().toString(36).slice(2, 6)
-      const rows = await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug: pageSlug, title, status: 'draft', blocks: blocks as any }).returning()
-      created = rows[0]
-    }
+    const created = await generateFreeformPage(a, ws, t, String(prompt), kitText, type)
     await logAiJob(ws.id, 'article', 'done', { source: 'freeform', prompt: String(prompt).slice(0, 500), title: created.title }, 2, created.id)
-    res.json({ ok: true, data: { id: created.id, slug: created.slug, title: created.title } })
+    res.json({ ok: true, data: created })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'AI generation failed: ' + (e?.message || 'unknown') })
   }
@@ -567,6 +618,74 @@ aiRouter.post('/build-from-design', requireAuth, async (req: AuthRequest, res) =
     res.json({ ok: true, data: { id: created.id, slug: created.slug, title: created.title, stats: out.stats } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'Build from design failed: ' + (e?.message || 'unknown') })
+  }
+})
+
+// POST /ai/vision-design — Path 2 for IMAGE-only designs (a screenshot/mockup
+// from Claude Design, Canva, Figma, etc.). Vision reads the image, derives the
+// palette + fonts + a detailed build brief, saves the brand, then generates an
+// editable landing page in that look. One image → brand + page.
+aiRouter.post('/vision-design', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
+  const { slug, imageData, type } = req.body ?? {}
+  if (!slug || typeof imageData !== 'string' || !imageData) return res.status(400).json({ ok: false, error: 'slug and imageData required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+
+  const img = await imageToBase64(imageData)
+  if (!img) return res.status(400).json({ ok: false, error: 'Could not read that image. Upload a PNG or JPG under 6 MB.' })
+
+  try {
+    // 1) Vision: interpret the design into brand + a build brief.
+    const vr = await a.messages.create({
+      model: MODEL,
+      max_tokens: 2000,
+      messages: [{ role: 'user', content: [
+        { type: 'image' as const, source: { type: 'base64' as const, media_type: img.mediaType, data: img.data } },
+        { type: 'text' as const, text: `Study this website design image. Extract the brand and describe the page so it can be rebuilt. Call the "design" tool with:
+- palette: primary (dominant brand colour), accent (secondary highlight), surface (page/background), text (body text colour) — all #rrggbb.
+- fonts: the heading and body font families as best you can name them (use the closest well-known Google Font if unsure, e.g. Poppins, Inter, Playfair Display).
+- brief: a thorough, section-by-section description of the page — every section top to bottom, its layout, the real headline/body copy you can read, buttons, imagery, and the overall visual style. Be specific enough that a designer could rebuild this page faithfully from your words alone.` },
+      ] }],
+      tools: [{ name: 'design', description: 'The interpreted design.', input_schema: {
+        type: 'object',
+        properties: {
+          palette: { type: 'object', properties: {
+            primary: { type: 'string' }, accent: { type: 'string' }, surface: { type: 'string' }, text: { type: 'string' },
+          }, required: ['primary', 'accent'] },
+          fonts: { type: 'object', properties: { heading: { type: 'string' }, body: { type: 'string' } } },
+          brief: { type: 'string', description: 'Section-by-section rebuild brief.' },
+        },
+        required: ['palette', 'brief'],
+      } as any }],
+      tool_choice: { type: 'tool', name: 'design' },
+    })
+    const tu = vr.content.find((b: any) => b.type === 'tool_use') as any
+    if (!tu) return res.status(502).json({ ok: false, error: 'Vision returned no design' })
+    const out = tu.input as { palette: Record<string, string>; fonts?: Record<string, string>; brief: string }
+
+    // 2) Save the interpreted brand onto the workspace tokens.
+    const hex = (s: any) => typeof s === 'string' && /^#[0-9a-fA-F]{6}$/.test(s) ? s.toLowerCase() : undefined
+    const [tokRow] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+    const t: any = tokRow?.tokens || {}
+    const color: Record<string, string> = {}
+    for (const k of ['primary', 'accent', 'surface', 'text']) { const v = hex(out.palette?.[k]); if (v) color[k] = v }
+    t.color = { ...(t.color || {}), ...color }
+    const font: Record<string, string> = {}
+    if (out.fonts?.heading && typeof out.fonts.heading === 'string') font.heading = out.fonts.heading.trim().slice(0, 40)
+    if (out.fonts?.body && typeof out.fonts.body === 'string') font.body = out.fonts.body.trim().slice(0, 40)
+    t.font = { ...(t.font || {}), ...font }
+    if (tokRow) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tokRow.id))
+    else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
+
+    // 3) Generate an editable page from the vision brief, in the saved brand.
+    const prompt = `Rebuild this exact page design as faithfully as you can from this description:\n\n${out.brief}`
+    const created = await generateFreeformPage(a, ws, t, prompt, '', type)
+    await logAiJob(ws.id, 'import', 'done', { source: 'vision-design', title: created.title }, 2, created.id)
+    res.json({ ok: true, data: { ...created, brand: { color: t.color, font: t.font } } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Vision design failed: ' + (e?.message || 'unknown') })
   }
 })
 

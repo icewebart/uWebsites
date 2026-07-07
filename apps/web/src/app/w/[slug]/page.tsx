@@ -30,24 +30,63 @@ export default function WorkspaceHome() {
   const [mode, setMode] = useState<'structured' | 'freeform'>('structured')
   const [kitName, setKitName] = useState('')
   const [kitText, setKitText] = useState('')
+  const [kitImage, setKitImage] = useState('') // data: URL when an image design is attached
   const [pullBrand, setPullBrand] = useState(true)
   const [designMode, setDesignMode] = useState<'reproduce' | 'freestyle'>('reproduce')
 
+  // Downscale a screenshot to ≤1568px (all vision needs) and re-encode as JPEG,
+  // so the upload stays small regardless of the original retina resolution.
+  function downscaleImage(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader()
+      fr.onload = () => {
+        const img = new Image()
+        img.onload = () => {
+          const MAX = 1568
+          const scale = Math.min(1, MAX / Math.max(img.width, img.height))
+          const w = Math.round(img.width * scale), h = Math.round(img.height * scale)
+          const canvas = document.createElement('canvas')
+          canvas.width = w; canvas.height = h
+          const ctx = canvas.getContext('2d')
+          if (!ctx) return reject(new Error('no canvas'))
+          ctx.drawImage(img, 0, 0, w, h)
+          resolve(canvas.toDataURL('image/jpeg', 0.85))
+        }
+        img.onerror = () => reject(new Error('bad image'))
+        img.src = String(fr.result || '')
+      }
+      fr.onerror = () => reject(new Error('read failed'))
+      fr.readAsDataURL(file)
+    })
+  }
+
   function onKitFile(file?: File) {
-    if (!file) { setKitName(''); setKitText(''); return }
-    const reader = new FileReader()
-    reader.onload = () => { setKitText(String(reader.result || '')); setKitName(file.name); setMode('freeform') }
-    reader.readAsText(file)
+    if (!file) { setKitName(''); setKitText(''); setKitImage(''); return }
+    if (file.type.startsWith('image/')) {
+      // An image mockup (Claude Design / Canva / Figma screenshot) → vision path.
+      downscaleImage(file)
+        .then((dataUrl) => { setKitImage(dataUrl); setKitText(''); setKitName(file.name); setMode('freeform') })
+        .catch(() => setBuildErr('Could not read that image — try a PNG or JPG.'))
+    } else {
+      const reader = new FileReader()
+      reader.onload = () => { setKitText(String(reader.result || '')); setKitImage(''); setKitName(file.name); setMode('freeform') }
+      reader.readAsText(file)
+    }
   }
 
   async function buildWithAi() {
+    // An image design → vision reads it, derives the brand + rebuilds the page.
     // "Reproduce this design" faithfully sectionises the uploaded HTML (no prompt
     // needed); otherwise the AI generates from the prompt (+ optional design kit).
+    const fromImage = mode === 'freeform' && !!kitImage
     const reproduce = mode === 'freeform' && !!kitText && designMode === 'reproduce'
-    if (!reproduce && !aiPrompt.trim()) return
+    if (!fromImage && !reproduce && !aiPrompt.trim()) return
     setBuildErr(''); setBuilding(true)
     let endpoint: string; let body: any
-    if (reproduce) {
+    if (fromImage) {
+      endpoint = '/ai/vision-design'
+      body = { slug, imageData: kitImage, type: 'home' }
+    } else if (reproduce) {
       endpoint = '/ai/build-from-design'
       body = { slug, designHtml: kitText, type: 'home' }
     } else {
@@ -232,17 +271,25 @@ export default function WorkspaceHome() {
             {mode === 'freeform' && (
               <>
                 <label className="build-kit">
-                  <input type="file" accept=".html,.htm,text/html" style={{ display: 'none' }} onChange={(e) => onKitFile(e.target.files?.[0])} />
-                  <span className="build-kit-btn">📎 {kitName && kitName !== 'Pasted design' ? `Design: ${kitName}` : 'Attach a design (.html from Claude/Canva) — optional'}</span>
+                  <input type="file" accept=".html,.htm,text/html,image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={(e) => onKitFile(e.target.files?.[0])} />
+                  <span className="build-kit-btn">📎 {kitName && kitName !== 'Pasted design' ? `Design: ${kitName}` : 'Attach a design — .html or a screenshot (.png/.jpg) — optional'}</span>
                   {kitName && kitName !== 'Pasted design' && <button type="button" className="build-kit-x" onClick={(e) => { e.preventDefault(); onKitFile(undefined) }}>✕</button>}
-                  <span className="muted" style={{ fontSize: 12 }}>The AI reuses the real names, offers and wording from it.</span>
+                  <span className="muted" style={{ fontSize: 12 }}>HTML from Claude/Canva, or an image mockup — the AI reads it and rebuilds the page.</span>
                 </label>
-                <textarea className="inp" rows={2}
-                  placeholder="…or paste the design's HTML here (from a Claude artifact or Canva export)"
-                  value={kitName === 'Pasted design' ? kitText : ''}
-                  onChange={(e) => { const v = e.target.value; setKitText(v); setKitName(v.trim() ? 'Pasted design' : '') }}
-                  style={{ marginTop: 6, fontFamily: 'ui-monospace, monospace', fontSize: 12 }} />
-                {kitName && (
+                {!kitImage && (
+                  <textarea className="inp" rows={2}
+                    placeholder="…or paste the design's HTML here (from a Claude artifact or Canva export)"
+                    value={kitName === 'Pasted design' ? kitText : ''}
+                    onChange={(e) => { const v = e.target.value; setKitText(v); setKitImage(''); setKitName(v.trim() ? 'Pasted design' : '') }}
+                    style={{ marginTop: 6, fontFamily: 'ui-monospace, monospace', fontSize: 12 }} />
+                )}
+                {kitImage && (
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8, fontSize: 13 }}>
+                    <img src={kitImage} alt="design preview" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--line,#e5e7eb)' }} />
+                    <span className="muted"><b>Vision rebuild</b> — the AI reads this image, adopts its colors &amp; fonts as your brand, and rebuilds it as an editable page (no prompt needed).</span>
+                  </div>
+                )}
+                {kitName && !kitImage && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8, fontSize: 13 }}>
                     <label className="muted" style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
                       <input type="radio" name="dmode" checked={designMode === 'reproduce'} onChange={() => setDesignMode('reproduce')} style={{ width: 'auto' }} />
@@ -273,10 +320,13 @@ export default function WorkspaceHome() {
             {buildErr && <div className="err" style={{ marginTop: 10 }}>{buildErr}</div>}
             <div className="build-actions">
               {(() => {
+                const fromImage = mode === 'freeform' && !!kitImage
                 const reproduce = mode === 'freeform' && !!kitText && designMode === 'reproduce'
                 return (
-                  <button className="btn btn-primary" onClick={buildWithAi} disabled={building || (!aiPrompt.trim() && !reproduce)}>
-                    {building ? (reproduce ? 'Reproducing your design… (~30s)' : mode === 'freeform' ? 'Designing your page… (~40s)' : 'Building your homepage… (~20s)') : reproduce ? '✨ Reproduce design' : '✦ Build with AI'}
+                  <button className="btn btn-primary" onClick={buildWithAi} disabled={building || (!aiPrompt.trim() && !reproduce && !fromImage)}>
+                    {building
+                      ? (fromImage ? 'Reading your design… (~45s)' : reproduce ? 'Reproducing your design… (~30s)' : mode === 'freeform' ? 'Designing your page… (~40s)' : 'Building your homepage… (~20s)')
+                      : fromImage ? '✨ Rebuild from image' : reproduce ? '✨ Reproduce design' : '✦ Build with AI'}
                   </button>
                 )
               })()}
