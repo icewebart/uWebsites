@@ -232,6 +232,21 @@ export default function PageEditor() {
     } catch (e: any) { setErr(e.message || 'Convert failed') }
   }
 
+  // Redesign a raw-html section into the best-fit editable typed section.
+  // Deterministic first (free); the server only spends a credit when the block
+  // is a structured grid the fitter can't resolve without AI.
+  const [redesigningIdx, setRedesigningIdx] = useState<number | null>(null)
+  async function redesignSection(idx: number) {
+    setErr(''); setRedesigningIdx(idx)
+    try {
+      const r = await api<{ sectionIndex: number; blocks: any[]; kind: string; ai: boolean }>('/ai/redesign-section', {
+        method: 'POST', body: JSON.stringify({ pageId, sectionIndex: idx }),
+      })
+      setBlocks(r.blocks); setPreviewKey((k) => k + 1)
+      setSavedAt(`Redesigned → ${r.kind}${r.ai ? ' (AI)' : ''}`)
+    } catch (e: any) { setErr(e.message || 'Redesign failed') } finally { setRedesigningIdx(null) }
+  }
+
   async function sectionizeFromSource() {
     if (!window.confirm('Re-import this page from its source URL? This will replace the current blocks with pixel-faithful sections — colors/fonts swap to your brand, images get mirrored locally. Your text edits will be overwritten.')) return
     setErr(''); setSectionizing(true)
@@ -492,25 +507,18 @@ export default function PageEditor() {
                   <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>Decor shapes are inset so they never get cut at the section edges. Upload them in <a href={`/w/${slug}/branding`}>Branding → Iconițe &amp; decor</a>.</p>
                 </div>
               )}
-              {(() => {
-                const isRaw = sel.type === 'raw-html' && typeof sel.props?.html === 'string' && sel.props.html.length > 120
-                const isTyped = sel.type !== 'raw-html' && !!sel.props && Object.keys(sel.props).length > 0
-                if (!isRaw && !isTyped) return null
-                return (
-                  <button className="ev-redesign" onClick={() => polishSection(selected)} disabled={polishingSectionIdx === selected}
-                    title={isRaw ? 'AI redesign of this one section — modern layout, keeps your text, links and images' : 'AI copy polish — sharpens the wording on-brand; keeps structure, links and images'}>
-                    {polishingSectionIdx === selected ? (isRaw ? 'Redesigning…' : 'Polishing…') : (isRaw ? '✦ Redesign this section' : '✦ Polish this section')}
-                  </button>
-                )
-              })()}
+              {sel.type === 'raw-html' && typeof sel.props?.html === 'string' && sel.props.html.length > 40 && (
+                <button className="ev-redesign" onClick={() => redesignSection(selected)} disabled={redesigningIdx === selected}
+                  title="Redesign — fit this content into the best editable section automatically (no AI unless it's a complex grid). Keeps your text, links and images.">
+                  {redesigningIdx === selected ? 'Redesigning…' : '✨ Redesign into a section'}
+                </button>
+              )}
               <div className="ev-actions">
-                {sel.type === 'raw-html' ? (<>
-                  <button onClick={() => rewriteRawHtml(selected)} title="Rewrite the copy IN PLACE — keeps the layout, only changes the text">✎ Rewrite copy</button>
-                  <button onClick={() => typifySection(selected)} title="Convert this raw HTML section to a typed catalog section (hero / features / etc.)">⇆ Convert to typed</button>
-                </>) : (
-                  <button onClick={() => aiRewrite(selected)} title="Rewrite with AI">↻ AI rewrite</button>
-                )}
-                <button onClick={() => { setPickerMode('replace'); setPickerOpen(true) }} title="Replace with another section kind">⇄ Replace</button>
+                {/* Rewrite (AI copy) — in place for raw-html, prop-level for typed */}
+                {sel.type === 'raw-html'
+                  ? <button onClick={() => rewriteRawHtml(selected)} title="Rewrite the copy with AI — keeps the layout, changes the text">✎ Rewrite</button>
+                  : <button onClick={() => aiRewrite(selected)} title="Rewrite this section's copy with AI">✎ Rewrite</button>}
+                <button onClick={() => { setPickerMode('replace'); setPickerOpen(true) }} title="Replace with another section kind (your content carries over)">⇄ Replace</button>
                 <button onClick={() => move(selected, -1)} disabled={selected === 0} title="Move up">↑</button>
                 <button onClick={() => move(selected, 1)} disabled={selected === blocks.length - 1} title="Move down">↓</button>
                 <button className="danger" onClick={() => remove(selected)} title="Delete">✕</button>

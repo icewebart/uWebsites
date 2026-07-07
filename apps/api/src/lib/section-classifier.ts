@@ -207,6 +207,48 @@ export function htmlToRichtext(raw: string): string {
   return s.replace(/\n{2,}/g, '\n').trim().slice(0, 20000)
 }
 
+// Best-effort SectionFP from a bare HTML fragment (an existing raw-html block in
+// the editor), WITHOUT a browser — so we can't read computed layout (grid/flex
+// column counts), hence cards[]/row stay empty and the fitter leans on the
+// text/image/gallery paths. `looksStructured()` below flags fragments that
+// probably ARE a card grid the regex can't resolve, so the caller can send those
+// to the AI fallback instead of a weak catch-all.
+export function fpFromHtml(html: string, index = 1): SectionFP {
+  const h = String(html || '')
+  const strip = (s: string) => s.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/\s+/g, ' ').trim()
+  const first = (re: RegExp) => strip(h.match(re)?.[1] || '')
+  const count = (re: RegExp) => (h.match(re) || []).length
+  const images = [...h.matchAll(/<img\b[^>]*>/gi)].map((m) => {
+    const t = m[0]
+    return {
+      url: (t.match(/\bsrc=["']([^"']+)["']/i)?.[1] || ''),
+      alt: (t.match(/\balt=["']([^"']*)["']/i)?.[1] || ''),
+      w: parseInt(t.match(/\bwidth=["']?(\d+)/i)?.[1] || '0', 10),
+      h: parseInt(t.match(/\bheight=["']?(\d+)/i)?.[1] || '0', 10),
+    }
+  }).filter((im) => /^(https?:|\/)/.test(im.url)).slice(0, 16)
+  const listItems = [...h.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)].map((m) => strip(m[1])).filter(Boolean).slice(0, 20)
+  const buttons = [...h.matchAll(/<a\b[^>]*\bhref=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+    .filter((m) => /class=["'][^"']*(?:btn|button|cta|wp-element-button)/i.test(m[0]))
+    .map((m) => ({ label: strip(m[2]).slice(0, 40), href: m[1] })).filter((b) => b.label).slice(0, 8)
+  return {
+    tag: 'section', id: '', classes: (h.match(/class=["']([^"']*)["']/i)?.[1] || '').slice(0, 200),
+    index, isFirst: index === 0,
+    rect: { w: 1200, h: 400, top: index * 400 }, bg: { color: '', hasImage: false, imageUrl: '' },
+    kicker: '', heading: first(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/i).slice(0, 160), deck: first(/<p[^>]*>([\s\S]*?)<\/p>/i).slice(0, 260),
+    counts: { img: images.length, heading: count(/<h[1-4]\b/gi), p: count(/<p\b/gi), li: listItems.length, a: count(/<a\b/gi), button: buttons.length, blockquote: count(/<blockquote\b/gi), icon: 0 },
+    row: { kind: 'stack', cols: 1 }, cards: [], buttons, images,
+    stats: [], faqs: [], listItems, numbered: /<ol\b/i.test(h), textLen: strip(h).length,
+  }
+}
+
+// True when a fragment probably contains a repeated card/testimonial grid that
+// the CSS-less regex extractor can't resolve into cards[] — better handled by AI.
+export function looksStructured(fp: SectionFP): boolean {
+  const c = fp.counts
+  return c.heading >= 3 || (c.img >= 2 && c.heading >= 2) || c.blockquote >= 2
+}
+
 export function fitSection(fp: SectionFP, html?: string): FitResult {
   // 1) Trust the precise classifier when it's confident.
   const primary = classifySection(fp)

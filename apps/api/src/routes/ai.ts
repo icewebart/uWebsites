@@ -10,6 +10,7 @@ import { localImageMissing } from '../lib/image-host.js'
 import { upsertMenu, articleTemplateOf } from './menus.js'
 import { articleBlocksFromImport } from './import.js'
 import { extractBrandFromDom } from '../lib/headless.js'
+import { fpFromHtml, fitSection, looksStructured } from '../lib/section-classifier.js'
 import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities } from '../lib/google-data.js'
 
 // Default rules the AI follows when writing an article (the Rules page can
@@ -1717,5 +1718,53 @@ aiRouter.post('/typify-section', requireAuth, async (req: AuthRequest, res) => {
     res.json({ ok: true, data: { sectionIndex, blocks: newBlocks } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'Typify failed: ' + (e?.message || 'unknown') })
+  }
+})
+
+// POST /ai/redesign-section — the "Redesign" action for a raw-html block: fit its
+// content into the best editable typed section. DETERMINISTIC first (0 credits,
+// via the fitter); only falls back to AI when the fragment is a structured grid
+// the CSS-less extractor can't resolve (per "deterministic + AI fallback").
+aiRouter.post('/redesign-section', requireAuth, async (req: AuthRequest, res) => {
+  const { pageId, sectionIndex } = req.body ?? {}
+  if (!pageId || typeof sectionIndex !== 'number') return res.status(400).json({ ok: false, error: 'pageId + sectionIndex required' })
+  const [row] = await db.select({ id: pages.id, blocks: pages.blocks, wsId: pages.workspaceId, accId: workspaces.accountId })
+    .from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id))
+    .where(eq(pages.id, String(pageId))).limit(1)
+  if (!row || row.accId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'page not found' })
+  const blocks = (Array.isArray(row.blocks) ? row.blocks : []) as any[]
+  const target = blocks[sectionIndex]
+  if (!target) return res.status(400).json({ ok: false, error: 'no section at that index' })
+  if (target.type !== 'raw-html') return res.status(400).json({ ok: false, error: 'Only raw-html sections can be redesigned. Use Replace to change a typed section.' })
+
+  const html = String(target.props?.html || '')
+  const fp = fpFromHtml(html)
+  const fit = fitSection(fp, html)
+  const wantAi = fit.needsAi || (['richtext', 'image', 'gallery'].includes(fit.kind) && looksStructured(fp))
+
+  try {
+    let newBlock: any = null, source = ''
+    if (wantAi && ai()) {
+      const a = ai()!
+      const r = await a.messages.create({
+        model: MODEL, max_tokens: 1500,
+        system: `Convert an HTML fragment into one of our typed catalog sections: ${SECTION_KINDS_LIST.join(', ')}. Pick the BEST-matching kind. Extract text content verbatim into the kind's props (heading, sub, items, etc). Use image URLs that already appear in the HTML — never invent. Return via the section tool.`,
+        tools: [{ name: 'section', description: 'The typed section.', input_schema: TYPIFY_SCHEMA as any }],
+        tool_choice: { type: 'tool', name: 'section' },
+        messages: [{ role: 'user', content: `HTML fragment:\n${html.slice(0, 24000)}` }],
+      })
+      const toolUse = r.content.find((b: any) => b.type === 'tool_use') as any
+      if (toolUse) { const { type, props } = toolUse.input as any; newBlock = { type, props: props || {} }; source = 'redesign-ai' }
+    }
+    if (!newBlock && fit.block && !fit.needsAi) { newBlock = fit.block; source = 'redesign-deterministic' }
+    if (!newBlock) return res.status(422).json({ ok: false, error: 'Could not redesign this section — keep it as raw HTML or edit it manually.' })
+
+    const newBlocks = blocks.slice()
+    newBlocks[sectionIndex] = newBlock
+    await db.update(pages).set({ blocks: newBlocks as any, updatedAt: new Date() }).where(eq(pages.id, row.id))
+    await logAiJob(row.wsId, 'edit', 'done', { source, sectionIndex, kind: newBlock.type }, source === 'redesign-ai' ? 1 : 0, row.id)
+    res.json({ ok: true, data: { sectionIndex, blocks: newBlocks, kind: newBlock.type, ai: source === 'redesign-ai' } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Redesign failed: ' + (e?.message || 'unknown') })
   }
 })
