@@ -24,15 +24,26 @@ const DEFAULT_TOKENS: any = {
 }
 const esc = escSh
 
+// Web-safe / system fonts + CSS keywords that must NEVER be requested from
+// Google Fonts (they'd 400) — everything else plausible is loaded optimistically.
+const SYSTEM_FONTS = new Set(['inherit', 'initial', 'unset', 'sans-serif', 'serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-sans-serif', 'ui-serif', 'ui-monospace', '-apple-system', 'blinkmacsystemfont', 'arial', 'helvetica', 'helvetica neue', 'times', 'times new roman', 'georgia', 'courier', 'courier new', 'verdana', 'tahoma', 'trebuchet ms', 'segoe ui', 'lucida grande', 'impact', 'palatino', 'garamond'])
+
 function fontsHead(t: any) {
-  // Google-hosted families → stylesheet link.
-  const fams = [...new Set([t.font.heading, t.font.body])].filter((f) => GOOGLE_FONT_NAMES.has(f))
+  const faces = (t.brand_assets?.font_faces || []) as Array<{ family: string; srcUrl: string; format?: string }>
+  const faceFams = new Set(faces.map((f) => f?.family).filter(Boolean))
+  // Load from Google: known families always, plus any other plausibly-named
+  // family optimistically (Google silently ignores unknown ones) — EXCEPT
+  // self-hosted @font-face families and web-safe/system fonts.
+  const fams = [...new Set([t.font?.heading, t.font?.body])].filter((f: any): f is string => {
+    if (!f || typeof f !== 'string') return false
+    if (faceFams.has(f) || SYSTEM_FONTS.has(f.toLowerCase())) return false
+    return GOOGLE_FONT_NAMES.has(f) || /^[A-Za-z][A-Za-z0-9 ]{1,40}$/.test(f)
+  })
   const gLink = fams.length
     ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?${fams.map((f) => `family=${f.replace(/ /g, '+')}:wght@400;600;700`).join('&')}&display=swap" rel="stylesheet">`
     : ''
   // Self-hosted @font-face captured on import (e.g. a custom display font) —
   // always emit these so a brand's signature font never falls back silently.
-  const faces = (t.brand_assets?.font_faces || []) as Array<{ family: string; srcUrl: string; format?: string }>
   const faceCss = faces
     .filter((f) => f?.family && f?.srcUrl)
     .map((f) => `@font-face{font-family:'${f.family}';src:url('${f.srcUrl}')${f.format ? ` format('${f.format}')` : ''};font-display:swap;}`)
