@@ -340,7 +340,7 @@ function _rgbToHex(rgb: string): string { const p = rgb.split(',').map((x) => pa
 function _lum(hex: string) { const { r, g, b } = _hexRgb(hex); return r * 0.299 + g * 0.587 + b * 0.114 }
 function _gray(hex: string) { const { r, g, b } = _hexRgb(hex); return Math.max(r, g, b) - Math.min(r, g, b) < 18 }
 function _dist(a: string, b: string) { const x = _hexRgb(a), y = _hexRgb(b); return Math.abs(x.r - y.r) + Math.abs(x.g - y.g) + Math.abs(x.b - y.b) }
-export function brandFromHtml(html: string): { color: Record<string, string>; font: Record<string, string>; shape: Record<string, string>; space: Record<string, string>; logo: { kind: 'img'; url: string } | { kind: 'svg'; svg: string } | null } {
+export function brandFromHtml(html: string): { color: Record<string, string>; font: Record<string, string>; shape: Record<string, string>; space: Record<string, string>; logo: { kind: 'img'; url: string } | { kind: 'svg'; svg: string } | null; fontFaces: Array<{ family: string; srcUrl: string; format?: string }> } {
   const s = String(html || '').slice(0, 400000)
   const hits: string[] = []
   for (const m of s.matchAll(/#[0-9a-fA-F]{6}\b/g)) hits.push(m[0].toLowerCase())
@@ -359,12 +359,29 @@ export function brandFromHtml(html: string): { color: Record<string, string>; fo
     if (fam && !/^(inherit|initial|unset|sans-serif|serif|monospace|-apple-system|blinkmacsystemfont|system-ui|ui-sans-serif|var\()/i.test(fam)) fonts.push(fam)
   }
   const uf = [...new Set(fonts)]
+  // @font-face declarations — the design's custom/self-hosted fonts. We keep
+  // only loadable (absolute or data:) src URLs and register them so fontsHead
+  // actually loads them; otherwise the font-family name resolves to a fallback.
+  const fontFaces: Array<{ family: string; srcUrl: string; format?: string }> = []
+  for (const m of s.matchAll(/@font-face\s*\{[^}]*\}/gi)) {
+    const blk = m[0]
+    const fam = blk.match(/font-family\s*:\s*['"]?([^;'"]+)['"]?/i)?.[1]?.trim()
+    let src = blk.match(/url\(\s*['"]?([^'")]+)['"]?\s*\)/i)?.[1]
+    const fmt = blk.match(/format\(\s*['"]?([^'")]+)['"]?\s*\)/i)?.[1]
+    if (src && src.startsWith('//')) src = 'https:' + src
+    if (fam && src && /^(https?:|data:)/.test(src) && !fontFaces.some((x) => x.family === fam)) fontFaces.push({ family: fam, srcUrl: src, ...(fmt ? { format: fmt } : {}) })
+  }
+  const customFace = fontFaces[0]?.family
   const color: Record<string, string> = { surface, text }
   if (primary) color.primary = primary
   if (accent) color.accent = accent
   const font: Record<string, string> = {}
-  if (uf[0]) font.heading = uf[0]
-  if (uf[1] || uf[0]) font.body = uf[1] || uf[0]
+  // Prefer the self-hosted display font for headings (it WILL load); fall back to
+  // the most-used named font.
+  const headingFont = customFace || uf[0]
+  if (headingFont) font.heading = headingFont
+  const bodyFont = uf.find((f) => f !== headingFont) || uf[1] || uf[0] || customFace
+  if (bodyFont) font.body = bodyFont
 
   // Shape: interpret the design's corner radii + border weight.
   const mode = (arr: number[]) => { const f: Record<number, number> = {}; for (const n of arr) f[Math.round(n)] = (f[Math.round(n)] || 0) + 1; const top = Object.entries(f).sort((a, b) => b[1] - a[1])[0]; return top ? Number(top[0]) : null }
@@ -397,7 +414,7 @@ export function brandFromHtml(html: string): { color: Record<string, string>; fo
     if (svg && svg.length < 60000) logo = { kind: 'svg', svg }
   }
 
-  return { color, font, shape, space, logo }
+  return { color, font, shape, space, logo, fontFaces }
 }
 
 // POST /ai/generate-freeform — "no restrictions" mode: Claude authors a
@@ -424,10 +441,17 @@ aiRouter.post('/generate-freeform', requireAuth, async (req: AuthRequest, res) =
     t.font = { ...(t.font || {}), ...b.font }
     t.shape = { ...(t.shape || {}), ...b.shape }
     t.space = { ...(t.space || {}), ...b.space }
-    if (b.logo) {
+    if (b.logo || b.fontFaces.length) {
       t.brand_assets = t.brand_assets || {}
-      t.brand_assets.logo_rich = b.logo
-      if (b.logo.kind === 'img') t.brand_assets.logo = { url: b.logo.url, alt: ws.name }
+      if (b.logo) { t.brand_assets.logo_rich = b.logo; if (b.logo.kind === 'img') t.brand_assets.logo = { url: b.logo.url, alt: ws.name } }
+      // Register the design's custom fonts so fontsHead self-hosts them and the
+      // heading/body font names actually render (not just a fallback).
+      if (b.fontFaces.length) {
+        const existing = (t.brand_assets.font_faces || []) as Array<{ family: string }>
+        const merged = [...existing]
+        for (const f of b.fontFaces) if (!merged.some((x) => x.family === f.family)) merged.push(f)
+        t.brand_assets.font_faces = merged
+      }
     }
     if (tokRow) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tokRow.id))
     else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
