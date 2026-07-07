@@ -340,7 +340,7 @@ function _rgbToHex(rgb: string): string { const p = rgb.split(',').map((x) => pa
 function _lum(hex: string) { const { r, g, b } = _hexRgb(hex); return r * 0.299 + g * 0.587 + b * 0.114 }
 function _gray(hex: string) { const { r, g, b } = _hexRgb(hex); return Math.max(r, g, b) - Math.min(r, g, b) < 18 }
 function _dist(a: string, b: string) { const x = _hexRgb(a), y = _hexRgb(b); return Math.abs(x.r - y.r) + Math.abs(x.g - y.g) + Math.abs(x.b - y.b) }
-export function brandFromHtml(html: string): { color: Record<string, string>; font: Record<string, string> } {
+export function brandFromHtml(html: string): { color: Record<string, string>; font: Record<string, string>; shape: Record<string, string>; space: Record<string, string> } {
   const s = String(html || '').slice(0, 400000)
   const hits: string[] = []
   for (const m of s.matchAll(/#[0-9a-fA-F]{6}\b/g)) hits.push(m[0].toLowerCase())
@@ -365,7 +365,27 @@ export function brandFromHtml(html: string): { color: Record<string, string>; fo
   const font: Record<string, string> = {}
   if (uf[0]) font.heading = uf[0]
   if (uf[1] || uf[0]) font.body = uf[1] || uf[0]
-  return { color, font }
+
+  // Shape: interpret the design's corner radii + border weight.
+  const mode = (arr: number[]) => { const f: Record<number, number> = {}; for (const n of arr) f[Math.round(n)] = (f[Math.round(n)] || 0) + 1; const top = Object.entries(f).sort((a, b) => b[1] - a[1])[0]; return top ? Number(top[0]) : null }
+  const radii = [...s.matchAll(/border-radius\s*:\s*([0-9.]+)px/gi)].map((m) => parseFloat(m[1])).filter((n) => n > 0 && n <= 200)
+  const pill = /border-radius\s*:\s*(?:9999|999|100|200)px|border-radius\s*:\s*50%/i.test(s) || radii.some((n) => n >= 100)
+  const shape: Record<string, string> = {}
+  const btnR = mode(radii.filter((n) => n <= 40))
+  shape.buttonRadius = pill ? '999px' : btnR ? `${btnR}px` : '12px'
+  const cardR = mode(radii.filter((n) => n >= 8 && n <= 40))
+  if (cardR) shape.cardRadius = `${cardR}px`
+  const bw = [...s.matchAll(/\bborder(?:-width)?\s*:\s*([0-9.]+)px/gi)].map((m) => parseFloat(m[1])).filter((n) => n >= 1 && n <= 4)
+  if (bw.length) { const b = mode(bw); if (b) shape.borderWidth = `${b}px` }
+
+  // Spacing: container width + typical section vertical padding.
+  const space: Record<string, string> = {}
+  const maxw = [...s.matchAll(/max-width\s*:\s*([0-9.]+)px/gi)].map((m) => parseFloat(m[1])).filter((n) => n >= 880 && n <= 1440)
+  if (maxw.length) space.container = `${Math.round(Math.max(...maxw))}px`
+  const pads = [...s.matchAll(/padding(?:-top|-bottom)?\s*:\s*([0-9.]+)px/gi)].map((m) => parseFloat(m[1])).filter((n) => n >= 40 && n <= 140)
+  const cp = mode(pads); if (cp) space.sectionPaddingY = `${cp}px`
+
+  return { color, font, shape, space }
 }
 
 // POST /ai/generate-freeform — "no restrictions" mode: Claude authors a
@@ -390,10 +410,12 @@ aiRouter.post('/generate-freeform', requireAuth, async (req: AuthRequest, res) =
     const b = brandFromHtml(kitHtml)
     t.color = { ...(t.color || {}), ...b.color }
     t.font = { ...(t.font || {}), ...b.font }
+    t.shape = { ...(t.shape || {}), ...b.shape }
+    t.space = { ...(t.space || {}), ...b.space }
     if (tokRow) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tokRow.id))
     else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
   }
-  const c = t.color || {}, f = t.font || {}
+  const c = t.color || {}, f = t.font || {}, sh = t.shape || {}, sp = t.space || {}
   const brief = await siteBrief(ws.id, ws.name)
   // Extract just the visible text from a pasted kit for content grounding.
   const kitText = typeof kitHtml === 'string'
@@ -410,10 +432,11 @@ OUTPUT RULES (critical):
 - Return ONLY the page body markup — a series of <section>…</section> blocks. Do NOT emit <html>, <head>, <body>, a site <header>/<nav>, or a <footer>; the platform wraps the page with those.
 - Colors: use ONLY these CSS variables so the page re-themes with the brand — var(--primary) ${c.primary || ''}, var(--accent) ${c.accent || ''}, var(--surface) ${c.surface || ''}, var(--text) ${c.text || ''}. Derive tints with color-mix(in srgb, var(--primary) 8%, #fff) etc. Never hardcode brand hexes.
 - Fonts: headings use '${f.heading || 'inherit'}', body uses '${f.body || 'inherit'}' (set font-family inline where needed; the fonts are already loaded).
-- Rounded, modern, generous spacing. Every section full-bleed background with an inner max-width:1180px;margin:0 auto;padding:72px 24px container. Alternate surface / soft-tinted section backgrounds for rhythm.
-- PHOTOS: never use external image URLs. For every image use a placeholder exactly like <div class="uw-img-slot" data-caption="SPECIFIC description of the wanted photo" style="width:100%;aspect-ratio:4/3;border-radius:16px"></div>. We fill these with real images afterward.
+- SHAPE + SPACING — match the design's own language via these variables (do NOT hardcode): button/pill radius var(--btn-r${sh.buttonRadius ? ',' + sh.buttonRadius : ''}), card/image radius var(--card-r${sh.cardRadius ? ',' + sh.cardRadius : ''}), border weight var(--bw${sh.borderWidth ? ',' + sh.borderWidth : ''}).
+- Every section full-bleed background with an inner container: max-width:var(--container${sp.container ? ',' + sp.container : ',1180px'});margin:0 auto;padding:var(--pad${sp.sectionPaddingY ? ',' + sp.sectionPaddingY : ',72px'}) 24px. Alternate surface / soft-tinted section backgrounds for rhythm.
+- PHOTOS: never use external image URLs. For every image use a placeholder exactly like <div class="uw-img-slot" data-caption="SPECIFIC description of the wanted photo" style="width:100%;aspect-ratio:4/3;border-radius:var(--card-r,16px)"></div>. We fill these with real images afterward.
 - Decorative flourishes (soft blobs, stars) via inline SVG or CSS circles are welcome when on-brand.
-- Buttons: rounded pills in var(--primary)/var(--accent).
+- Buttons: use border-radius:var(--btn-r,999px), background var(--primary) or var(--accent).
 
 CONTENT RULES:
 - Real, SPECIFIC copy in the brand's voice — never lorem ipsum, never "Your text here". Concrete headlines, benefits, and CTAs.
