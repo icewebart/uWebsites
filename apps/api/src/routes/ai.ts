@@ -624,6 +624,44 @@ aiRouter.post('/build-from-design', requireAuth, async (req: AuthRequest, res) =
       if (tr2) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tr2.id))
       else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
     }
+    // Rich COMPUTED-STYLE tokens — the accurate "pull everything" read: real
+    // button shape/colour/padding, card look, heading weight, section rhythm,
+    // container + page bg / text colour. Overrides the regex guesses.
+    if (out.designTokens) {
+      const dt = out.designTokens
+      const isHex = (x: any) => typeof x === 'string' && /^#[0-9a-f]{6}$/i.test(x)
+      const normR = (r: string) => { const n = parseFloat(r); if (!Number.isFinite(n)) return ''; return n >= 100 ? '999px' : Math.round(n) + 'px' }
+      t.color = t.color || {}; t.font = t.font || {}; t.shape = t.shape || {}; t.space = t.space || {}
+      if (isHex(dt.pageBg)) t.color.surface = dt.pageBg
+      if (dt.body?.color && isHex(dt.body.color)) t.color.text = dt.body.color
+      if (dt.body?.font) t.font.body = dt.body.font
+      if (dt.body?.line && dt.body?.size) { const lh = parseFloat(dt.body.line) / dt.body.size; if (lh > 1 && lh < 2.4) t.font.lineHeight = Math.round(lh * 100) / 100 }
+      if (dt.heading?.font) t.font.heading = dt.heading.font
+      if (dt.heading?.weight) t.font.headingWeight = dt.heading.weight
+      if (dt.heading?.color && isHex(dt.heading.color)) t.color.heading = dt.heading.color
+      if (dt.button) {
+        const b = dt.button
+        if (b.radius) { const r = normR(b.radius); if (r) t.shape.buttonRadius = r }
+        t.button = {
+          ...(isHex(b.bg) ? { bg: b.bg } : {}), ...(isHex(b.fg) ? { fg: b.fg } : {}),
+          ...(b.padY ? { padY: b.padY } : {}), ...(b.padX ? { padX: b.padX } : {}),
+          ...(b.weight ? { weight: b.weight } : {}), ...(b.font ? { font: b.font } : {}), ...(b.shadow ? { shadow: b.shadow } : {}),
+        }
+      }
+      if (dt.card) {
+        const c = dt.card
+        if (c.radius) { const r = normR(c.radius); if (r) t.shape.cardRadius = r }
+        t.card = {
+          ...(isHex(c.bg) ? { bg: c.bg } : {}), ...(c.pad ? { pad: c.pad } : {}),
+          ...(c.shadow ? { shadow: c.shadow } : {}), ...(c.border ? { border: c.border } : {}),
+        }
+      }
+      if (dt.sectionPadY) t.space.sectionPaddingY = dt.sectionPadY + 'px'
+      if (dt.container) t.space.container = dt.container + 'px'
+      const [tr5] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+      if (tr5) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tr5.id))
+      else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
+    }
     // A DECLARED brand (data-uw-brand) is authoritative — apply it last so it
     // overrides colour-frequency guessing entirely.
     if (out.declaredBrand && Object.keys(out.declaredBrand).length) {

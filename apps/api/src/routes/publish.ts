@@ -62,12 +62,27 @@ function siteCss(t: any) {
   // Secondary accent — a third brand color for variety (gradients, alt cards).
   // Defaults to a blend of accent + primary when not explicitly set.
   const accent2 = t.color?.accent2 || `color-mix(in srgb, ${t.color.accent}, ${t.color.primary})`
-  return `:root{--primary:${t.color.primary};--accent:${t.color.accent};--accent2:${accent2};--surface:${t.color.surface};--text:${t.color.text};--footer-bg:${footerBg};--footer-fg:${footerFg};--btn-r:${t.shape.buttonRadius};--card-r:${t.shape.cardRadius};--bw:${t.shape.borderWidth};--shadow:${shadow};--gap:${t.space.sectionGap};--pad:${t.space.sectionPaddingY};--container:${t.space.container}}
+  // Rich design tokens harvested from an imported design's COMPUTED styles —
+  // real button + card + type details. Each falls back so existing sites and
+  // hand-built pages are unchanged.
+  const btn = t.button || {}
+  const card = t.card || {}
+  const btnBg = btn.bg || 'var(--primary)'
+  const btnFg = btn.fg || '#fff'
+  const btnPad = (btn.padY || btn.padX) ? `${btn.padY ?? 12}px ${btn.padX ?? 22}px` : '12px 22px'
+  const btnWeight = btn.weight || '600'
+  const btnFont = `'${btn.font || t.font.heading}',sans-serif`
+  const cardBg = card.bg || 'var(--surface)'
+  const cardPad = card.pad ? `${card.pad}px` : '24px'
+  const cardShadow = card.shadow || shadow
+  const headingWeight = t.font?.headingWeight || '700'
+  const headingColor = t.color?.heading || 'inherit'
+  return `:root{--primary:${t.color.primary};--accent:${t.color.accent};--accent2:${accent2};--surface:${t.color.surface};--text:${t.color.text};--footer-bg:${footerBg};--footer-fg:${footerFg};--btn-r:${t.shape.buttonRadius};--card-r:${t.shape.cardRadius};--bw:${t.shape.borderWidth};--shadow:${shadow};--gap:${t.space.sectionGap};--pad:${t.space.sectionPaddingY};--container:${t.space.container};--btn-bg:${btnBg};--btn-fg:${btnFg};--btn-pad:${btnPad};--btn-weight:${btnWeight};--btn-font:${btnFont};--card-bg:${cardBg};--card-pad:${cardPad};--card-shadow:${cardShadow};--heading-weight:${headingWeight};--heading-color:${headingColor}}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'${t.font.body}',system-ui,-apple-system,sans-serif;color:var(--text);background:var(--surface);line-height:${t.font.lineHeight};-webkit-font-smoothing:antialiased}
 a{color:var(--primary)}
 .container{max-width:var(--container);margin:0 auto;padding:0 24px;position:relative;z-index:1}
-h1,h2,h3{font-family:'${t.font.heading}',system-ui,sans-serif;line-height:1.12;letter-spacing:-.02em}
+h1,h2,h3{font-family:'${t.font.heading}',system-ui,sans-serif;line-height:1.12;letter-spacing:-.02em;font-weight:var(--heading-weight);color:var(--heading-color)}
 img{max-width:100%}
 /* Section rhythm — each section owns symmetric vertical padding (no collapse),
    so there's consistent, generous breathing room between every section. The
@@ -106,7 +121,7 @@ section.has-decor{overflow:hidden}
 .hero{padding-bottom:calc(var(--pad))}
 .hero h1{font-size:calc(2.1rem * ${t.font.scale});margin-bottom:14px;max-width:18ch}
 .hero .sub{font-size:1.1rem;opacity:.78;max-width:60ch;margin-bottom:24px}
-.btn{display:inline-block;background:var(--primary);color:#fff;border-radius:var(--btn-r);padding:12px 22px;text-decoration:none;font-weight:600;font-family:'${t.font.heading}',sans-serif;transition:filter .15s ease, transform .15s ease, box-shadow .15s ease}
+.btn{display:inline-block;background:var(--btn-bg);color:var(--btn-fg);border-radius:var(--btn-r);padding:var(--btn-pad);text-decoration:none;font-weight:var(--btn-weight);font-family:var(--btn-font);transition:filter .15s ease, transform .15s ease, box-shadow .15s ease}
 .btn:hover{filter:brightness(1.08);transform:translateY(-1px);box-shadow:0 8px 20px -8px color-mix(in srgb, var(--primary) 50%, transparent)}
 /* every button/link-button gets a hover, including imported (raw-html) ones */
 .uw-raw a[class*="btn"],.uw-raw a[class*="button"],.uw-raw button,.uw-raw [role="button"]{transition:filter .15s ease, transform .15s ease}
@@ -115,6 +130,9 @@ section.has-decor{overflow:hidden}
 .rt :where(p,ul,ol){margin-bottom:1em}
 .rt img{max-width:100%;height:auto;border-radius:var(--card-r)}
 .img img{display:block;width:100%;height:auto;border-radius:var(--card-r)}
+/* Cards adopt the imported design's card surface + shadow (both fall back to the
+   prior look, so hand-built pages are unchanged). Radius already via --card-r. */
+.features-3 .item,.features-4 .item,.tss-card,.testimonials-3 .card,.pricing-3 .tier,.program-cards .pc-card,.bento-grid .bento-text,.feature-2col .item{background:var(--card-bg);box-shadow:var(--card-shadow)}
 
 /* Header is FIXED and overlays the hero — the hero background flows behind it so
    the two read as one block (like the ATA site), and it stays put on scroll

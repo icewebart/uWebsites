@@ -108,7 +108,22 @@ export type HeadlessResult = {
   contractSections: ContractSection[]           // sections that declared data-uw-kind (native)
   chrome: DesignChrome                           // header nav + footer parsed from the design
   declaredBrand: Record<string, string> | null  // explicit brand from data-uw-brand / meta[uw-brand]
+  designTokens: DesignTokens                     // rich tokens read from COMPUTED styles
 }
+
+// A full design-system read taken from the rendered DOM's computed styles —
+// accurate where the regex extractor guesses. Buttons, cards, headings, body,
+// section rhythm. Fed into the workspace brand so a reproduced design keeps its
+// real button shape/colour/padding, card look, spacing, and type.
+export type DesignTokens = {
+  pageBg: string
+  button: { bg: string; fg: string; radius: string; padX: number; padY: number; weight: string; font: string; shadow: string } | null
+  card: { bg: string; radius: string; pad: number; shadow: string; border: string } | null
+  heading: { color: string; weight: string; font: string; spacing: string } | null
+  body: { color: string; font: string; size: number; line: string } | null
+  sectionPadY: number | null
+  container: number | null
+} | null
 
 // Header/footer lifted out of a rendered design so an import can populate the
 // workspace menu + footer (the section body deliberately excludes these).
@@ -591,8 +606,66 @@ export async function headlessRender(url: string, opts?: { html?: string }): Pro
       return Object.keys(out).length ? out : null
     }).catch(() => null) as Record<string, string> | null
 
+    // Rich design tokens from COMPUTED styles — the accurate "pull everything"
+    // read: real button shape/colour/padding, card look, heading weight, section
+    // rhythm, container width. Far better than regex over the raw HTML.
+    const designTokens = await page.evaluate(() => {
+      const gs = (el: Element) => getComputedStyle(el)
+      const px = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0 }
+      const hex = (c: string) => { const m = c.match(/rgba?\(([^)]+)\)/i); if (!m) return ''; const p = m[1].split(',').map((x) => parseFloat(x)); if (p.length >= 4 && p[3] === 0) return ''; return '#' + p.slice(0, 3).map((n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0')).join('') }
+      const fam = (ff: string) => (ff || '').split(',')[0].replace(/["']/g, '').trim()
+      const vis = (el: Element) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.height > 4 }
+      const mode = (arr: number[]) => { const f: Record<number, number> = {}; for (const n of arr) f[n] = (f[n] || 0) + 1; const t = Object.entries(f).sort((a, b) => b[1] - a[1])[0]; return t ? +t[0] : null }
+      const bodyBg = hex(gs(document.body).backgroundColor) || '#ffffff'
+
+      // BUTTONS — filled, padded, short-text, few children. Pick the most common bg (the primary CTA).
+      const btnByBg: Record<string, HTMLElement[]> = {}
+      for (const el of Array.from(document.querySelectorAll('a,button,[role="button"],div,span')) as HTMLElement[]) {
+        if (!vis(el)) continue
+        const s = gs(el); const bg = hex(s.backgroundColor); if (!bg || bg === bodyBg) continue
+        const txt = (el.textContent || '').trim(); if (!txt || txt.length > 40) continue
+        const r = el.getBoundingClientRect()
+        if (px(s.paddingLeft) < 10 || el.children.length > 1 || r.height > 80 || r.width > 420) continue
+        ;(btnByBg[bg] = btnByBg[bg] || []).push(el)
+      }
+      let button: any = null
+      const bgsRanked = Object.entries(btnByBg).sort((a, b) => b[1].length - a[1].length)
+      if (bgsRanked.length) {
+        const el = bgsRanked[0][1][0]; const s = gs(el)
+        button = { bg: hex(s.backgroundColor), fg: hex(s.color) || '#ffffff', radius: s.borderRadius.split(' ')[0], padX: Math.round(px(s.paddingLeft)), padY: Math.round(px(s.paddingTop)), weight: s.fontWeight, font: fam(s.fontFamily), shadow: s.boxShadow && s.boxShadow !== 'none' ? s.boxShadow : '' }
+      }
+
+      // CARDS — bg different from the page, rounded, padded, holds content. Take a median-size one.
+      const cardCands = (Array.from(document.querySelectorAll('div,article,li')) as HTMLElement[]).filter((el) => {
+        if (!vis(el)) return false
+        const s = gs(el); const bg = hex(s.backgroundColor); if (!bg) return false
+        const r = el.getBoundingClientRect()
+        return px(s.borderTopLeftRadius) >= 6 && px(s.paddingTop) >= 10 && r.width >= 120 && r.width <= 560 && r.height >= 60 && el.children.length >= 1
+      })
+      let card: any = null
+      if (cardCands.length) {
+        cardCands.sort((a, b) => (a.getBoundingClientRect().width * a.getBoundingClientRect().height) - (b.getBoundingClientRect().width * b.getBoundingClientRect().height))
+        const el = cardCands[Math.floor(cardCands.length / 2)]; const s = gs(el)
+        const bw = Math.round(px(s.borderTopWidth)); const bc = hex(s.borderTopColor)
+        card = { bg: hex(s.backgroundColor), radius: s.borderTopLeftRadius, pad: Math.round(px(s.paddingTop)), shadow: s.boxShadow && s.boxShadow !== 'none' ? s.boxShadow : '', border: bw > 0 && bc ? `${bw}px solid ${bc}` : '' }
+      }
+
+      const h = document.querySelector('h1,h2')
+      const heading = h ? { color: hex(gs(h).color), weight: gs(h).fontWeight, font: fam(gs(h).fontFamily), spacing: gs(h).letterSpacing } : null
+      const bs = gs(document.body)
+      const body = { color: hex(bs.color), font: fam(bs.fontFamily), size: Math.round(px(bs.fontSize)) || 16, line: bs.lineHeight }
+
+      const secs = (Array.from(document.querySelectorAll('section')) as HTMLElement[]).filter(vis)
+      const padsY = secs.map((el) => Math.round(px(gs(el).paddingTop))).filter((n) => n >= 24 && n <= 180)
+      const sectionPadY = mode(padsY)
+      const widths = (Array.from(document.querySelectorAll('*')) as HTMLElement[]).map((el) => px(gs(el).maxWidth)).filter((n) => n >= 880 && n <= 1440)
+      const container = widths.length ? Math.round(Math.max(...widths)) : null
+
+      return { pageBg: bodyBg, button, card, heading, body, sectionPadY, container }
+    }).catch(() => null) as DesignTokens
+
     if (!html && goError) throw goError
-    return { finalUrl, html, stylesheets, inlineStyles, resourceCount, capturedSections, contractSections, chrome, declaredBrand }
+    return { finalUrl, html, stylesheets, inlineStyles, resourceCount, capturedSections, contractSections, chrome, declaredBrand, designTokens }
   } finally {
     try { await context?.close() } catch { /* ignore */ }
     release()
