@@ -60,6 +60,16 @@ export type SectionFP = {
 }
 export type CapturedSection = { html: string; fp: SectionFP }
 
+// A section that DECLARED its uWebsites kind + fields via data-uw-* attributes
+// (the "native contract"). Parsed verbatim → mapped to a typed block with 100%
+// fidelity (no classifier guessing). fields = scalar props; lists = repeatable
+// item groups keyed by the prop name (e.g. items/tiers/logos).
+export type ContractSection = {
+  kind: string
+  fields: Record<string, string>
+  lists: Record<string, Array<Record<string, string>>>
+}
+
 export type HeadlessResult = {
   finalUrl: string                              // after any redirects
   html: string                                  // full document HTML after render
@@ -67,6 +77,7 @@ export type HeadlessResult = {
   inlineStyles: string                          // concatenated <style> blocks (after JS)
   resourceCount: number                         // count of all network responses (debug)
   capturedSections: CapturedSection[]           // top-level sections: outerHTML + fingerprint
+  contractSections: ContractSection[]           // sections that declared data-uw-kind (native)
 }
 
 // Render `url` with a real browser and return everything the sectionizer needs.
@@ -399,8 +410,64 @@ export async function headlessRender(url: string, opts?: { html?: string }): Pro
       return out
     }).catch(() => [] as CapturedSection[]) as CapturedSection[]
 
+    // Native contract: any element that DECLARED data-uw-kind. We read its
+    // data-uw-field scalars + data-uw-items/[data-uw-item] repeatables verbatim
+    // so the importer maps them to typed blocks with zero guessing.
+    const contractSections = await page.evaluate(() => {
+      const txt = (el: Element | null) => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : '')
+      // Read fields declared on/under `root` but NOT inside a nested item group
+      // or a nested declared section (so item fields don't leak up to the section).
+      const readFields = (root: Element, stopAt: Element[]) => {
+        const fields: Record<string, string> = {}
+        root.querySelectorAll('[data-uw-field]').forEach((el) => {
+          if (stopAt.some((s) => s !== el && s.contains(el))) return
+          const name = el.getAttribute('data-uw-field') || ''
+          if (!name || name in fields) return
+          const tag = el.tagName.toLowerCase()
+          if (tag === 'img') {
+            fields[name] = (el as HTMLImageElement).getAttribute('src') || ''
+            const alt = (el as HTMLImageElement).getAttribute('alt')
+            if (alt) fields[name.replace(/url$/, 'alt')] = alt   // image_url→image_alt, url→alt
+          }
+          else if (tag === 'a') {
+            fields[name] = txt(el)
+            const href = (el as HTMLAnchorElement).getAttribute('href') || ''
+            // <a data-uw-field="cta_label"> also supplies cta_href, etc.
+            if (href && /_label$/.test(name)) fields[name.replace(/_label$/, '_href')] = href
+            else if (href && name === 'cta') fields['cta_href'] = href
+          } else {
+            // image slot declared on a non-img element → empty url + caption hint
+            if (/(^|_)image_url$|^url$|_img$/.test(name) && el.hasAttribute('data-uw-img')) {
+              fields[name] = el.getAttribute('data-src') || ''
+              const cap = el.getAttribute('data-caption'); if (cap) fields[name.replace(/url$/, 'caption').replace(/^url$/, 'caption')] = cap
+            } else { fields[name] = el.innerHTML.trim().length && /richtext|html|body/.test(name) ? el.innerHTML.trim() : txt(el) }
+          }
+        })
+        return fields
+      }
+      const out: Array<{ kind: string; fields: Record<string, string>; lists: Record<string, Array<Record<string, string>>> }> = []
+      const roots = Array.from(document.querySelectorAll('[data-uw-kind]'))
+        .filter((el) => !el.parentElement?.closest('[data-uw-kind]')) // top-level declared sections only
+      for (const root of roots) {
+        const kind = root.getAttribute('data-uw-kind') || ''
+        if (!kind) continue
+        const itemGroups = Array.from(root.querySelectorAll('[data-uw-items]'))
+          .filter((g) => g.closest('[data-uw-kind]') === root)
+        const lists: Record<string, Array<Record<string, string>>> = {}
+        const nestedStops = itemGroups.slice()
+        for (const g of itemGroups) {
+          const listName = g.getAttribute('data-uw-items') || 'items'
+          const items = Array.from(g.querySelectorAll('[data-uw-item]')).filter((it) => it.closest('[data-uw-items]') === g)
+          lists[listName] = items.map((it) => readFields(it, Array.from(it.querySelectorAll('[data-uw-item]'))))
+        }
+        const fields = readFields(root, [...roots.filter((r) => r !== root), ...nestedStops])
+        out.push({ kind, fields, lists })
+      }
+      return out
+    }).catch(() => [] as any[]) as HeadlessResult['contractSections']
+
     if (!html && goError) throw goError
-    return { finalUrl, html, stylesheets, inlineStyles, resourceCount, capturedSections }
+    return { finalUrl, html, stylesheets, inlineStyles, resourceCount, capturedSections, contractSections }
   } finally {
     try { await context?.close() } catch { /* ignore */ }
     release()

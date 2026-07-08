@@ -7,8 +7,9 @@ import { upsertMenu, navTreeToItems, relinkInternal } from './menus.js'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { sectionizeHtml } from '../lib/html-sectionizer.js'
 import { createImageMirror, localImageMissing } from '../lib/image-host.js'
-import { headlessRender, extractBrandFromDom, type NavNode } from '../lib/headless.js'
+import { headlessRender, extractBrandFromDom, type NavNode, type ContractSection } from '../lib/headless.js'
 import { fitSection, mirrorBlockImages } from '../lib/section-classifier.js'
+import { SECTION_META } from '../lib/sections.js'
 import { parseDesignSystem, preprocessLandingHtml } from '../lib/design-system.js'
 
 // ---- Color scale generation (for the design-system palette display) ----
@@ -900,6 +901,41 @@ export async function sectionizeUrl(
 // styled raw-html for that exact section so fidelity is never lost. Images are
 // mirrored to the workspace's /img dir. This is the engine behind the Structure
 // button: it "understands the whole page and reproduces it" without AI.
+// Coerce a declared string value to match the shape of the section default
+// (numbers/booleans stay typed; everything else is a string).
+function coerceContractVal(template: any, v: string): any {
+  if (typeof template === 'number') { const n = parseFloat(v); return Number.isFinite(n) ? n : template }
+  if (typeof template === 'boolean') return /^(true|yes|1|on)$/i.test(v)
+  return v
+}
+
+// Map declared contract sections → typed blocks with our exact prop schema.
+// Unknown fields still pass through (e.g. cta_href derived from an <a>, or an
+// image caption hint); unknown kinds are skipped. This is the deterministic
+// "100% match" path — no classifier, no guessing.
+export function blocksFromContract(contract: ContractSection[]): any[] {
+  const blocks: any[] = []
+  for (const cs of contract) {
+    const meta = (SECTION_META as any)[cs.kind]
+    if (!meta) continue
+    const props: any = structuredClone(meta.defaults)
+    for (const [k, v] of Object.entries(cs.fields)) {
+      props[k] = (k in props) ? coerceContractVal(props[k], v) : v
+    }
+    for (const [listName, items] of Object.entries(cs.lists)) {
+      const tplArr = Array.isArray(props[listName]) ? props[listName] : null
+      const tpl = tplArr && tplArr.length ? tplArr[0] : {}
+      props[listName] = items.map((it) => {
+        const item: any = structuredClone(tpl)
+        for (const [k, v] of Object.entries(it)) item[k] = (k in item) ? coerceContractVal(item[k], v) : v
+        return item
+      })
+    }
+    blocks.push({ type: cs.kind, props })
+  }
+  return blocks
+}
+
 export async function structureFromSource(
   sourceUrl: string,
   slug: string,
@@ -913,8 +949,18 @@ export async function structureFromSource(
   faithful = false,
 ): Promise<{ blocks: any[]; sourceHtml: string; stats: { total: number; semantic: number; raw: number } } | null> {
   const r = await headlessRender(sourceUrl, designHtml ? { html: designHtml } : undefined)
-  if (!r.capturedSections.length) return null
   const mirror = createImageMirror(slug)
+
+  // NATIVE CONTRACT: if the design declared data-uw-kind sections, map them
+  // straight to typed blocks (100% fidelity) and skip the classifier entirely.
+  if (r.contractSections?.length) {
+    const cblocks = blocksFromContract(r.contractSections)
+    if (cblocks.length) {
+      for (const b of cblocks) await mirrorBlockImages(b, mirror)
+      return { blocks: cblocks, sourceHtml: r.html, stats: { total: cblocks.length, semantic: cblocks.length, raw: 0 } }
+    }
+  }
+  if (!r.capturedSections.length) return null
 
   // Styled raw-html for every section (same order) — our confidence-gated
   // fallback. sectionizeHtml inlines all the page CSS into raw[0].html.
