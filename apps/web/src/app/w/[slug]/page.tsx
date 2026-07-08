@@ -119,7 +119,11 @@ export default function WorkspaceHome() {
   }
 
   useEffect(() => {
-    setImported(new URLSearchParams(window.location.search).get('imported'))
+    const qs = new URLSearchParams(window.location.search)
+    setImported(qs.get('imported'))
+    // Onboarding "Start from a design" lands here with ?start=design — open the
+    // build screen straight into the design-upload (free-form) mode.
+    if (qs.get('start') === 'design') setMode('freeform')
     api<PagesResp>(`/workspaces/${slug}/pages`)
       .then(setData)
       .catch(() => router.push('/'))

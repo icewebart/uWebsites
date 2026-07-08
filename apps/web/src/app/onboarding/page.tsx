@@ -24,7 +24,7 @@ function Onboarding() {
   const [step, setStep] = useState<1 | 2>(1)
   const [ws, setWs] = useState('')
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
-  const [choice, setChoice] = useState<'import' | 'build'>('import')
+  const [choice, setChoice] = useState<'import' | 'build' | 'design'>('import')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [checking, setChecking] = useState(true)
@@ -60,6 +60,7 @@ function Onboarding() {
   function start() {
     if (!workspace) return router.push('/')
     if (choice === 'import') router.push(`/w/${workspace.slug}/import`)
+    else if (choice === 'design') router.push(`/w/${workspace.slug}?start=design`)
     else router.push(`/w/${workspace.slug}`)
   }
 
@@ -96,10 +97,14 @@ function Onboarding() {
         <>
           <h1>How do you want to start?</h1>
           <p className="muted">For <strong>{workspace?.name}</strong>.</p>
-          <div className="choice">
+          <div className="choice three">
             <div className={`choice-card${choice === 'import' ? ' sel' : ''}`} onClick={() => setChoice('import')}>
               <div className="ic">⤓</div><h3>Import a site</h3>
               <p className="muted" style={{ fontSize: 13 }}>Pull in an existing WordPress (or other) site; we classify and rebuild it — keeping your URLs.</p>
+            </div>
+            <div className={`choice-card${choice === 'design' ? ' sel' : ''}`} onClick={() => setChoice('design')}>
+              <div className="ic">🎨</div><h3>Start from a design</h3>
+              <p className="muted" style={{ fontSize: 13 }}>Have a design from Claude Design, Canva or Figma? Upload the HTML or a screenshot and we rebuild it — on your brand.</p>
             </div>
             <div className={`choice-card${choice === 'build' ? ' sel' : ''}`} onClick={() => setChoice('build')}>
               <div className="ic">✨</div><h3>Build a website</h3>
@@ -107,7 +112,7 @@ function Onboarding() {
             </div>
           </div>
           <button className="btn btn-primary btn-lg" style={{ minWidth: 240, marginTop: 24 }} onClick={start}>
-            {choice === 'import' ? 'Continue to import →' : 'Start building →'}
+            {choice === 'import' ? 'Continue to import →' : choice === 'design' ? 'Upload your design →' : 'Start building →'}
           </button>
           <div><button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={() => setStep(1)}>← Back</button></div>
         </>
