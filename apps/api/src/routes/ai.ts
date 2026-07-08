@@ -600,6 +600,19 @@ aiRouter.post('/build-from-design', requireAuth, async (req: AuthRequest, res) =
   try {
     const out = await structureFromSource('', ws.slug, { primary: t.color?.primary, accent: t.color?.accent }, { heading: t.font?.heading, body: t.font?.body }, designHtml)
     if (!out || !out.blocks.length) return res.status(422).json({ ok: false, error: 'Could not read any sections from that design. Make sure it is the full HTML with its styles.' })
+    // If the design was a Claude-Design viewer, out.sourceHtml is the unwrapped
+    // variant — re-read the brand from it so colours/fonts reflect the real page
+    // (its accent, Baloo 2 / Nunito) rather than the viewer's chrome.
+    if (out.sourceHtml && out.sourceHtml !== designHtml) {
+      const b2 = brandFromHtml(out.sourceHtml)
+      t.color = { ...(t.color || {}), ...b2.color }
+      t.font = { ...(t.font || {}), ...b2.font }
+      t.shape = { ...(t.shape || {}), ...b2.shape }
+      t.space = { ...(t.space || {}), ...b2.space }
+      const [tr2] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+      if (tr2) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tr2.id))
+      else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
+    }
     const title = ws.name
     const pageType = type === 'home' || !type ? 'home' : String(type)
     let created: any

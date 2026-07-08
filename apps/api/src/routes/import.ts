@@ -906,7 +906,7 @@ export async function structureFromSource(
   brandColors: { primary?: string | null; accent?: string | null } = {},
   brandFonts: { heading?: string | null; body?: string | null } = {},
   designHtml?: string,
-): Promise<{ blocks: any[]; stats: { total: number; semantic: number; raw: number } } | null> {
+): Promise<{ blocks: any[]; sourceHtml: string; stats: { total: number; semantic: number; raw: number } } | null> {
   const r = await headlessRender(sourceUrl, designHtml ? { html: designHtml } : undefined)
   if (!r.capturedSections.length) return null
   const mirror = createImageMirror(slug)
@@ -953,7 +953,9 @@ export async function structureFromSource(
   // End every page on a Smart CTA unless the source already ended with one.
   const last = blocks[blocks.length - 1]
   if (!last || !['cta-ref', 'cta-banner'].includes(last.type)) blocks.push({ type: 'cta-ref', props: { cta_id: '', variant: 'gradient' } })
-  return { blocks, stats: { total: n, semantic, raw: rawCount } }
+  // r.html is the DOM AFTER any Claude-Design unwrap, so callers can read the
+  // real brand (colours/fonts) from the chosen variant, not the viewer chrome.
+  return { blocks, sourceHtml: r.html, stats: { total: n, semantic, raw: rawCount } }
 }
 
 // POST /import/heal-images — walk a page's blocks and repair broken image

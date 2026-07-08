@@ -124,6 +124,48 @@ export async function headlessRender(url: string, opts?: { html?: string }): Pro
       }
     }
 
+    // Claude Design (.dc.html) export: the real page(s) live inside an <x-dc>
+    // viewer as `.dv-card` variants, wrapped in the tool's own chrome (turn
+    // header, option labels) with unrendered {{placeholders}} that the shipped
+    // support.js normally resolves. setContent doesn't run that runtime, so
+    // without this the whole viewer collapses into ONE giant section. Here we:
+    // resolve the placeholders using the doc's own renderVals() + prop defaults,
+    // pick the most-developed variant, and unwrap it to be the page body.
+    if (opts?.html) await page.evaluate(() => {
+      try {
+        const cards = Array.from(document.querySelectorAll('.dv-card'))
+        if (!cards.length && !document.querySelector('x-dc')) return
+        if (!cards.length) return
+        // 1) Compute the design's token values (accent, derived tints, fonts).
+        let vals: Record<string, any> = {}
+        const scr = document.querySelector('script[type="text/x-dc"]')
+        const defaults: Record<string, any> = {}
+        try {
+          const pr = scr?.getAttribute('data-props')
+          if (pr) { const pj = JSON.parse(pr); for (const k in pj) defaults[k] = pj[k]?.default }
+        } catch { /* ignore malformed props */ }
+        try {
+          const body = scr?.textContent || ''
+          if (body) {
+            const factory = new Function('DEFAULTS', `"use strict";class DCLogic{constructor(){this.props=DEFAULTS}}${body}\nreturn new Component().renderVals();`)
+            vals = factory(defaults) || {}
+          }
+        } catch { /* fall back to defaults below */ }
+        // Minimal fallback so accent/font tokens aren't left blank.
+        if (vals.ac == null && defaults.accentA) vals.ac = defaults.accentA
+        if (vals.fb == null && defaults.fontTitluB) vals.fb = `'${defaults.fontTitluB}',sans-serif`
+        // 2) Choose the most-developed variant (most child elements).
+        const card = cards.slice().sort((a, b) => b.querySelectorAll('*').length - a.querySelectorAll('*').length)[0] as HTMLElement
+        // 3) Resolve {{token}} placeholders; drop any still unknown.
+        let inner = card.innerHTML.replace(/\{\{\s*([\w$]+)\s*\}\}/g, (_m, k) => (vals[k] != null ? String(vals[k]) : ''))
+        // 4) Carry the card's own background/font/colour onto the body, then
+        //    replace the whole document body with just this variant's content.
+        const cardStyle = (card.getAttribute('style') || '').replace(/(?:max-)?width\s*:[^;]+;?/gi, '')
+        document.body.setAttribute('style', cardStyle)
+        document.body.innerHTML = inner
+      } catch { /* non-dc or unexpected shape — leave the DOM untouched */ }
+    }).catch(() => {/* ignore */})
+
     // Trigger lazy-load on images that use IntersectionObserver: scroll to the
     // bottom in steps so each comes into view. Cheap and broadly effective.
     await page.evaluate(async () => {
