@@ -1,4 +1,32 @@
 import { chromium, type Browser, type BrowserContext } from 'playwright'
+import zlib from 'node:zlib'
+
+// Claude Design "standalone bundled" export: the real page is a JSON template
+// inside <script type="__bundler/template"> whose asset UUIDs are rebuilt into
+// blob/data URLs by a runtime script on load. That reconstruction is racy under
+// setContent (everything is inline → networkidle fires before the JS finishes),
+// so we'd capture the loading spinner. Instead we unpack it deterministically in
+// Node: inline every FONT/IMAGE asset as a data: URL and drop the page's own JS
+// assets (we don't want to run the design's runtime — our own unwrap handles it).
+export function unbundleDesignHtml(html: string): string {
+  if (!/type="__bundler\/(template|manifest)"/.test(html)) return html
+  try {
+    const tplM = html.match(/<script type="__bundler\/template">([\s\S]*?)<\/script>/)
+    const manM = html.match(/<script type="__bundler\/manifest">([\s\S]*?)<\/script>/)
+    if (!tplM || !manM) return html
+    let template: string = JSON.parse(tplM[1])
+    const manifest: Record<string, { mime: string; compressed?: boolean; data: string }> = JSON.parse(manM[1])
+    for (const [uuid, entry] of Object.entries(manifest)) {
+      const mime = entry?.mime || ''
+      const keep = /^font\//i.test(mime) || /woff|ttf|otf|eot/i.test(mime) || /^image\//i.test(mime)
+      if (!keep) continue // skip scripts/css runtime — don't execute the design's own JS
+      let b64 = entry.data
+      if (entry.compressed) { try { b64 = zlib.gunzipSync(Buffer.from(entry.data, 'base64')).toString('base64') } catch { continue } }
+      template = template.split(uuid).join(`data:${mime};base64,${b64}`)
+    }
+    return template.replace(/\s+integrity="[^"]*"/gi, '').replace(/\s+crossorigin="[^"]*"/gi, '')
+  } catch { return html }
+}
 
 // Headless render — opens a URL in a real Chromium, waits for fonts/network
 // idle / lazy-loaders, then returns the fully-rendered HTML AND every
@@ -130,8 +158,11 @@ export async function headlessRender(url: string, opts?: { html?: string }): Pro
     // / analytics never go idle — fall back to domcontentloaded + a 4s nudge.
     let goError: Error | null = null
     if (opts?.html) {
+      // Unpack a Claude Design "standalone bundled" export up front (no-op for a
+      // plain paste), so setContent renders the real page, not the unpacker shell.
+      const src = unbundleDesignHtml(opts.html)
       // Render pasted markup. Wrap a bare fragment so it's a valid document.
-      const doc = /<html[\s>]/i.test(opts.html) ? opts.html : `<!doctype html><html><head><meta charset="utf-8"></head><body>${opts.html}</body></html>`
+      const doc = /<html[\s>]/i.test(src) ? src : `<!doctype html><html><head><meta charset="utf-8"></head><body>${src}</body></html>`
       try { await page.setContent(doc, { waitUntil: 'networkidle', timeout: 30_000 }) }
       catch (e: any) { goError = e; try { await page.setContent(doc, { waitUntil: 'domcontentloaded', timeout: 30_000 }) } catch { /* keep first error */ } }
     } else {
@@ -177,7 +208,14 @@ export async function headlessRender(url: string, opts?: { html?: string }): Pro
         const card = cards.slice().sort((a, b) => b.querySelectorAll('*').length - a.querySelectorAll('*').length)[0] as HTMLElement
         // 3) Resolve {{token}} placeholders; drop any still unknown.
         let inner = card.innerHTML.replace(/\{\{\s*([\w$]+)\s*\}\}/g, (_m, k) => (vals[k] != null ? String(vals[k]) : ''))
-        // 4) Carry the card's own background/font/colour onto the body, then
+        // 4) Preserve fonts: the @font-face + Google-font <link>s live in the
+        //    <helmet> inside the body, which we're about to wipe — hoist them to
+        //    <head> so the unwrapped page keeps its typefaces (and brandFromHtml
+        //    can read the @font-face for self-hosting).
+        document.querySelectorAll('helmet link, helmet style, [data-dc-atomics] link, [data-dc-atomics] style').forEach((n) => {
+          try { document.head.appendChild(n) } catch { /* ignore */ }
+        })
+        // 5) Carry the card's own background/font/colour onto the body, then
         //    replace the whole document body with just this variant's content.
         const cardStyle = (card.getAttribute('style') || '').replace(/(?:max-)?width\s*:[^;]+;?/gi, '')
         document.body.setAttribute('style', cardStyle)
