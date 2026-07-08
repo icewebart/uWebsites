@@ -292,6 +292,11 @@ export default function PageEditor() {
       if (d.type === 'text' && typeof d.index === 'number' && typeof d.field === 'string') {
         setBlocks((bs) => bs.map((b, i) => i === d.index ? { ...b, props: { ...b.props, [d.field]: d.value } } : b))
       }
+      // Inline edit of a raw-html (imported/reproduced) section: the preview
+      // posts the whole section's HTML back after a double-click text edit.
+      if (d.type === 'rawhtml' && typeof d.index === 'number' && typeof d.html === 'string') {
+        setBlocks((bs) => bs.map((b, i) => i === d.index && b.type === 'raw-html' ? { ...b, props: { ...b.props, html: d.html } } : b))
+      }
     }
     window.addEventListener('message', onMsg)
     return () => window.removeEventListener('message', onMsg)

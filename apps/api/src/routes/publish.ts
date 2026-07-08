@@ -635,6 +635,9 @@ const EDIT_SCRIPT = `<style>
 [data-field][contenteditable=true]{ outline:2px solid #1D9E75; background:rgba(143,215,241,.08); cursor:text; }
 [data-section-index][data-empty="true"]{ position:relative; min-height:90px; border:2px dashed #f5a623; background:rgba(245,166,35,.06); margin:8px 0; border-radius:10px; }
 [data-section-index][data-empty="true"]::before{ content:"Empty " attr(data-section-kind) " section — click to edit, or remove it"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#a76300; font-family:system-ui,sans-serif; font-size:13px; font-weight:600; pointer-events:none; }
+[data-uw-raw]{ position:relative; }
+[data-uw-raw] [contenteditable=true]{ outline:2px solid #1D9E75; background:rgba(29,158,117,.06); cursor:text; }
+[data-section-index]:hover > * > [data-uw-raw]::after,[data-section-index]:hover > [data-uw-raw]::after{ content:"Double-click any text to edit"; position:absolute; top:8px; right:8px; background:#1D9E75; color:#fff; font:600 11px/1 system-ui,sans-serif; padding:4px 8px; border-radius:6px; pointer-events:none; opacity:.92; z-index:6; }
 </style>
 <script>(function(){
   function send(o){ try{ parent.postMessage(Object.assign({source:'uw-preview'}, o), '*'); }catch(e){} }
@@ -678,6 +681,27 @@ const EDIT_SCRIPT = `<style>
       if(ev.key==='Enter' && !ev.shiftKey){ ev.preventDefault(); el.blur(); }
       if(ev.key==='Escape'){ ev.preventDefault(); el.blur(); }
     }
+    el.addEventListener('blur', commit);
+    el.addEventListener('keydown', onKey);
+  }, true);
+  // Inline edit for RAW-HTML (imported/reproduced design) sections: double-click
+  // any text element to edit it in place; blur/Escape commits the whole
+  // section's HTML back (Enter inserts a newline, since these are free markup).
+  document.addEventListener('dblclick', function(e){
+    var raw = e.target.closest('[data-uw-raw]'); if(!raw) return;
+    var el = e.target;
+    if(!el || el===raw || el.getAttribute('contenteditable')==='true') return;
+    e.preventDefault(); e.stopPropagation();
+    el.setAttribute('contenteditable','true'); el.focus();
+    try{ var r=document.createRange(); r.selectNodeContents(el); r.collapse(false); var s=getSelection(); s.removeAllRanges(); s.addRange(r); }catch(_e){}
+    function commit(){
+      el.removeEventListener('blur', commit); el.removeEventListener('keydown', onKey);
+      el.removeAttribute('contenteditable');
+      var sec = raw.closest('[data-section-index]');
+      var idx = sec ? parseInt(sec.getAttribute('data-section-index'),10) : null;
+      if(idx!=null && !isNaN(idx)) send({type:'rawhtml', index: idx, html: raw.innerHTML});
+    }
+    function onKey(ev){ if(ev.key==='Escape'){ ev.preventDefault(); el.blur(); } }
     el.addEventListener('blur', commit);
     el.addEventListener('keydown', onKey);
   }, true);

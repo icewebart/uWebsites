@@ -1320,7 +1320,11 @@ export function renderSection(b: any, opts?: { edit?: boolean }): string {
       const html = typeof p.html === 'string' ? p.html : ''
       if (!html) return ''
       const label = p.sourceLabel ? `<!-- source: ${esc(p.sourceLabel)} -->` : ''
-      return `${label}<section class="uw-raw">${html}</section>`
+      // In edit mode, mark the wrapper so the preview's inline-editor can make
+      // its text double-click-editable and post the section's innerHTML back as
+      // the new props.html (round-trips exactly — innerHTML === html).
+      const rawAttr = ed ? ' data-uw-raw="1"' : ''
+      return `${label}<section class="uw-raw"${rawAttr}>${html}</section>`
     }
     default:
       return `<!-- unknown section: ${esc(String(b.type))} -->`
