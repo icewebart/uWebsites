@@ -947,7 +947,7 @@ export async function structureFromSource(
   // catalog section. The fitter is right for messy scraped WP sites; it's wrong
   // for a polished design the user wants pixel-reproduced.
   faithful = false,
-): Promise<{ blocks: any[]; sourceHtml: string; chrome: DesignChrome; stats: { total: number; semantic: number; raw: number } } | null> {
+): Promise<{ blocks: any[]; sourceHtml: string; chrome: DesignChrome; declaredBrand: Record<string, string> | null; stats: { total: number; semantic: number; raw: number } } | null> {
   const r = await headlessRender(sourceUrl, designHtml ? { html: designHtml } : undefined)
   const mirror = createImageMirror(slug)
 
@@ -957,7 +957,7 @@ export async function structureFromSource(
     const cblocks = blocksFromContract(r.contractSections)
     if (cblocks.length) {
       for (const b of cblocks) await mirrorBlockImages(b, mirror)
-      return { blocks: cblocks, sourceHtml: r.html, chrome: r.chrome, stats: { total: cblocks.length, semantic: cblocks.length, raw: 0 } }
+      return { blocks: cblocks, sourceHtml: r.html, chrome: r.chrome, declaredBrand: r.declaredBrand, stats: { total: cblocks.length, semantic: cblocks.length, raw: 0 } }
     }
   }
   if (!r.capturedSections.length) return null
@@ -1029,7 +1029,7 @@ export async function structureFromSource(
   if (!faithful && (!last || !['cta-ref', 'cta-banner'].includes(last.type))) blocks.push({ type: 'cta-ref', props: { cta_id: '', variant: 'gradient' } })
   // r.html is the DOM AFTER any Claude-Design unwrap, so callers can read the
   // real brand (colours/fonts) from the chosen variant, not the viewer chrome.
-  return { blocks, sourceHtml: r.html, chrome: r.chrome, stats: { total: n, semantic, raw: rawCount } }
+  return { blocks, sourceHtml: r.html, chrome: r.chrome, declaredBrand: r.declaredBrand, stats: { total: n, semantic, raw: rawCount } }
 }
 
 // POST /import/heal-images — walk a page's blocks and repair broken image

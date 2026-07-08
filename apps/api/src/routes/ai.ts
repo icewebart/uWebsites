@@ -340,6 +340,7 @@ function _rgbToHex(rgb: string): string { const p = rgb.split(',').map((x) => pa
 function _lum(hex: string) { const { r, g, b } = _hexRgb(hex); return r * 0.299 + g * 0.587 + b * 0.114 }
 function _gray(hex: string) { const { r, g, b } = _hexRgb(hex); return Math.max(r, g, b) - Math.min(r, g, b) < 18 }
 function _dist(a: string, b: string) { const x = _hexRgb(a), y = _hexRgb(b); return Math.abs(x.r - y.r) + Math.abs(x.g - y.g) + Math.abs(x.b - y.b) }
+function _sat(hex: string) { const { r, g, b } = _hexRgb(hex); const mx = Math.max(r, g, b), mn = Math.min(r, g, b); return mx === 0 ? 0 : (mx - mn) / mx }
 export function brandFromHtml(html: string): { color: Record<string, string>; font: Record<string, string>; shape: Record<string, string>; space: Record<string, string>; logo: { kind: 'img'; url: string } | { kind: 'svg'; svg: string } | null; fontFaces: Array<{ family: string; srcUrl: string; format?: string }> } {
   const s = String(html || '').slice(0, 400000)
   const hits: string[] = []
@@ -348,11 +349,21 @@ export function brandFromHtml(html: string): { color: Record<string, string>; fo
   const freq: Record<string, number> = {}
   for (const c of hits) freq[c] = (freq[c] || 0) + 1
   const ranked = Object.entries(freq).sort((a, b) => b[1] - a[1]).map(([c]) => c)
-  const vivid = ranked.filter((c) => !_gray(c) && _lum(c) < 235 && _lum(c) > 32)
-  const primary = vivid[0]
-  const accent = vivid.find((c) => c !== primary && _dist(c, primary) > 90) || vivid[1]
-  const surface = ranked.find((c) => _lum(c) > 240) || '#ffffff'
-  const text = ranked.find((c) => _lum(c) < 40) || '#16242e'
+  // A brand colour is a SATURATED mid-tone. Rank candidates by frequency ×
+  // saturation-above-neutral so a vivid brand hue (e.g. an orange CTA) beats a
+  // more-frequent but muted neutral (brown body text, tan borders) — the bug
+  // that made imports adopt a muddy "primary". Very light/dark tones are out.
+  const vivid = ranked.filter((c) => !_gray(c) && _lum(c) < 210 && _lum(c) > 60 && _sat(c) > 0.32)
+  const scored = vivid
+    .map((c) => ({ c, s: (freq[c] || 1) * Math.max(0.05, _sat(c) - 0.30) }))
+    .sort((a, b) => b.s - a.s)
+    .map((x) => x.c)
+  const primary = scored[0]
+  const accent = scored.find((c) => c !== primary && _dist(c, primary) > 90) || scored[1]
+  const surface = ranked.find((c) => _lum(c) > 235) || '#ffffff'
+  // Body text: the most-frequent dark, low-saturation colour (allow soft off-
+  // blacks like #3a2e1f that a strict <40 luminance cut-off would miss).
+  const text = ranked.find((c) => _lum(c) < 70 && _sat(c) < 0.55) || ranked.find((c) => _lum(c) < 90) || '#16242e'
   const fonts: string[] = []
   for (const m of s.matchAll(/font-family\s*:\s*([^;}<]+)/gi)) {
     const fam = m[1].split(',')[0].replace(/["']/g, '').trim()
@@ -611,6 +622,18 @@ aiRouter.post('/build-from-design', requireAuth, async (req: AuthRequest, res) =
       t.space = { ...(t.space || {}), ...b2.space }
       const [tr2] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
       if (tr2) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tr2.id))
+      else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
+    }
+    // A DECLARED brand (data-uw-brand) is authoritative — apply it last so it
+    // overrides colour-frequency guessing entirely.
+    if (out.declaredBrand && Object.keys(out.declaredBrand).length) {
+      const d = out.declaredBrand
+      const col: any = {}; for (const k of ['primary', 'accent', 'surface', 'text']) if (d[k]) col[k] = d[k]
+      if (Object.keys(col).length) t.color = { ...(t.color || {}), ...col }
+      const fnt: any = {}; if (d.heading) fnt.heading = d.heading; if (d.body) fnt.body = d.body
+      if (Object.keys(fnt).length) t.font = { ...(t.font || {}), ...fnt }
+      const [tr4] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+      if (tr4) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tr4.id))
       else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
     }
     // Copy the design's header nav + footer into the workspace menu/footer so

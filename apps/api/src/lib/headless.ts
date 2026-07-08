@@ -107,6 +107,7 @@ export type HeadlessResult = {
   capturedSections: CapturedSection[]           // top-level sections: outerHTML + fingerprint
   contractSections: ContractSection[]           // sections that declared data-uw-kind (native)
   chrome: DesignChrome                           // header nav + footer parsed from the design
+  declaredBrand: Record<string, string> | null  // explicit brand from data-uw-brand / meta[uw-brand]
 }
 
 // Header/footer lifted out of a rendered design so an import can populate the
@@ -572,8 +573,26 @@ export async function headlessRender(url: string, opts?: { html?: string }): Pro
       return { header, footer }
     }).catch(() => ({ header: null, footer: null })) as DesignChrome
 
+    // Explicitly DECLARED brand — deterministic, beats colour-frequency guessing.
+    // <meta name="uw-brand" data-primary=… data-accent=… …> or any element with
+    // a data-uw-brand attribute carrying data-primary/accent/surface/text/fonts.
+    const declaredBrand = await page.evaluate(() => {
+      const el = document.querySelector('[data-uw-brand], meta[name="uw-brand"]') as HTMLElement | null
+      if (!el) return null
+      const g = (k: string) => (el.getAttribute('data-' + k) || '').trim()
+      const hex = (v: string) => /^#[0-9a-fA-F]{6}$/.test(v) ? v.toLowerCase() : ''
+      const out: Record<string, string> = {}
+      const p = hex(g('primary')); if (p) out.primary = p
+      const a = hex(g('accent')); if (a) out.accent = a
+      const s = hex(g('surface')); if (s) out.surface = s
+      const t = hex(g('text')); if (t) out.text = t
+      const hf = g('heading-font'); if (hf) out.heading = hf.slice(0, 40)
+      const bf = g('body-font'); if (bf) out.body = bf.slice(0, 40)
+      return Object.keys(out).length ? out : null
+    }).catch(() => null) as Record<string, string> | null
+
     if (!html && goError) throw goError
-    return { finalUrl, html, stylesheets, inlineStyles, resourceCount, capturedSections, contractSections, chrome }
+    return { finalUrl, html, stylesheets, inlineStyles, resourceCount, capturedSections, contractSections, chrome, declaredBrand }
   } finally {
     try { await context?.close() } catch { /* ignore */ }
     release()
