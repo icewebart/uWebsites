@@ -613,6 +613,24 @@ aiRouter.post('/build-from-design', requireAuth, async (req: AuthRequest, res) =
       if (tr2) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tr2.id))
       else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
     }
+    // Copy the design's header nav + footer into the workspace menu/footer so
+    // the reproduced site ships with its navigation and footer, not just the body.
+    try {
+      const ch = out.chrome
+      if (ch?.header && (ch.header.items.length || ch.header.cta)) {
+        await upsertMenu(ws.id, 'header', { items: ch.header.items, cta: ch.header.cta || null })
+      }
+      if (ch?.footer && (ch.footer.items.length || ch.footer.social.length || ch.footer.tagline)) {
+        await upsertMenu(ws.id, 'footer', { items: ch.footer.items, social: ch.footer.social })
+        if (ch.footer.tagline && !t.brand_assets?.tagline) {
+          t.brand_assets = t.brand_assets || {}
+          t.brand_assets.tagline = ch.footer.tagline
+          const [tr3] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+          if (tr3) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tr3.id))
+          else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
+        }
+      }
+    } catch { /* menu/footer copy is best-effort — never fail the build */ }
     const title = ws.name
     const pageType = type === 'home' || !type ? 'home' : String(type)
     let created: any

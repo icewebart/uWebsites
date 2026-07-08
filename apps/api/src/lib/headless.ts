@@ -78,6 +78,14 @@ export type HeadlessResult = {
   resourceCount: number                         // count of all network responses (debug)
   capturedSections: CapturedSection[]           // top-level sections: outerHTML + fingerprint
   contractSections: ContractSection[]           // sections that declared data-uw-kind (native)
+  chrome: DesignChrome                           // header nav + footer parsed from the design
+}
+
+// Header/footer lifted out of a rendered design so an import can populate the
+// workspace menu + footer (the section body deliberately excludes these).
+export type DesignChrome = {
+  header: { items: Array<{ label: string; href: string }>; cta: { label: string; href: string } | null } | null
+  footer: { items: Array<{ label: string; href: string }>; social: Array<{ network: string; href: string }>; tagline: string } | null
 }
 
 // Render `url` with a real browser and return everything the sectionizer needs.
@@ -466,8 +474,68 @@ export async function headlessRender(url: string, opts?: { html?: string }): Pro
       return out
     }).catch(() => [] as any[]) as HeadlessResult['contractSections']
 
+    // Header nav + footer, lifted from the rendered design so an import can also
+    // populate the workspace menu + footer (section capture excludes these).
+    const chrome = await page.evaluate(() => {
+      const clean = (s: string) => (s || '').replace(/\s+/g, ' ').trim()
+      const abs = (u: string) => { try { return new URL(u, location.href).href } catch { return u } }
+      // ---- header nav ----
+      let header: { items: Array<{ label: string; href: string }>; cta: { label: string; href: string } | null } | null = null
+      const hEl = (document.querySelector('header') || document.querySelector('nav')?.closest('header, div') || null) as HTMLElement | null
+      const navEl = (hEl?.querySelector('nav') || document.querySelector('header nav') || document.querySelector('nav')) as HTMLElement | null
+      if (navEl) {
+        const items: Array<{ label: string; href: string }> = []
+        const seen = new Set<string>()
+        const links = Array.from(navEl.querySelectorAll('a')).filter((a) => clean(a.textContent || ''))
+        if (links.length) {
+          for (const a of links) {
+            const label = clean(a.textContent || '').slice(0, 40)
+            const href = a.getAttribute('href') || '#'
+            if (label && !seen.has(label.toLowerCase())) { seen.add(label.toLowerCase()); items.push({ label, href: href.charAt(0) === '#' ? href : abs(href) }) }
+          }
+        } else {
+          // Text-only nav (styled <span>/<div> menu, common in design mockups).
+          for (const k of Array.from(navEl.children)) {
+            const label = clean(k.textContent || '').slice(0, 40)
+            if (label && label.length <= 30 && !seen.has(label.toLowerCase())) { seen.add(label.toLowerCase()); items.push({ label, href: '#' }) }
+          }
+        }
+        let cta: { label: string; href: string } | null = null
+        if (hEl) {
+          const btn = Array.from(hEl.querySelectorAll('a,button,div')).reverse().find((el) => {
+            const t = clean(el.textContent || '')
+            return !!t && t.length < 28 && el.querySelectorAll('*').length <= 2 &&
+              /înscrie|inscrie|contact|book|get started|sună|suna|call|demo|start|join|apply|rezerv|abon|subscribe|\d{3}[\s.\-]?\d{3}/i.test(t)
+          }) as HTMLElement | undefined
+          if (btn) { const href = btn.getAttribute('href'); cta = { label: clean(btn.textContent || '').slice(0, 28), href: href ? (href.charAt(0) === '#' ? href : abs(href)) : '#' } }
+        }
+        if (items.length || cta) header = { items: items.slice(0, 10), cta }
+      }
+      // ---- footer ----
+      let footer: { items: Array<{ label: string; href: string }>; social: Array<{ network: string; href: string }>; tagline: string } | null = null
+      const fEl = document.querySelector('footer') as HTMLElement | null
+      if (fEl) {
+        const items: Array<{ label: string; href: string }> = []
+        const social: Array<{ network: string; href: string }> = []
+        const seen = new Set<string>()
+        for (const a of Array.from(fEl.querySelectorAll('a'))) {
+          const href = a.getAttribute('href') || ''
+          const m = href.match(/(facebook|instagram|twitter|x\.com|linkedin|youtube|tiktok|pinterest|whatsapp)/i)
+          if (m) { social.push({ network: m[1].toLowerCase().replace('x.com', 'x'), href: abs(href) }); continue }
+          const label = clean(a.textContent || '').slice(0, 40)
+          if (label && href && !seen.has(label.toLowerCase())) { seen.add(label.toLowerCase()); items.push({ label, href: href.charAt(0) === '#' ? href : abs(href) }) }
+        }
+        const texts = Array.from(fEl.querySelectorAll('p,div,span'))
+          .map((e) => clean(e.textContent || ''))
+          .filter((t) => t.length > 30 && t.length < 220 && !/©|copyright|toate drepturile|drepturile rezervate|rights reserved/i.test(t))
+          .sort((a, b) => b.length - a.length)
+        footer = { items: items.slice(0, 16), social: social.slice(0, 8), tagline: texts[0] || '' }
+      }
+      return { header, footer }
+    }).catch(() => ({ header: null, footer: null })) as DesignChrome
+
     if (!html && goError) throw goError
-    return { finalUrl, html, stylesheets, inlineStyles, resourceCount, capturedSections, contractSections }
+    return { finalUrl, html, stylesheets, inlineStyles, resourceCount, capturedSections, contractSections, chrome }
   } finally {
     try { await context?.close() } catch { /* ignore */ }
     release()
