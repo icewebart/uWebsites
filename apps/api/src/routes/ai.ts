@@ -598,7 +598,7 @@ aiRouter.post('/build-from-design', requireAuth, async (req: AuthRequest, res) =
 
   // 2) Render the design headless + fit it into sections that match the layout.
   try {
-    const out = await structureFromSource('', ws.slug, { primary: t.color?.primary, accent: t.color?.accent }, { heading: t.font?.heading, body: t.font?.body }, designHtml)
+    const out = await structureFromSource('', ws.slug, { primary: t.color?.primary, accent: t.color?.accent }, { heading: t.font?.heading, body: t.font?.body }, designHtml, /* faithful */ true)
     if (!out || !out.blocks.length) return res.status(422).json({ ok: false, error: 'Could not read any sections from that design. Make sure it is the full HTML with its styles.' })
     // If the design was a Claude-Design viewer, out.sourceHtml is the unwrapped
     // variant — re-read the brand from it so colours/fonts reflect the real page

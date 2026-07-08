@@ -906,6 +906,11 @@ export async function structureFromSource(
   brandColors: { primary?: string | null; accent?: string | null } = {},
   brandFonts: { heading?: string | null; body?: string | null } = {},
   designHtml?: string,
+  // faithful = REPRODUCE mode: keep every top-level block as its own styled
+  // raw-html section (verbatim look) instead of re-typing it into a generic
+  // catalog section. The fitter is right for messy scraped WP sites; it's wrong
+  // for a polished design the user wants pixel-reproduced.
+  faithful = false,
 ): Promise<{ blocks: any[]; sourceHtml: string; stats: { total: number; semantic: number; raw: number } } | null> {
   const r = await headlessRender(sourceUrl, designHtml ? { html: designHtml } : undefined)
   if (!r.capturedSections.length) return null
@@ -925,12 +930,33 @@ export async function structureFromSource(
   // fallback still needs that CSS — carry it to the first raw block we emit.
   const cssPrefix = raw[0]?.html.match(/^<style>[\s\S]*?<\/style>/)?.[0] || ''
   let cssCarried = false
+  // Base font/colour/background the design set on <body> (in a Claude-Design
+  // doc, carried over from the chosen variant's card). Faithful sections are
+  // isolated blocks, so we re-apply this so they don't lose inherited styles.
+  const bodyStyle = faithful ? (r.html.match(/<body[^>]*\sstyle="([^"]*)"/i)?.[1] || '') : ''
 
   const blocks: any[] = []
   let semantic = 0, rawCount = 0
   const n = Math.min(r.capturedSections.length, 24)
   for (let i = 0; i < n; i++) {
     const cap = r.capturedSections[i]
+    // REPRODUCE mode: emit each block as its own styled raw-html section so it
+    // looks exactly like the uploaded design (the fitter would re-interpret it
+    // into a generic section that "has nothing to do with the document").
+    if (faithful) {
+      const inner = raw[i]?.html || cap.html || ''
+      if (!inner) continue
+      // Wrap so the block keeps the base font/colour/bg it inherited from the
+      // design's body; a section with its own full-bleed bg overrides it.
+      let html = bodyStyle ? `<div style="${bodyStyle}">${inner}</div>` : inner
+      if (cssPrefix && !cssCarried) {
+        if (!inner.startsWith('<style>')) html = cssPrefix + html
+        cssCarried = true
+      }
+      blocks.push({ type: 'raw-html', props: { html, sourceLabel: raw[i]?.sourceLabel || 'Design' } })
+      rawCount++
+      continue
+    }
     // The fitter maps almost every region to an editable typed section; it only
     // sets needsAi (→ raw-html fallback below) for regions with no mappable
     // content (forms/maps/embeds). This replaces the old raw-html-heavy path.
@@ -951,8 +977,10 @@ export async function structureFromSource(
     }
   }
   // End every page on a Smart CTA unless the source already ended with one.
+  // Skip in faithful/reproduce mode — the design already has its own ending and
+  // a generic appended CTA would break the pixel reproduction.
   const last = blocks[blocks.length - 1]
-  if (!last || !['cta-ref', 'cta-banner'].includes(last.type)) blocks.push({ type: 'cta-ref', props: { cta_id: '', variant: 'gradient' } })
+  if (!faithful && (!last || !['cta-ref', 'cta-banner'].includes(last.type))) blocks.push({ type: 'cta-ref', props: { cta_id: '', variant: 'gradient' } })
   // r.html is the DOM AFTER any Claude-Design unwrap, so callers can read the
   // real brand (colours/fonts) from the chosen variant, not the viewer chrome.
   return { blocks, sourceHtml: r.html, stats: { total: n, semantic, raw: rawCount } }
