@@ -24,9 +24,12 @@ type BrandAssets = {
   decor_svgs?: DecorSvg[]  // user-uploaded SVG decor for the AI to reuse
 }
 type Tokens = {
-  color: { primary: string; accent: string; accent2?: string; surface: string; text: string; surfaceSoft?: string; surfaceMuted?: string; footerBg?: string; footerFg?: string }
-  font: { heading: string; body: string; scale: number; lineHeight: number }
+  color: { primary: string; accent: string; accent2?: string; surface: string; text: string; surfaceSoft?: string; surfaceMuted?: string; footerBg?: string; footerFg?: string; heading?: string }
+  font: { heading: string; body: string; scale: number; lineHeight: number; headingWeight?: string }
   shape: { buttonRadius: string; cardRadius: string; borderWidth: string; shadow?: string }
+  // Harvested from an imported design's computed styles (editable here).
+  button?: { bg?: string; fg?: string; padX?: number; padY?: number; weight?: string; font?: string; shadow?: string }
+  card?: { bg?: string; pad?: number; shadow?: string; border?: string }
   vibe?: string
   tagline?: string
   voice?: string
@@ -674,6 +677,31 @@ export default function Branding() {
       <input className="num" type="number" min={0} max={max} value={px((t as any)[group][k])} onChange={(e) => patch(group, k, `${e.target.value}px`)} />
     </div>
   )
+  // Null-safe rows for the harvested button/card groups (which may not exist yet).
+  const ColorRow = ({ label, group, k, fallback }: { label: string; group: keyof Tokens; k: string; fallback: string }) => {
+    const raw = ((t as any)[group]?.[k] as string) || ''
+    return (
+      <div className="ctl-row"><label>{label}</label>
+        <div className="swatch">
+          <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(raw) ? raw : fallback} onChange={(e) => patch(group, k, e.target.value)} />
+          <input type="text" value={raw} placeholder={fallback} onChange={(e) => patch(group, k, e.target.value)} />
+        </div>
+      </div>
+    )
+  }
+  const NumRow = ({ label, group, k, max, fallback }: { label: string; group: keyof Tokens; k: string; max: number; fallback: number }) => (
+    <div className="ctl-row"><label>{label}</label>
+      <input className="num" type="number" min={0} max={max} value={(t as any)[group]?.[k] ?? fallback}
+        onChange={(e) => { const n = parseInt(e.target.value, 10); patch(group, k, Number.isFinite(n) ? n : undefined) }} />
+    </div>
+  )
+  const WeightRow = ({ label, group, k, def }: { label: string; group: keyof Tokens; k: string; def: string }) => (
+    <div className="ctl-row"><label>{label}</label>
+      <select className="num" value={(t as any)[group]?.[k] || def} onChange={(e) => patch(group, k, e.target.value)}>
+        {['400', '500', '600', '700', '800', '900'].map((w) => <option key={w} value={w}>{w}</option>)}
+      </select>
+    </div>
+  )
 
   return (
     <AppShell title="Branding" currentSlug={slug} active="Branding">
@@ -739,6 +767,7 @@ export default function Branding() {
             <div className="ctl-row"><label>Line height</label>
               <input className="num" type="number" step={0.05} min={1} max={2.2} value={t.font.lineHeight} onChange={(e) => patch('font', 'lineHeight', parseFloat(e.target.value))} />
             </div>
+            <WeightRow label="Heading weight" group="font" k="headingWeight" def="700" />
           </div>
 
           <div className="ctl-group card">
@@ -754,6 +783,26 @@ export default function Branding() {
             <PxRow label="Space around sections" group="space" k="sectionPaddingY" max={200} />
             <PxRow label="Gap between sections" group="space" k="sectionGap" max={200} />
             <PxRow label="Container width" group="space" k="container" max={1600} />
+          </div>
+
+          <div className="ctl-group card">
+            <h3>Buttons</h3>
+            <p className="muted" style={{ fontSize: 11, marginTop: -4, marginBottom: 10 }}>Harvested from an imported design — leave blank to use the brand primary.</p>
+            <ColorRow label="Background" group="button" k="bg" fallback={t.color.primary} />
+            <ColorRow label="Text" group="button" k="fg" fallback="#ffffff" />
+            <NumRow label="Padding — vertical" group="button" k="padY" max={40} fallback={12} />
+            <NumRow label="Padding — horizontal" group="button" k="padX" max={80} fallback={22} />
+            <WeightRow label="Weight" group="button" k="weight" def="600" />
+          </div>
+
+          <div className="ctl-group card">
+            <h3>Cards</h3>
+            <ColorRow label="Background" group="card" k="bg" fallback={t.color.surface} />
+            <NumRow label="Padding" group="card" k="pad" max={64} fallback={24} />
+            <div className="ctl-row"><label>Shadow</label>
+              <input type="checkbox" checked={!!t.card?.shadow} style={{ width: 'auto' }}
+                onChange={(e) => patch('card', 'shadow', e.target.checked ? '0 6px 24px -14px rgba(30,10,50,.18)' : '')} />
+            </div>
           </div>
         </div>
 
