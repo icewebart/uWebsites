@@ -36,6 +36,10 @@ export default function WorkspaceHome() {
   const [kitImage, setKitImage] = useState('') // data: URL when an image design is attached
   const [pullBrand, setPullBrand] = useState(true)
   const [designMode, setDesignMode] = useState<'reproduce' | 'freestyle'>('reproduce')
+  // When reproducing: 'faithful' = pixel-exact raw-html blocks; 'native' =
+  // rebuilt as editable typed sections (a design that declares data-uw-kind
+  // sections is always native regardless).
+  const [reproMode, setReproMode] = useState<'faithful' | 'native'>('faithful')
 
   // Downscale a screenshot to ≤1568px (all vision needs) and re-encode as JPEG,
   // so the upload stays small regardless of the original retina resolution.
@@ -91,7 +95,7 @@ export default function WorkspaceHome() {
       body = { slug, imageData: kitImage, type: 'home' }
     } else if (reproduce) {
       endpoint = '/ai/build-from-design'
-      body = { slug, designHtml: kitText, type: 'home' }
+      body = { slug, designHtml: kitText, type: 'home', faithful: reproMode === 'faithful' }
     } else {
       endpoint = mode === 'freeform' ? '/ai/generate-freeform' : '/ai/generate-page'
       body = { slug, prompt: aiPrompt.trim(), type: 'home' }
@@ -313,8 +317,20 @@ export default function WorkspaceHome() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8, fontSize: 13 }}>
                     <label className="muted" style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
                       <input type="radio" name="dmode" checked={designMode === 'reproduce'} onChange={() => setDesignMode('reproduce')} style={{ width: 'auto' }} />
-                      <b>Reproduce this design</b> — match its layout, as editable sections (no prompt needed)
+                      <b>Reproduce this design</b> — match its layout (no prompt needed)
                     </label>
+                    {designMode === 'reproduce' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 22, fontSize: 12.5 }}>
+                        <label className="muted" style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                          <input type="radio" name="repro" checked={reproMode === 'faithful'} onChange={() => setReproMode('faithful')} style={{ width: 'auto' }} />
+                          Pixel-exact copy — matches the look closely
+                        </label>
+                        <label className="muted" style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                          <input type="radio" name="repro" checked={reproMode === 'native'} onChange={() => setReproMode('native')} style={{ width: 'auto' }} />
+                          Editable sections — rebuilt on your brand, easier to tweak
+                        </label>
+                      </div>
+                    )}
                     <label className="muted" style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
                       <input type="radio" name="dmode" checked={designMode === 'freestyle'} onChange={() => setDesignMode('freestyle')} style={{ width: 'auto' }} />
                       Freestyle a new page inspired by it (uses your prompt)

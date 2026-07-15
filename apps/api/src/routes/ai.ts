@@ -586,8 +586,12 @@ aiRouter.post('/generate-freeform', requireAuth, async (req: AuthRequest, res) =
 // the deterministic fitter — so the result LOOKS like what you uploaded, as
 // editable typed sections. No AI credits.
 aiRouter.post('/build-from-design', requireAuth, async (req: AuthRequest, res) => {
-  const { slug, designHtml, type } = req.body ?? {}
+  const { slug, designHtml, type, faithful } = req.body ?? {}
   if (!slug || typeof designHtml !== 'string' || designHtml.trim().length < 40) return res.status(400).json({ ok: false, error: 'slug and designHtml required' })
+  // faithful (default) = keep each block as pixel-exact raw-html; false = rebuild
+  // as editable native sections via the fitter. (Designs that DECLARE
+  // data-uw-kind sections always take the native contract path regardless.)
+  const keepFaithful = faithful !== false
   const ws = await ownedWs(String(slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
 
@@ -609,7 +613,7 @@ aiRouter.post('/build-from-design', requireAuth, async (req: AuthRequest, res) =
 
   // 2) Render the design headless + fit it into sections that match the layout.
   try {
-    const out = await structureFromSource('', ws.slug, { primary: t.color?.primary, accent: t.color?.accent }, { heading: t.font?.heading, body: t.font?.body }, designHtml, /* faithful */ true)
+    const out = await structureFromSource('', ws.slug, { primary: t.color?.primary, accent: t.color?.accent }, { heading: t.font?.heading, body: t.font?.body }, designHtml, keepFaithful)
     if (!out || !out.blocks.length) return res.status(422).json({ ok: false, error: 'Could not read any sections from that design. Make sure it is the full HTML with its styles.' })
     // If the design was a Claude-Design viewer, out.sourceHtml is the unwrapped
     // variant — re-read the brand from it so colours/fonts reflect the real page
