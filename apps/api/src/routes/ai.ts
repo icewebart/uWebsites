@@ -9,7 +9,7 @@ import { generateImage, generateImageResult, photoPrompt, imageGenEnabled, reaso
 import { localImageMissing } from '../lib/image-host.js'
 import { upsertMenu, articleTemplateOf } from './menus.js'
 import { articleBlocksFromImport, structureFromSource } from './import.js'
-import { extractBrandFromDom } from '../lib/headless.js'
+import { extractBrandFromDom, headlessRender } from '../lib/headless.js'
 import { fpFromHtml, fitSection, looksStructured } from '../lib/section-classifier.js'
 import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities } from '../lib/google-data.js'
 
@@ -565,6 +565,26 @@ aiRouter.post('/generate-freeform', requireAuth, async (req: AuthRequest, res) =
     }
     if (tokRow) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tokRow.id))
     else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
+  }
+  // Pull the design's header nav + footer into the workspace menu/footer — same
+  // as the reproduce path, so a freestyle-from-a-design site still ships with
+  // its navigation and footer. Best-effort: never blocks the build.
+  if (typeof kitHtml === 'string' && kitHtml.length > 40) {
+    try {
+      const r = await headlessRender('', { html: kitHtml })
+      const ch = r.chrome
+      if (ch?.header && (ch.header.items.length || ch.header.cta)) await upsertMenu(ws.id, 'header', { items: ch.header.items, cta: ch.header.cta || null })
+      if (ch?.footer && (ch.footer.items.length || ch.footer.social.length || ch.footer.tagline)) {
+        await upsertMenu(ws.id, 'footer', { items: ch.footer.items, social: ch.footer.social })
+        if (ch.footer.tagline && !t.brand_assets?.tagline) {
+          t.brand_assets = t.brand_assets || {}
+          t.brand_assets.tagline = ch.footer.tagline
+          const [tr] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+          if (tr) await db.update(brandingTokens).set({ tokens: t }).where(eq(brandingTokens.id, tr.id))
+          else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens: t })
+        }
+      }
+    } catch { /* best-effort menu/footer copy */ }
   }
   // Extract just the visible text from a pasted kit for content grounding.
   const kitText = typeof kitHtml === 'string'
