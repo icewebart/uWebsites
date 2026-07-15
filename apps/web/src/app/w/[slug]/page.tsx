@@ -28,6 +28,9 @@ export default function WorkspaceHome() {
   const [building, setBuilding] = useState(false)
   const [buildErr, setBuildErr] = useState('')
   const [mode, setMode] = useState<'structured' | 'freeform'>('structured')
+  // Which dedicated start screen is showing: the AI prompt builder or the
+  // upload-a-design flow. Set from the onboarding card via ?start=design.
+  const [panel, setPanel] = useState<'prompt' | 'design'>('prompt')
   const [kitName, setKitName] = useState('')
   const [kitText, setKitText] = useState('')
   const [kitImage, setKitImage] = useState('') // data: URL when an image design is attached
@@ -122,8 +125,8 @@ export default function WorkspaceHome() {
     const qs = new URLSearchParams(window.location.search)
     setImported(qs.get('imported'))
     // Onboarding "Start from a design" lands here with ?start=design — open the
-    // build screen straight into the design-upload (free-form) mode.
-    if (qs.get('start') === 'design') setMode('freeform')
+    // dedicated design-upload screen (free-form under the hood).
+    if (qs.get('start') === 'design') { setPanel('design'); setMode('freeform') }
     api<PagesResp>(`/workspaces/${slug}/pages`)
       .then(setData)
       .catch(() => router.push('/'))
@@ -257,26 +260,39 @@ export default function WorkspaceHome() {
       {pages.length === 0 ? (
         <div className="build-empty">
           <div className="build-card">
-            <h2>Build your homepage with AI</h2>
-            <p className="muted">Describe your site — the industry, who it's for, and the vibe. The AI drafts a full homepage using your branding, then you can edit it.</p>
-
-            <div className="build-modes">
-              <button className={`build-mode ${mode === 'structured' ? 'on' : ''}`} onClick={() => setMode('structured')}>
-                <b>Structured sections</b><span>Editable section-by-section. Best for iterating.</span>
-              </button>
-              <button className={`build-mode ${mode === 'freeform' ? 'on' : ''}`} onClick={() => setMode('freeform')}>
-                <b>Full custom page</b><span>Free-form AI design, no section limits. Best for a bold one-off.</span>
-              </button>
+            <div className="build-tabs">
+              <button type="button" className={`build-tab ${panel === 'prompt' ? 'on' : ''}`} onClick={() => { setPanel('prompt'); setMode('structured') }}>✦ Build with AI</button>
+              <button type="button" className={`build-tab ${panel === 'design' ? 'on' : ''}`} onClick={() => { setPanel('design'); setMode('freeform') }}>🎨 Start from a design</button>
             </div>
 
-            <textarea className="inp build-ta" rows={4} value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
-              placeholder="e.g. A German-language summer camp for kids aged 8–14 in Cluj. Friendly and playful, with courses, camps, testimonials and a signup CTA." />
-
-            {mode === 'freeform' && (
+            {panel === 'prompt' ? (
               <>
+                <h2>Build your homepage with AI</h2>
+                <p className="muted">Describe your site — the industry, who it's for, and the vibe. The AI drafts a full homepage using your branding, then you can edit it.</p>
+                <textarea className="inp build-ta" rows={4} value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
+                  placeholder="e.g. A German-language summer camp for kids aged 8–14 in Cluj. Friendly and playful, with courses, camps, testimonials and a signup CTA." />
+                <div className="build-suggestions">
+                  {['Homepage for a kids language school — courses, camps, testimonials, signup',
+                    'Landing page for a local coffee roastery — story, products, wholesale',
+                    'Homepage for a boutique dental clinic — services, team, book appointment'].map((s) => (
+                    <button key={s} className="build-chip" onClick={() => setAiPrompt(s)}>{s}</button>
+                  ))}
+                </div>
+                {buildErr && <div className="err" style={{ marginTop: 10 }}>{buildErr}</div>}
+                <div className="build-actions">
+                  <button className="btn btn-primary" onClick={buildWithAi} disabled={building || !aiPrompt.trim()}>
+                    {building ? 'Building your homepage… (~20s)' : '✦ Build with AI'}
+                  </button>
+                  <span className="muted" style={{ fontSize: 13 }}>or <a href={`/w/${slug}/import`}>import an existing site</a></span>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>Start from a design</h2>
+                <p className="muted">Upload a design from Claude Design, Canva or Figma — the full HTML or just a screenshot — and we rebuild it as an editable page, on your brand.</p>
                 <label className="build-kit">
                   <input type="file" accept=".html,.htm,text/html,image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={(e) => onKitFile(e.target.files?.[0])} />
-                  <span className="build-kit-btn">📎 {kitName && kitName !== 'Pasted design' ? `Design: ${kitName}` : 'Attach a design — .html or a screenshot (.png/.jpg) — optional'}</span>
+                  <span className="build-kit-btn">📎 {kitName && kitName !== 'Pasted design' ? `Design: ${kitName}` : 'Attach a design — .html or a screenshot (.png/.jpg)'}</span>
                   {kitName && kitName !== 'Pasted design' && <button type="button" className="build-kit-x" onClick={(e) => { e.preventDefault(); onKitFile(undefined) }}>✕</button>}
                   <span className="muted" style={{ fontSize: 12 }}>HTML from Claude/Canva, or an image mockup — the AI reads it and rebuilds the page.</span>
                 </label>
@@ -311,31 +327,28 @@ export default function WorkspaceHome() {
                     )}
                   </div>
                 )}
+                {designMode === 'freestyle' && !!kitText && (
+                  <textarea className="inp build-ta" rows={3} value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
+                    placeholder="Describe the page you want (freestyle uses your prompt)…" style={{ marginTop: 8 }} />
+                )}
+                {buildErr && <div className="err" style={{ marginTop: 10 }}>{buildErr}</div>}
+                <div className="build-actions">
+                  {(() => {
+                    const fromImage = !!kitImage
+                    const reproduce = !!kitText && designMode === 'reproduce'
+                    const freestyle = !!kitText && designMode === 'freestyle'
+                    return (
+                      <button className="btn btn-primary" onClick={buildWithAi} disabled={building || (!kitText && !kitImage) || (freestyle && !aiPrompt.trim())}>
+                        {building
+                          ? (fromImage ? 'Reading your design… (~45s)' : reproduce ? 'Reproducing your design… (~30s)' : 'Designing your page… (~40s)')
+                          : fromImage ? '✨ Rebuild from image' : reproduce ? '✨ Reproduce design' : '✨ Freestyle from design'}
+                      </button>
+                    )
+                  })()}
+                  <span className="muted" style={{ fontSize: 13 }}>or <a href={`/w/${slug}/import`}>import an existing site</a></span>
+                </div>
               </>
             )}
-
-            <div className="build-suggestions">
-              {['Homepage for a kids language school — courses, camps, testimonials, signup',
-                'Landing page for a local coffee roastery — story, products, wholesale',
-                'Homepage for a boutique dental clinic — services, team, book appointment'].map((s) => (
-                <button key={s} className="build-chip" onClick={() => setAiPrompt(s)}>{s}</button>
-              ))}
-            </div>
-            {buildErr && <div className="err" style={{ marginTop: 10 }}>{buildErr}</div>}
-            <div className="build-actions">
-              {(() => {
-                const fromImage = mode === 'freeform' && !!kitImage
-                const reproduce = mode === 'freeform' && !!kitText && designMode === 'reproduce'
-                return (
-                  <button className="btn btn-primary" onClick={buildWithAi} disabled={building || (!aiPrompt.trim() && !reproduce && !fromImage)}>
-                    {building
-                      ? (fromImage ? 'Reading your design… (~45s)' : reproduce ? 'Reproducing your design… (~30s)' : mode === 'freeform' ? 'Designing your page… (~40s)' : 'Building your homepage… (~20s)')
-                      : fromImage ? '✨ Rebuild from image' : reproduce ? '✨ Reproduce design' : '✦ Build with AI'}
-                  </button>
-                )
-              })()}
-              <span className="muted" style={{ fontSize: 13 }}>or <a href={`/w/${slug}/import`}>import an existing site</a></span>
-            </div>
           </div>
         </div>
       ) : (
