@@ -31,6 +31,9 @@ export default function WorkspaceHome() {
   // Which dedicated start screen is showing: the AI prompt builder or the
   // upload-a-design flow. Set from the onboarding card via ?start=design.
   const [panel, setPanel] = useState<'prompt' | 'design'>('prompt')
+  // Show the build/design screen even when the workspace already has pages —
+  // set when the user clicks "Start from a design" on the dashboard.
+  const [forceStart, setForceStart] = useState(false)
   const [kitName, setKitName] = useState('')
   const [kitText, setKitText] = useState('')
   const [kitImage, setKitImage] = useState('') // data: URL when an image design is attached
@@ -130,7 +133,7 @@ export default function WorkspaceHome() {
     setImported(qs.get('imported'))
     // Onboarding "Start from a design" lands here with ?start=design — open the
     // dedicated design-upload screen (free-form under the hood).
-    if (qs.get('start') === 'design') { setPanel('design'); setMode('freeform') }
+    if (qs.get('start') === 'design') { setPanel('design'); setMode('freeform'); setForceStart(true) }
     api<PagesResp>(`/workspaces/${slug}/pages`)
       .then(setData)
       .catch(() => router.push('/'))
@@ -261,9 +264,15 @@ export default function WorkspaceHome() {
         </div>
       )}
 
-      {pages.length === 0 ? (
+      {pages.length === 0 || forceStart ? (
         <div className="build-empty">
           <div className="build-card">
+            {forceStart && pages.length > 0 && (
+              <button type="button" className="btn btn-ghost" style={{ marginBottom: 12 }} onClick={() => { setForceStart(false); setPanel('prompt') }}>← Back to workspace</button>
+            )}
+            {forceStart && pages.length > 0 && (
+              <p className="muted" style={{ fontSize: 12.5, marginTop: -4, marginBottom: 12 }}>Building or reproducing a design replaces this workspace's <b>home</b> page.</p>
+            )}
             <div className="build-tabs">
               <button type="button" className={`build-tab ${panel === 'prompt' ? 'on' : ''}`} onClick={() => { setPanel('prompt'); setMode('structured') }}>✦ Build with AI</button>
               <button type="button" className={`build-tab ${panel === 'design' ? 'on' : ''}`} onClick={() => { setPanel('design'); setMode('freeform') }}>🎨 Start from a design</button>
@@ -377,6 +386,7 @@ export default function WorkspaceHome() {
           </div>
           <div className="ws-actions">
             <a className="btn btn-ghost" href={`/w/${slug}/p/${home?.id}`}>Edit homepage</a>
+            <button className="btn btn-secondary" onClick={() => { setForceStart(true); setPanel('design'); setMode('freeform'); window.scrollTo(0, 0) }} title="Upload a design (Claude/Canva/Figma HTML or a screenshot) and rebuild the home page from it">🎨 Start from a design</button>
             <button className="btn btn-secondary" onClick={structureAll} disabled={structuringAll} title="Rebuild every page into clean sections from existing content — free, no AI credits">
               {structuringAll ? 'Structuring…' : '⚡ Structure all'}
             </button>
