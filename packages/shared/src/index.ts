@@ -21,6 +21,75 @@ export interface ApiOk<T> { ok: true; data: T }
 export interface ApiErr { ok: false; error: string }
 export type ApiResponse<T> = ApiOk<T> | ApiErr
 
+// ---- Billing / subscription plans ----
+// The single source of truth for pricing, shared by the API (Stripe checkout),
+// the app (Upgrade UI + entitlement checks), and the marketing pricing page.
+// `stripePriceEnv` names the env var on the API that holds each plan's Stripe
+// Price ID (set after creating the products — see scripts/stripe-setup.ts), so
+// no price IDs are hard-coded and test/live keys can differ per environment.
+export type PlanId = 'starter' | 'growth' | 'studio'
+
+export interface Plan {
+  id: PlanId
+  name: string
+  priceUsd: number                 // monthly, USD
+  blurb: string
+  features: string[]               // display bullets, in order
+  limits: { websites: number; articlesPerWeek: number; seats: number }
+  stripePriceEnv: string           // env var on the API holding the Stripe Price ID
+  highlighted?: boolean            // visually featured tier on the pricing page
+}
+
+export const PLANS: Plan[] = [
+  {
+    id: 'starter',
+    name: 'Starter',
+    priceUsd: 5,
+    blurb: 'Get one site live and growing on autopilot.',
+    features: [
+      '1 website',
+      '1 AI article every week',
+      'AI website builder + design import',
+      'Published on a uwebsites.net address',
+    ],
+    limits: { websites: 1, articlesPerWeek: 1, seats: 1 },
+    stripePriceEnv: 'STRIPE_PRICE_STARTER',
+  },
+  {
+    id: 'growth',
+    name: 'Growth',
+    priceUsd: 19,
+    blurb: 'For a small brand that wants to rank and look pro.',
+    features: [
+      '3 websites',
+      '3 AI articles every week',
+      'Custom domain + free SSL',
+      'SEO + Google Analytics & Search Console',
+      'Remove the “made with uWebsites” badge',
+    ],
+    limits: { websites: 3, articlesPerWeek: 3, seats: 1 },
+    stripePriceEnv: 'STRIPE_PRICE_GROWTH',
+    highlighted: true,
+  },
+  {
+    id: 'studio',
+    name: 'Studio',
+    priceUsd: 49,
+    blurb: 'Run a portfolio of sites with fresh content daily.',
+    features: [
+      '10 websites',
+      'A fresh AI article every day',
+      'Everything in Growth',
+      'Priority builds + AI image generation',
+      '2 team seats',
+    ],
+    limits: { websites: 10, articlesPerWeek: 7, seats: 2 },
+    stripePriceEnv: 'STRIPE_PRICE_STUDIO',
+  },
+]
+
+export const planById = (id: string): Plan | undefined => PLANS.find((p) => p.id === id)
+
 // Curated Google Fonts list — covers ~95% of the fonts our importer is likely
 // to find on a real site, organized by family character so the picker makes
 // sense to a non-designer. Edit this one list to add/remove fonts; the
