@@ -24,19 +24,20 @@ export type ApiResponse<T> = ApiOk<T> | ApiErr
 // ---- Billing / subscription plans ----
 // The single source of truth for pricing, shared by the API (Stripe checkout),
 // the app (Upgrade UI + entitlement checks), and the marketing pricing page.
-// `stripePriceEnv` names the env var on the API that holds each plan's Stripe
-// Price ID (set after creating the products — see scripts/stripe-setup.ts), so
-// no price IDs are hard-coded and test/live keys can differ per environment.
+// `stripeLookupKey` is a STABLE key attached to each Stripe Price by
+// scripts/stripe-setup.ts. Checkout resolves the price by that key at runtime,
+// so no Stripe price IDs live in env or in code — and the identical key works in
+// BOTH test and live mode (each mode has its own price under the same key).
 export type PlanId = 'starter' | 'growth' | 'studio'
 
 export interface Plan {
   id: PlanId
   name: string
-  priceUsd: number                 // monthly, USD
+  priceUsd: number                 // monthly, USD — also what stripe-setup.ts creates
   blurb: string
   features: string[]               // display bullets, in order
   limits: { websites: number; articlesPerWeek: number; seats: number }
-  stripePriceEnv: string           // env var on the API holding the Stripe Price ID
+  stripeLookupKey: string          // Stripe Price lookup_key (same in test + live)
   highlighted?: boolean            // visually featured tier on the pricing page
 }
 
@@ -53,7 +54,7 @@ export const PLANS: Plan[] = [
       'Published on a uwebsites.net address',
     ],
     limits: { websites: 1, articlesPerWeek: 1, seats: 1 },
-    stripePriceEnv: 'STRIPE_PRICE_STARTER',
+    stripeLookupKey: 'uwebsites_starter_monthly',
   },
   {
     id: 'growth',
@@ -68,7 +69,7 @@ export const PLANS: Plan[] = [
       'Remove the “made with uWebsites” badge',
     ],
     limits: { websites: 3, articlesPerWeek: 3, seats: 1 },
-    stripePriceEnv: 'STRIPE_PRICE_GROWTH',
+    stripeLookupKey: 'uwebsites_growth_monthly',
     highlighted: true,
   },
   {
@@ -84,7 +85,7 @@ export const PLANS: Plan[] = [
       '2 team seats',
     ],
     limits: { websites: 10, articlesPerWeek: 7, seats: 2 },
-    stripePriceEnv: 'STRIPE_PRICE_STUDIO',
+    stripeLookupKey: 'uwebsites_studio_monthly',
   },
 ]
 

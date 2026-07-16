@@ -1,12 +1,13 @@
 /**
  * One-time (idempotent) Stripe product + price setup, driven by PLANS.
  *
- * Run with your Stripe TEST secret key in the env:
+ * Run once per Stripe MODE (test, then live) with that mode's secret key:
  *   STRIPE_SECRET_KEY=sk_test_... pnpm --filter @uwebsites/api exec tsx scripts/stripe-setup.ts
  *
- * It creates one product + one monthly USD price per plan (reusing any that
- * already exist, keyed by a stable lookup_key), then prints the
- * STRIPE_PRICE_* env lines to paste into the API server env.
+ * Creates one product + one monthly USD price per plan, each tagged with the
+ * plan's stable lookup_key. Nothing to copy into .env: the API resolves prices
+ * by that lookup_key at runtime, and the same key exists in both modes.
+ * Safe to re-run — existing prices are reused, not duplicated.
  */
 import Stripe from 'stripe'
 import { PLANS } from '@uwebsites/shared'
@@ -19,9 +20,8 @@ if (!key) {
 const s = new Stripe(key)
 
 async function main() {
-  const envLines: string[] = []
   for (const p of PLANS) {
-    const lookupKey = `uwebsites_${p.id}_monthly`
+    const lookupKey = p.stripeLookupKey
     const existing = await s.prices.list({ lookup_keys: [lookupKey], active: true, limit: 1 })
     let price = existing.data[0]
     if (price) {
@@ -42,14 +42,16 @@ async function main() {
       })
       console.log(`+ ${p.id.padEnd(8)} created product ${product.id} + price ${price.id}`)
     }
-    envLines.push(`${p.stripePriceEnv}=${price.id}`)
+    console.log(`  $${p.priceUsd}/mo · lookup_key=${lookupKey}`)
   }
-  console.log('\n— Add these to the API server env —\n')
-  console.log(envLines.join('\n'))
-  console.log('\nThen register a webhook (Stripe Dashboard → Developers → Webhooks)')
-  console.log('pointing at  <API_URL>/billing/webhook  for events:')
-  console.log('  checkout.session.completed, customer.subscription.created/updated/deleted')
-  console.log('and set STRIPE_WEBHOOK_SECRET to its signing secret.')
+  console.log('\n✓ Products ready. Nothing to copy into .env — the API resolves')
+  console.log('  these prices by lookup_key at runtime.\n')
+  console.log('Remaining setup:')
+  console.log('  1. STRIPE_SECRET_KEY  — this mode\'s secret key, on the API server')
+  console.log('  2. Register a webhook (Stripe Dashboard → Developers → Webhooks)')
+  console.log('     pointing at  <API_URL>/billing/webhook  for events:')
+  console.log('       checkout.session.completed, customer.subscription.created/updated/deleted')
+  console.log('     then set STRIPE_WEBHOOK_SECRET to its signing secret.')
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })

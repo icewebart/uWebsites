@@ -2,24 +2,32 @@ import { Router, type Request, type Response } from 'express'
 import { desc, eq } from 'drizzle-orm'
 import Stripe from 'stripe'
 import { db, accounts, subscriptions } from '@uwebsites/db'
-import { PLANS, planById, type Plan, type PlanId } from '@uwebsites/shared'
+import { planById, type Plan, type PlanId } from '@uwebsites/shared'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 
 // Stripe subscriptions. ONE checkout implementation lives here; both the app's
 // Upgrade flow and the marketing pricing page funnel through /billing/checkout.
-// Secrets come from the server env only:
-//   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
-//   STRIPE_PRICE_STARTER / _GROWTH / _STUDIO  (see scripts/stripe-setup.ts)
+// Only two secrets, both from the server env:
+//   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
+// Prices are NOT configured here: each plan's Price is resolved at runtime by
+// its stable lookup_key (set by scripts/stripe-setup.ts), so there are no price
+// IDs in env or code and the same build works against test AND live mode.
 
 function stripe(): Stripe | null {
   const key = process.env.STRIPE_SECRET_KEY
   return key ? new Stripe(key) : null
 }
-const priceIdForPlan = (p: Plan): string | undefined => process.env[p.stripePriceEnv]
-function planFromPriceId(priceId?: string | null): PlanId | undefined {
-  if (!priceId) return undefined
-  for (const p of PLANS) if (process.env[p.stripePriceEnv] === priceId) return p.id
-  return undefined
+
+// lookup_key → price id. Cached per process; prices are immutable in Stripe, so
+// a hit never goes stale (re-running stripe-setup makes a new key or reuses it).
+const priceCache = new Map<string, string>()
+async function priceIdForPlan(s: Stripe, plan: Plan): Promise<string | null> {
+  const cached = priceCache.get(plan.stripeLookupKey)
+  if (cached) return cached
+  const found = await s.prices.list({ lookup_keys: [plan.stripeLookupKey], active: true, limit: 1 })
+  const id = found.data[0]?.id
+  if (id) priceCache.set(plan.stripeLookupKey, id)
+  return id ?? null
 }
 const appUrl = () => process.env.FRONTEND_URL || 'http://localhost:3014'
 
@@ -32,8 +40,8 @@ billingRouter.post('/checkout', requireAuth, async (req: AuthRequest, res) => {
   if (!s) return res.status(503).json({ ok: false, error: 'Billing is not configured yet.' })
   const plan = planById(String(req.body?.plan || ''))
   if (!plan) return res.status(400).json({ ok: false, error: 'Unknown plan' })
-  const priceId = priceIdForPlan(plan)
-  if (!priceId) return res.status(503).json({ ok: false, error: `No Stripe price configured for ${plan.id} (${plan.stripePriceEnv}).` })
+  const priceId = await priceIdForPlan(s, plan)
+  if (!priceId) return res.status(503).json({ ok: false, error: `No Stripe price found for ${plan.id} — run scripts/stripe-setup.ts to create the products.` })
 
   const [acc] = await db.select().from(accounts).where(eq(accounts.id, req.user!.accountId)).limit(1)
   if (!acc) return res.status(404).json({ ok: false, error: 'account not found' })
@@ -91,8 +99,12 @@ billingRouter.get('/subscription', requireAuth, async (req: AuthRequest, res) =>
 // onto accounts.plan (the quick-read field used for entitlements).
 async function upsertSubscription(sub: Stripe.Subscription) {
   const accountId = sub.metadata?.accountId
-  const priceId = sub.items?.data?.[0]?.price?.id
-  const plan = (sub.metadata?.plan as PlanId) || planFromPriceId(priceId)
+  const priceObj = sub.items?.data?.[0]?.price
+  const priceId = priceObj?.id
+  // Our checkout always stamps the plan on the subscription; fall back to the
+  // plan stamped on the Price itself (by stripe-setup.ts) for subs created
+  // outside our flow (e.g. straight from the Stripe dashboard).
+  const plan = (sub.metadata?.plan as PlanId) || (priceObj?.metadata?.plan as PlanId | undefined)
   if (!accountId || !plan) { console.warn('[billing] subscription missing accountId/plan:', sub.id); return }
   const periodEnd = (sub as any).current_period_end as number | undefined
   const row = {
