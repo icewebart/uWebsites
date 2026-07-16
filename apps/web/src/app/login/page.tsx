@@ -10,11 +10,17 @@ export default function Login() {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
 
+  // A ?next=/path (internal only, to prevent open redirects) sends the user back
+  // where they came from after login — e.g. /checkout?plan=growth from pricing.
+  function nextUrl() {
+    try { const n = new URLSearchParams(window.location.search).get('next'); return n && n.startsWith('/') ? n : '/' } catch { return '/' }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setErr(''); setBusy(true)
     try {
       await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
-      router.push('/')  // returning users go straight to the dashboard, never onboarding
+      router.push(nextUrl())  // returning users go straight to the dashboard (or ?next)
     } catch (e: any) { setErr(e.message || 'Login failed'); setBusy(false) }
   }
 

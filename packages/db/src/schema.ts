@@ -159,6 +159,24 @@ export const creditLedger = pgTable('credit_ledger', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
+// ---- billing ----
+// One row per account's Stripe subscription (latest wins; we upsert by
+// stripeSubscriptionId on webhook). accounts.plan mirrors `plan` here for quick
+// reads; this table holds the full Stripe status + period for the account page.
+export const subscriptions = pgTable('subscriptions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  stripeCustomerId: text('stripe_customer_id').notNull(),
+  stripeSubscriptionId: text('stripe_subscription_id').notNull().unique(),
+  plan: text('plan').notNull(),                       // starter | growth | studio
+  status: text('status').notNull(),                   // active | trialing | past_due | canceled | ...
+  priceId: text('price_id'),
+  currentPeriodEnd: timestamp('current_period_end'),
+  cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
 export const auditLog = pgTable('audit_log', {
   id: uuid('id').primaryKey().defaultRandom(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),

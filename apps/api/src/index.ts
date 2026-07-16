@@ -12,6 +12,7 @@ import { domainsRouter } from './routes/domains.js'
 import { menusRouter } from './routes/menus.js'
 import { accountRouter } from './routes/account.js'
 import { newsletterRouter } from './routes/newsletter.js'
+import { billingRouter, billingWebhookHandler } from './routes/billing.js'
 
 const app = express()
 app.set('trust proxy', 1) // Cloudflare is the first hop in prod
@@ -25,6 +26,10 @@ app.use(cors({
   origin: (origin, cb) => (!origin || allowed.includes(origin)) ? cb(null, true) : cb(new Error('CORS')),
   credentials: true,
 }))
+// Stripe webhook FIRST — it needs the exact raw body for signature verification,
+// so it must run before the JSON parser turns the body into an object.
+app.post('/billing/webhook', express.raw({ type: 'application/json' }), billingWebhookHandler)
+
 // 6 MB body cap — raw-html blocks from the sectionizer include inlined CSS
 // (up to 800 KB per page) so a multi-section save easily exceeds the default
 // 100 KB. 6 MB is generous; pages much bigger than this should be split.
@@ -47,6 +52,7 @@ app.get('/sections', (_req, res) => res.json({ ok: true, data: __SECTIONS }))
 app.use('/workspaces', domainsRouter)
 app.use('/workspaces', menusRouter)
 app.use('/account', accountRouter)
+app.use('/billing', billingRouter)
 // Public newsletter subscribe — published sites POST here cross-origin.
 app.use('/newsletter', cors({ origin: true }), newsletterRouter)
 

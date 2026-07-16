@@ -21,7 +21,8 @@
     "express": "^4.21.0",
     "jose": "^5.9.0",
     "nanoid": "^5.0.9",
-    "playwright": "^1.61.1"
+    "playwright": "^1.61.1",
+    "stripe": "^22.3.2"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
