@@ -771,17 +771,14 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
   return renderPage({ title: row.title }, body + previewNav, t, { name: row.wsName }, '#', menus)
 }
 
-// POST /workspaces/:slug/publish
-publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) => {
-  const [ws] = await db.select().from(workspaces)
-    .where(eq(workspaces.slug, String(req.params.slug))).limit(1)
-  if (!ws || ws.accountId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'workspace not found' })
-
+// Compile a workspace to static files on disk. Shared by the publish endpoint
+// AND the auto-write engine (so an auto-published article actually goes live).
+export async function buildSite(ws: { id: string; slug: string; name: string; accountId: string }): Promise<{ url: string; pages: number }> {
   const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
   const t = (tok?.tokens as any) ?? DEFAULT_TOKENS
   const pageRows = await db.select().from(pages).where(eq(pages.workspaceId, ws.id))
   const publishable = pageRows.filter((p) => p.status === 'published' || true) // v1: publish all
-  if (!publishable.length) return res.status(400).json({ ok: false, error: 'no pages to publish' })
+  if (!publishable.length) throw new Error('no pages to publish')
 
   const outDir = path.join(SITES_DIR, ws.slug)
   const base = `${SITES_URL}/${ws.slug}`
@@ -834,9 +831,18 @@ publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) 
     if (publishedIds.length) await db.update(pages).set({ status: 'published' }).where(inArray(pages.id, publishedIds))
 
     await db.insert(builds).values({ workspaceId: ws.id, status: 'deployed', artifactRef: outDir, deployedAt: new Date() })
-    res.json({ ok: true, data: { url: `${base}/`, pages: count } })
+    return { url: `${base}/`, pages: count }
   } catch (e: any) {
     await db.insert(builds).values({ workspaceId: ws.id, status: 'failed', artifactRef: outDir })
-    res.status(500).json({ ok: false, error: 'publish failed: ' + (e?.message || 'unknown') })
+    throw e
   }
+}
+
+// POST /workspaces/:slug/publish
+publishRouter.post('/:slug/publish', requireAuth, async (req: AuthRequest, res) => {
+  const [ws] = await db.select().from(workspaces)
+    .where(eq(workspaces.slug, String(req.params.slug))).limit(1)
+  if (!ws || ws.accountId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  try { res.json({ ok: true, data: await buildSite(ws) }) }
+  catch (e: any) { res.status(/no pages/.test(e?.message || '') ? 400 : 500).json({ ok: false, error: 'publish failed: ' + (e?.message || 'unknown') }) }
 })

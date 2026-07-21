@@ -1409,16 +1409,17 @@ richtext sections use semantic HTML only (p, h2, h3, ul, li, strong, em, a — n
   }
 })
 
-// POST /ai/generate-article — write a real, SEO-optimised ARTICLE (article-hero
-// + article-body) for a keyword, using the brand voice + examples + the article
-// rules. Saves a draft article. This is what Article Plan's "Draft now" calls.
-aiRouter.post('/generate-article', requireAuth, async (req: AuthRequest, res) => {
+// Write a real, SEO-optimised ARTICLE (article-hero + article-body) for a
+// keyword, using the brand voice + examples + the article rules. Shared by the
+// /generate-article endpoint (draft) and the auto-write engine (publish=true).
+export async function writeArticleForKeyword(
+  ws: { id: string; name: string; slug: string; accountId: string },
+  keyword: string,
+  opts: { angle?: string; publish?: boolean } = {},
+): Promise<{ id: string; slug: string; title: string }> {
+  const angle = opts.angle
   const a = ai()
-  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
-  const { slug, keyword, angle } = req.body ?? {}
-  if (!slug || !keyword) return res.status(400).json({ ok: false, error: 'slug and keyword required' })
-  const ws = await ownedWs(String(slug), req.user!.accountId)
-  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  if (!a) throw new Error('AI not configured')
   const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
   const tk = (tok?.tokens as any) || {}
   const voice = tk.voice ? `BRAND VOICE (write like this): ${tk.voice}` : ''
@@ -1444,10 +1445,10 @@ aiRouter.post('/generate-article', requireAuth, async (req: AuthRequest, res) =>
   let relatedSearches = ''
   try {
     const scProp = tk?.analytics?.scProperty
-    const conn = await getGoogleConn(req.user!.accountId)
+    const conn = await getGoogleConn(ws.accountId)
     if (scProp && conn && hasScope(conn, SCOPE_SEARCH)) {
       const kwTokens = String(keyword).toLowerCase().split(/\s+/).filter((w) => w.length > 3)
-      const opps = await scOpportunities(req.user!.accountId, scProp, 90)
+      const opps = await scOpportunities(ws.accountId, scProp, 90)
       const related = opps.filter((o: any) => kwTokens.some((tk2) => o.query.toLowerCase().includes(tk2))).slice(0, 10).map((o: any) => o.query)
       if (related.length) relatedSearches = `RELATED SEARCHES people use (cover these naturally / as FAQ questions):\n${related.map((q: string) => `- ${q}`).join('\n')}`
     }
@@ -1470,16 +1471,32 @@ aiRouter.post('/generate-article', requireAuth, async (req: AuthRequest, res) =>
       messages: [{ role: 'user', content: `Target keyword: "${keyword}".${angle ? ` Angle: ${angle}.` : ''} Write the full article now.` }],
     })
     const tu = r.content.find((b: any) => b.type === 'tool_use') as any
-    if (!tu) return res.status(502).json({ ok: false, error: 'Model returned no article' })
+    if (!tu) throw new Error('Model returned no article')
     const { title, metaDescription, deck, bodyHtml } = tu.input as { title: string; metaDescription: string; deck?: string; bodyHtml: string }
     const html = deck ? `<p><strong>${deck}</strong></p>\n${bodyHtml}` : bodyHtml
     const blocks = articleBlocksFromImport(title, html, undefined, tmpl)
     const pslug = String(keyword).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) + '-' + Math.random().toString(36).slice(2, 5)
-    const [created] = await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug: pslug, title, status: 'draft', blocks: blocks as any, seo: { description: metaDescription, keyword } as any }).returning()
-    await logAiJob(ws.id, 'article', 'done', { source: 'generate-article', keyword: String(keyword).slice(0, 200), title }, 1, created.id)
-    res.json({ ok: true, data: { id: created.id, slug: created.slug, title: created.title } })
+    const [created] = await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug: pslug, title, status: opts.publish ? 'published' : 'draft', blocks: blocks as any, seo: { description: metaDescription, keyword } as any }).returning()
+    await logAiJob(ws.id, 'article', 'done', { source: opts.publish ? 'auto-write' : 'generate-article', keyword: String(keyword).slice(0, 200), title }, 1, created.id)
+    return { id: created.id, slug: created.slug, title: created.title }
   } catch (e: any) {
-    res.status(502).json({ ok: false, error: 'Article generation failed: ' + (e?.message || 'unknown') })
+    if (e?.message === 'Model returned no article') throw e
+    throw new Error('Article generation failed: ' + (e?.message || 'unknown'))
+  }
+}
+
+// POST /ai/generate-article — the manual "Draft now" from Article Plan (draft).
+aiRouter.post('/generate-article', requireAuth, async (req: AuthRequest, res) => {
+  const { slug, keyword, angle } = req.body ?? {}
+  if (!slug || !keyword) return res.status(400).json({ ok: false, error: 'slug and keyword required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  try {
+    const data = await writeArticleForKeyword(ws, String(keyword), { angle })
+    res.json({ ok: true, data })
+  } catch (e: any) {
+    const msg = e?.message || 'unknown'
+    res.status(msg === 'AI not configured' ? 503 : 502).json({ ok: false, error: msg === 'AI not configured' ? 'AI not configured — set ANTHROPIC_API_KEY on the server.' : msg })
   }
 })
 

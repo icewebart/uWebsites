@@ -13,6 +13,7 @@ import { menusRouter } from './routes/menus.js'
 import { accountRouter } from './routes/account.js'
 import { newsletterRouter } from './routes/newsletter.js'
 import { billingRouter, billingWebhookHandler } from './routes/billing.js'
+import { cronRouter } from './routes/cron.js'
 
 const app = express()
 app.set('trust proxy', 1) // Cloudflare is the first hop in prod
@@ -53,6 +54,8 @@ app.use('/workspaces', domainsRouter)
 app.use('/workspaces', menusRouter)
 app.use('/account', accountRouter)
 app.use('/billing', billingRouter)
+// Machine-to-machine cron (auto-write engine) — gated by CRON_SECRET, no session.
+app.use('/internal/cron', cronRouter)
 // Public newsletter subscribe — published sites POST here cross-origin.
 app.use('/newsletter', cors({ origin: true }), newsletterRouter)
 
