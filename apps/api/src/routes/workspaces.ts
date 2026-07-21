@@ -4,6 +4,7 @@ import path from 'node:path'
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
 import { db, workspaces, memberships, pages, brandingTokens, builds, domains, aiJobs, menus, collections, collectionItems, media, redirects } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
+import { guardCreateWorkspace } from '../lib/entitlements.js'
 
 export const workspacesRouter = Router()
 
@@ -47,6 +48,9 @@ function baseSlug(name: string): string {
 workspacesRouter.post('/', requireAuth, async (req: AuthRequest, res) => {
   const { name } = req.body ?? {}
   if (!name || !String(name).trim()) return res.status(400).json({ ok: false, error: 'name required' })
+  // Plan limit: number of websites per account.
+  const overLimit = await guardCreateWorkspace(req.user!.accountId)
+  if (overLimit) return res.status(402).json({ ok: false, error: overLimit })
   // Ensure the slug is globally unique — the published site is served at
   // <slug>.uwebsites.net, and workspace lookup is by slug, so a duplicate slug
   // shadows another workspace (the exact bug behind two "resurse-umane"). Append

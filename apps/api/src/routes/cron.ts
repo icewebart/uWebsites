@@ -4,6 +4,7 @@ import { db, workspaces, accounts, brandingTokens, aiJobs, builds } from '@uwebs
 import { planById } from '@uwebsites/shared'
 import { writeArticleForKeyword } from './ai.js'
 import { buildSite } from './publish.js'
+import { articlesThisWeek } from '../lib/entitlements.js'
 
 // The auto-write engine — the motor behind Article Plan's "Weekly auto-write"
 // toggle. Meant to be pinged once a day (see /internal/cron/auto-write). Each
@@ -18,7 +19,6 @@ type PlanItem = { id: string; keyword: string; status: string; priority?: number
 export async function runAutoWrite(): Promise<{ checked: number; written: Array<{ slug: string; title: string }>; errors: number }> {
   const written: Array<{ slug: string; title: string }> = []
   let checked = 0, errors = 0
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
 
   const rows = await db.select({ ws: workspaces, plan: accounts.plan })
     .from(workspaces).innerJoin(accounts, eq(workspaces.accountId, accounts.id))
@@ -32,17 +32,18 @@ export async function runAutoWrite(): Promise<{ checked: number; written: Array<
       checked++
       const items: PlanItem[] = Array.isArray(ap.items) ? ap.items : []
 
-      // Cadence gate. Paid plans get PLANS.limits.articlesPerWeek (rolling 7-day
-      // window); a free/trial account gets ONE sample article, ever.
-      const jobs = await db.select().from(aiJobs)
-        .where(and(eq(aiJobs.workspaceId, ws.id), eq(aiJobs.kind, 'article')))
-        .orderBy(desc(aiJobs.createdAt)).limit(300)
+      // Cadence gate. Paid plans get PLANS.limits.articlesPerWeek PER ACCOUNT
+      // (rolling 7 days, so a multi-site account can't over-produce); a
+      // free/trial account gets ONE sample article, ever.
       const planDef = planById(plan)
       let eligible: boolean
       if (planDef) {
-        const thisWeek = jobs.filter((j) => j.createdAt && j.createdAt >= weekAgo).length
+        const thisWeek = await articlesThisWeek(ws.accountId) // includes any written earlier this run
         eligible = thisWeek < planDef.limits.articlesPerWeek
       } else {
+        const jobs = await db.select().from(aiJobs)
+          .where(and(eq(aiJobs.workspaceId, ws.id), eq(aiJobs.kind, 'article')))
+          .orderBy(desc(aiJobs.createdAt)).limit(300)
         const autoEver = jobs.filter((j) => (j.input as any)?.source === 'auto-write').length
         eligible = autoEver < 1
       }

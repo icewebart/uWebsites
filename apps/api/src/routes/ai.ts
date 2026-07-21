@@ -12,6 +12,7 @@ import { articleBlocksFromImport, structureFromSource } from './import.js'
 import { extractBrandFromDom, headlessRender } from '../lib/headless.js'
 import { fpFromHtml, fitSection, looksStructured } from '../lib/section-classifier.js'
 import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities } from '../lib/google-data.js'
+import { guardWriteArticle } from '../lib/entitlements.js'
 
 // Default rules the AI follows when writing an article (the Rules page can
 // override these per workspace via tokens.article_rules).
@@ -1491,6 +1492,9 @@ aiRouter.post('/generate-article', requireAuth, async (req: AuthRequest, res) =>
   if (!slug || !keyword) return res.status(400).json({ ok: false, error: 'slug and keyword required' })
   const ws = await ownedWs(String(slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  // Plan limit: AI articles per week (per account; counts manual + auto-write).
+  const overQuota = await guardWriteArticle(req.user!.accountId)
+  if (overQuota) return res.status(402).json({ ok: false, error: overQuota })
   try {
     const data = await writeArticleForKeyword(ws, String(keyword), { angle })
     res.json({ ok: true, data })

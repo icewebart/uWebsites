@@ -91,6 +91,13 @@ export const PLANS: Plan[] = [
 
 export const planById = (id: string): Plan | undefined => PLANS.find((p) => p.id === id)
 
+// Limits for any account, including free/trial (which isn't a Plan). Enforced
+// PER ACCOUNT: e.g. Growth = 3 websites + 3 articles/week total, not per site.
+export type PlanLimits = { websites: number; articlesPerWeek: number; seats: number }
+export const TRIAL_LIMITS: PlanLimits = { websites: 1, articlesPerWeek: 1, seats: 1 }
+export const limitsForPlan = (plan: string | null | undefined): PlanLimits =>
+  planById(plan || '')?.limits ?? TRIAL_LIMITS
+
 // Curated Google Fonts list — covers ~95% of the fonts our importer is likely
 // to find on a real site, organized by family character so the picker makes
 // sense to a non-designer. Edit this one list to add/remove fonts; the
