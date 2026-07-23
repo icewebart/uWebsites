@@ -24,7 +24,7 @@ function Onboarding() {
   const [step, setStep] = useState<1 | 2>(1)
   const [ws, setWs] = useState('')
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
-  const [choice, setChoice] = useState<'import' | 'build' | 'design'>('import')
+  const [choice, setChoice] = useState<'import' | 'build' | 'design' | 'articles'>('import')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [checking, setChecking] = useState(true)
@@ -61,6 +61,8 @@ function Onboarding() {
     if (!workspace) return router.push('/')
     if (choice === 'import') router.push(`/w/${workspace.slug}/import`)
     else if (choice === 'design') router.push(`/w/${workspace.slug}?start=design`)
+    // Content-only: no site to build — go straight to the keyword pipeline.
+    else if (choice === 'articles') router.push(`/w/${workspace.slug}/article-plan`)
     else router.push(`/w/${workspace.slug}`)
   }
 
@@ -97,7 +99,7 @@ function Onboarding() {
         <>
           <h1>How do you want to start?</h1>
           <p className="muted">For <strong>{workspace?.name}</strong>.</p>
-          <div className="choice three">
+          <div className="choice four">
             <div className={`choice-card${choice === 'import' ? ' sel' : ''}`} onClick={() => setChoice('import')}>
               <div className="ic">⤓</div><h3>Import a site</h3>
               <p className="muted" style={{ fontSize: 13 }}>Pull in an existing WordPress (or other) site; we classify and rebuild it — keeping your URLs.</p>
@@ -110,9 +112,13 @@ function Onboarding() {
               <div className="ic">✨</div><h3>Build a website</h3>
               <p className="muted" style={{ fontSize: 13 }}>Start from a clean, mobile-first template and customise it with AI.</p>
             </div>
+            <div className={`choice-card${choice === 'articles' ? ' sel' : ''}`} onClick={() => setChoice('articles')}>
+              <div className="ic">📝</div><h3>Articles only</h3>
+              <p className="muted" style={{ fontSize: 13 }}>No site to build — you already have one. Research keywords and publish SEO articles into your own WordPress.</p>
+            </div>
           </div>
           <button className="btn btn-primary btn-lg" style={{ minWidth: 240, marginTop: 24 }} onClick={start}>
-            {choice === 'import' ? 'Continue to import →' : choice === 'design' ? 'Upload your design →' : 'Start building →'}
+            {choice === 'import' ? 'Continue to import →' : choice === 'design' ? 'Upload your design →' : choice === 'articles' ? 'Set up articles →' : 'Start building →'}
           </button>
           <div><button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={() => setStep(1)}>← Back</button></div>
         </>

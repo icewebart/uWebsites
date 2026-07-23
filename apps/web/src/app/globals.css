@@ -529,7 +529,10 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .err{color:#b00020;font-size:13px;margin-bottom:10px;min-height:16px}
 
 /* onboarding */
-.ob{max-width:680px;margin:0 auto;padding:48px 24px;text-align:center}
+/* Wide enough for the 4-up choice grid (and the 3-up plan picker on /checkout).
+   The step-1 form and the plan cards keep their own narrower caps. */
+.ob{max-width:1040px;margin:0 auto;padding:48px 24px;text-align:center}
+.ob > .muted{max-width:620px;margin-left:auto;margin-right:auto}
 .steps{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:28px}
 .steps .dot{width:28px;height:28px;border-radius:50%;background:var(--bg-subtle);border:1px solid var(--border);color:var(--text-muted);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
 .steps .dot.on{background:var(--forest);color:#fff;border-color:var(--forest)}
@@ -537,6 +540,9 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .ob h1{font-size:26px;margin-bottom:8px}
 .choice{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px}
 .choice.three{grid-template-columns:repeat(3,1fr)}
+.choice.four{grid-template-columns:repeat(4,1fr)}
+/* 4 cards get cramped before the mobile breakpoint — go 2×2 in between. */
+@media(max-width:1040px){.choice.four{grid-template-columns:repeat(2,1fr)}}
 .choice-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:24px;cursor:pointer;transition:.15s}
 .choice-card:hover,.choice-card.sel{border-color:var(--forest);background:var(--lime-light)}
 .choice-card .ic{width:46px;height:46px;border-radius:var(--r-sm);background:var(--lime-light);color:var(--forest);display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 12px}
