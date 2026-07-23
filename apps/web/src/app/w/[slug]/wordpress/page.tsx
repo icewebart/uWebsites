@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { api } from '@/lib/api'
+import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
 type Conn = {
@@ -109,10 +109,14 @@ export default function WordPressPage() {
         <div className="ctl-group card" style={{ marginTop: 16, maxWidth: 720 }}>
           <h3>Option A — with our plugin <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>(recommended)</span></h3>
           <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
-            Install the uWebsites plugin, open <b>Settings → uWebsites</b>, copy the connection code and paste it here.
             The plugin also writes your <b>Yoast / RankMath</b> meta and puts the featured image in your media library —
             things the plain WordPress API can&apos;t do.
           </p>
+          <ol className="muted" style={{ fontSize: 13, paddingLeft: 18, margin: '0 0 12px', lineHeight: 1.7 }}>
+            <li><a href={`${API_URL}/plugin/uwebsites.zip`} download>Download the plugin (.zip)</a>, then in WordPress go to <b>Plugins → Add New → Upload Plugin</b> and activate it.</li>
+            <li>Open <b>Settings → uWebsites</b>, copy the connection code, and paste it below.</li>
+          </ol>
+          <a className="btn btn-secondary" href={`${API_URL}/plugin/uwebsites.zip`} download style={{ marginBottom: 12, display: 'inline-block' }}>⬇ Download plugin (.zip)</a>
           <div className="ctl-row"><label>Connection code</label>
             <input className="inp" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Paste the code from your WordPress admin" />
           </div>

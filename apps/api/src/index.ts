@@ -15,6 +15,7 @@ import { newsletterRouter } from './routes/newsletter.js'
 import { billingRouter, billingWebhookHandler } from './routes/billing.js'
 import { cronRouter } from './routes/cron.js'
 import { wordpressRouter } from './routes/wordpress.js'
+import { pluginRouter } from './routes/plugin.js'
 
 const app = express()
 app.set('trust proxy', 1) // Cloudflare is the first hop in prod
@@ -39,6 +40,8 @@ app.use(express.json({ limit: '6mb' }))
 app.use(cookieParser())
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'uwebsites-api', version: '0.1.0', ts: new Date().toISOString() }))
+// Public WordPress plugin download (GPL code, no tenant data).
+app.use('/plugin', pluginRouter)
 
 app.use('/auth', authRouter)
 app.use('/auth', googleRouter)
