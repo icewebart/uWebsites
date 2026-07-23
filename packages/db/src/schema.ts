@@ -159,6 +159,26 @@ export const creditLedger = pgTable('credit_ledger', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
+// ---- WordPress delivery ----
+// A client's external WordPress site that we publish generated articles into.
+// `authSecret` is either a WP Application Password (Phase 1, REST API) or the
+// token issued by our plugin (Phase 2). Server-side only — NEVER returned to
+// the client (the API returns a masked hint), same rule as accounts.settings.
+export const wordpressConnections = pgTable('wordpress_connections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
+  siteUrl: text('site_url').notNull(),                    // https://client.com
+  mode: text('mode').notNull().default('app_password'),   // app_password | plugin
+  username: text('username'),                             // app_password mode only
+  authSecret: text('auth_secret').notNull(),
+  defaultStatus: text('default_status').notNull().default('draft'), // draft | publish
+  postsCreated: integer('posts_created').notNull().default(0),
+  lastPostAt: timestamp('last_post_at'),
+  lastError: text('last_error'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
 // ---- billing ----
 // One row per account's Stripe subscription (latest wins; we upsert by
 // stripeSubscriptionId on webhook). accounts.plan mirrors `plan` here for quick

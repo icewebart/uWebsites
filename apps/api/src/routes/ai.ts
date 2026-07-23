@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import Anthropic from '@anthropic-ai/sdk'
 import { and, eq, sql } from 'drizzle-orm'
-import { db, workspaces, pages, brandingTokens, aiJobs } from '@uwebsites/db'
+import { db, workspaces, pages, brandingTokens, aiJobs, wordpressConnections } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { SECTIONS, SECTION_META, sectionHasContent } from '../lib/sections.js'
 import { pickAesthetic, brandVoicePrompt, COPY_RULES, AESTHETICS } from '../lib/aesthetics.js'
@@ -13,6 +13,7 @@ import { extractBrandFromDom, headlessRender } from '../lib/headless.js'
 import { fpFromHtml, fitSection, looksStructured } from '../lib/section-classifier.js'
 import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities } from '../lib/google-data.js'
 import { guardWriteArticle } from '../lib/entitlements.js'
+import { uploadMedia, createPost as wpCreatePost, linkTargets as wpLinkTargets, type WpConn } from '../lib/wordpress.js'
 
 // Default rules the AI follows when writing an article (the Rules page can
 // override these per workspace via tokens.article_rules).
@@ -1431,14 +1432,24 @@ export async function writeArticleForKeyword(
   const brief = await siteBrief(ws.id, ws.name)
   const tmpl = articleTemplateOf(tk)
 
-  // (1) INTERNAL LINKS — give the writer the real pages it can link to (with
-  //     root-relative /slug/ URLs) so links point somewhere real.
-  const siteRows = await db.select({ slug: pages.slug, title: pages.title, type: pages.type }).from(pages).where(eq(pages.workspaceId, ws.id))
-  const linkTargets = siteRows
-    .filter((p) => p.title && p.slug)
-    .slice(0, 60)
-    .map((p) => `- "${p.title}" → ${p.slug === 'home' ? '/' : `/${p.slug}/`}`)
-  const internalLinks = linkTargets.length ? `INTERNAL PAGES you may link to (use these exact root-relative URLs with descriptive anchor text — link 2–4 where genuinely relevant):\n${linkTargets.join('\n')}` : ''
+  // Is this workspace delivering into a client's own WordPress site?
+  const [wpConn] = await db.select().from(wordpressConnections).where(eq(wordpressConnections.workspaceId, ws.id)).limit(1)
+
+  // (1) INTERNAL LINKS — the real pages this article can link to, so links point
+  //     somewhere real. For a WordPress-connected site that's THEIR published
+  //     posts/pages (absolute URLs); otherwise our own pages (root-relative).
+  let linkTargets: string[] = []
+  if (wpConn) {
+    const targets = await wpLinkTargets(wpConn as WpConn).catch(() => [])
+    linkTargets = targets.map((t) => `- "${t.title}" → ${t.url}`)
+  } else {
+    const siteRows = await db.select({ slug: pages.slug, title: pages.title, type: pages.type }).from(pages).where(eq(pages.workspaceId, ws.id))
+    linkTargets = siteRows
+      .filter((p) => p.title && p.slug)
+      .slice(0, 60)
+      .map((p) => `- "${p.title}" → ${p.slug === 'home' ? '/' : `/${p.slug}/`}`)
+  }
+  const internalLinks = linkTargets.length ? `INTERNAL PAGES you may link to (use these exact URLs with descriptive anchor text — link 2–4 where genuinely relevant):\n${linkTargets.join('\n')}` : ''
 
   // (2) RELATED SEARCHES — from the workspace's linked Search Console property,
   //     the near-ranking queries textually related to this keyword, so coverage
@@ -1479,6 +1490,30 @@ export async function writeArticleForKeyword(
     const pslug = String(keyword).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) + '-' + Math.random().toString(36).slice(2, 5)
     const [created] = await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug: pslug, title, status: opts.publish ? 'published' : 'draft', blocks: blocks as any, seo: { description: metaDescription, keyword } as any }).returning()
     await logAiJob(ws.id, 'article', 'done', { source: opts.publish ? 'auto-write' : 'generate-article', keyword: String(keyword).slice(0, 200), title }, 1, created.id)
+
+    // DELIVERY — if this workspace is connected to a client's WordPress, push the
+    // article there too. Best-effort: the article is already saved on our side,
+    // so a WP failure is recorded on the connection, never lost.
+    if (wpConn) {
+      try {
+        let featuredMedia: number | null = null
+        const heroImg = (blocks as any[]).find((b) => b?.type === 'article-hero')?.props?.image_url
+        if (heroImg && /^https?:\/\//i.test(heroImg)) {
+          const up = await uploadMedia(wpConn as WpConn, heroImg, `${pslug}.jpg`, title)
+          featuredMedia = up?.id ?? null
+        }
+        const remote = await wpCreatePost(wpConn as WpConn, {
+          title, content: html, excerpt: metaDescription, slug: pslug,
+          status: wpConn.defaultStatus === 'publish' ? 'publish' : 'draft',
+          featuredMedia,
+        })
+        await db.update(pages).set({ seo: { description: metaDescription, keyword, wordpress: { postId: remote.id, link: remote.link, status: remote.status } } as any }).where(eq(pages.id, created.id))
+        await db.update(wordpressConnections).set({ postsCreated: (wpConn.postsCreated || 0) + 1, lastPostAt: new Date(), lastError: null, updatedAt: new Date() }).where(eq(wordpressConnections.id, wpConn.id))
+      } catch (e: any) {
+        console.error('[wordpress] publish failed for', ws.slug, e?.message || e)
+        await db.update(wordpressConnections).set({ lastError: String(e?.message || 'unknown'), updatedAt: new Date() }).where(eq(wordpressConnections.id, wpConn.id))
+      }
+    }
     return { id: created.id, slug: created.slug, title: created.title }
   } catch (e: any) {
     if (e?.message === 'Model returned no article') throw e
