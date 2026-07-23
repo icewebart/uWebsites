@@ -20,6 +20,7 @@ const NAV: NavEntry[] = [
   { label: 'Article Plan', Icon: IconArticles, sub: true },
   { label: 'Article Rules', Icon: IconArticles, sub: true },
   { label: 'Authors', Icon: IconArticles, sub: true },
+  { label: 'WordPress', Icon: IconArticles, sub: true },
   { label: 'Branding', Icon: IconBranding },
   { label: 'Brand Voice', Icon: IconAi, sub: true },
   { label: 'Tracking', Icon: IconTracking },
@@ -82,6 +83,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               : label === 'Article Plan' ? `/w/${current.slug}/article-plan`
               : label === 'Article Rules' ? `/w/${current.slug}/article-rules`
               : label === 'Authors' ? `/w/${current.slug}/authors`
+              : label === 'WordPress' ? `/w/${current.slug}/wordpress`
               : label === 'Branding' ? `/w/${current.slug}/branding`
               : label === 'Brand Voice' ? `/w/${current.slug}/brand-voice`
               : label === 'Tracking' ? `/w/${current.slug}/tracking`
