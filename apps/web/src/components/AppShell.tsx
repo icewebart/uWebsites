@@ -31,7 +31,7 @@ const NAV: NavEntry[] = [
   { label: 'Voice & Rules', Icon: IconAi, parent: 'Website Content' },
   { label: 'Authors', Icon: IconArticles, parent: 'Website Content' },
   { label: 'Format', Icon: IconArticles, parent: 'Website Content' },
-  { label: 'Destinations', Icon: IconArticles, parent: 'Website Content' },
+  { label: 'WordPress', Icon: IconArticles, parent: 'Website Content' },
   // Everything that configures the workspace rather than producing something.
   // Tracking connects the data; Insights reads it — they belong together.
   { label: 'Settings', Icon: IconTracking, group: true },
@@ -44,7 +44,7 @@ const NAV: NavEntry[] = [
 const ACTIVE_ALIAS: Record<string, string> = {
   Website: 'Website overview',
   Articles: 'Library', 'Article Plan': 'Plan',
-  'Article Template': 'Format', WordPress: 'Destinations',
+  'Article Template': 'Format',
 }
 const PROFILE_ITEMS = ['Settings', 'Domains', 'Integrations', 'Email Setup', 'Billing']
 
@@ -138,7 +138,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               : label === 'Voice & Rules' ? `/w/${current.slug}/voice-rules`
               : label === 'Authors' ? `/w/${current.slug}/authors`
               : label === 'Format' ? `/w/${current.slug}/article-template`
-              : label === 'Destinations' ? `/w/${current.slug}/wordpress`
+              : label === 'WordPress' ? `/w/${current.slug}/wordpress`
               : label === 'Branding' ? `/w/${current.slug}/branding`
               : label === 'Tracking' ? `/w/${current.slug}/tracking`
               : undefined
