@@ -95,8 +95,16 @@ export const planById = (id: string): Plan | undefined => PLANS.find((p) => p.id
 // PER ACCOUNT: e.g. Growth = 3 websites + 3 articles/week total, not per site.
 export type PlanLimits = { websites: number; articlesPerWeek: number; seats: number }
 export const TRIAL_LIMITS: PlanLimits = { websites: 1, articlesPerWeek: 1, seats: 1 }
+
+// Internal/owner accounts — effectively unlimited. Not a purchasable Plan (it
+// never appears on the pricing page or in checkout); it's set on the account
+// directly. A large finite number rather than Infinity so it survives JSON,
+// arithmetic and any "X of Y" display without printing "Infinity".
+export const UNLIMITED_PLAN = 'unlimited'
+export const UNLIMITED_LIMITS: PlanLimits = { websites: 9999, articlesPerWeek: 9999, seats: 9999 }
+
 export const limitsForPlan = (plan: string | null | undefined): PlanLimits =>
-  planById(plan || '')?.limits ?? TRIAL_LIMITS
+  plan === UNLIMITED_PLAN ? UNLIMITED_LIMITS : (planById(plan || '')?.limits ?? TRIAL_LIMITS)
 
 // Curated Google Fonts list — covers ~95% of the fonts our importer is likely
 // to find on a real site, organized by family character so the picker makes

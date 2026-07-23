@@ -56,6 +56,8 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 .sidebar-link:hover{color:var(--text);background:var(--surface)}
 .sidebar-link.active{color:var(--forest);background:var(--surface);font-weight:600}
 .sidebar-foot{border-top:1px solid var(--border);padding-top:12px;margin-top:12px}
+.sidebar-upgrade{color:var(--text);font-weight:600;margin-bottom:6px}
+.sidebar-upgrade:hover{background:var(--bg-subtle)}
 .sidebar-ai{background:var(--lime-light);color:var(--forest);font-weight:600}
 .sidebar-ai:hover{background:var(--lime)}
 .sidebar-ai svg{color:var(--forest)!important}

@@ -80,7 +80,7 @@ export default function Dashboard() {
 
   return (
     <AppShell title="Dashboard" active="Dashboard" currentSlug={firstSlug}>
-      <div className="dash-greet">Hi, {greetName}. <a href="/checkout" className="dash-upgrade" style={{ float: 'right', fontSize: 13, fontWeight: 600 }}>✦ Plans &amp; upgrade</a></div>
+      <div className="dash-greet">Hi, {greetName}.</div>
       <div className="dash-sub">{empty ? 'Let\'s set up your first website.' : `Here's what's happening across your ${items.length} ${items.length === 1 ? 'workspace' : 'workspaces'}.`}</div>
 
       {empty && (

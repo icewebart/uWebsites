@@ -136,6 +136,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
           })}
         </nav>
         <div className="sidebar-foot">
+          <a className="sidebar-link sidebar-upgrade" href="/checkout">✦ Plans &amp; upgrade</a>
           <a
             className="sidebar-link sidebar-ai"
             href={current ? `/w/${current.slug}?chat=1` : '#'}

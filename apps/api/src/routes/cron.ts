@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express'
 import { and, desc, eq } from 'drizzle-orm'
 import { db, workspaces, accounts, brandingTokens, aiJobs, builds } from '@uwebsites/db'
-import { planById } from '@uwebsites/shared'
+import { planById, limitsForPlan, UNLIMITED_PLAN } from '@uwebsites/shared'
 import { writeArticleForKeyword } from './ai.js'
 import { buildSite } from './publish.js'
 import { articlesThisWeek } from '../lib/entitlements.js'
@@ -32,14 +32,15 @@ export async function runAutoWrite(): Promise<{ checked: number; written: Array<
       checked++
       const items: PlanItem[] = Array.isArray(ap.items) ? ap.items : []
 
-      // Cadence gate. Paid plans get PLANS.limits.articlesPerWeek PER ACCOUNT
-      // (rolling 7 days, so a multi-site account can't over-produce); a
-      // free/trial account gets ONE sample article, ever.
-      const planDef = planById(plan)
+      // Cadence gate, PER ACCOUNT over a rolling 7 days (so a multi-site account
+      // can't over-produce). Paid tiers and internal/unlimited accounts get that
+      // weekly cadence; only a genuine free/trial account is capped at one
+      // sample article, ever.
+      const metered = plan === UNLIMITED_PLAN || !!planById(plan)
       let eligible: boolean
-      if (planDef) {
+      if (metered) {
         const thisWeek = await articlesThisWeek(ws.accountId) // includes any written earlier this run
-        eligible = thisWeek < planDef.limits.articlesPerWeek
+        eligible = thisWeek < limitsForPlan(plan).articlesPerWeek
       } else {
         const jobs = await db.select().from(aiJobs)
           .where(and(eq(aiJobs.workspaceId, ws.id), eq(aiJobs.kind, 'article')))
