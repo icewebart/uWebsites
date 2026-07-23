@@ -23,6 +23,7 @@ const NAV: NavEntry[] = [
   // The content product — everything about planning, writing and delivering
   // articles, in one place (was scattered across Website / Articles / Branding).
   { label: 'Website Content', Icon: IconArticles, group: true },
+  { label: 'Overview', Icon: IconStats, parent: 'Website Content' },
   { label: 'Plan', Icon: IconArticles, parent: 'Website Content' },
   { label: 'Library', Icon: IconArticles, parent: 'Website Content' },
   { label: 'Content setup', Icon: IconArticles, parent: 'Website Content', divider: true },
@@ -127,6 +128,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               : label === 'Insights' ? '/insights'
               : !current ? undefined
               : label === 'Website overview' ? `/w/${current.slug}`
+              : label === 'Overview' ? `/w/${current.slug}/content`
               : label === 'Library' ? `/w/${current.slug}/articles`
               : label === 'Menu' ? `/w/${current.slug}/menu`
               : label === 'Footer' ? `/w/${current.slug}/footer`

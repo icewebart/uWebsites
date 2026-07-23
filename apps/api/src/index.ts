@@ -16,6 +16,7 @@ import { billingRouter, billingWebhookHandler } from './routes/billing.js'
 import { cronRouter } from './routes/cron.js'
 import { wordpressRouter } from './routes/wordpress.js'
 import { pluginRouter } from './routes/plugin.js'
+import { contentRouter } from './routes/content.js'
 
 const app = express()
 app.set('trust proxy', 1) // Cloudflare is the first hop in prod
@@ -57,6 +58,7 @@ app.get('/sections', (_req, res) => res.json({ ok: true, data: __SECTIONS }))
 app.use('/workspaces', domainsRouter)
 app.use('/workspaces', menusRouter)
 app.use('/workspaces', wordpressRouter)
+app.use('/workspaces', contentRouter)
 app.use('/account', accountRouter)
 app.use('/billing', billingRouter)
 // Machine-to-machine cron (auto-write engine) — gated by CRON_SECRET, no session.
