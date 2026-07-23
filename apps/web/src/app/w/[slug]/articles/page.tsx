@@ -65,6 +65,22 @@ export default function ArticlesPage() {
     return 'error'
   }
 
+  // Analyse an existing article against the live SERP + its own Search Console
+  // performance and improve it in place. The URL never changes, so whatever
+  // rankings it already has are preserved.
+  async function refresh(p: Page) {
+    if (!window.confirm(`Analyse and improve "${p.title || p.slug}"?\n\nIt keeps your facts, voice and URL, and fills the gaps against what currently ranks. The current version is replaced — open it afterwards to review.`)) return
+    setBusyId(p.id); setNote(''); setErr('')
+    try {
+      const r = await api<{ title: string; keyword: string; changes: string[]; performance: { clicks: number; position: number } | null; wpUpdated: boolean }>(
+        '/ai/refresh-article', { method: 'POST', body: JSON.stringify({ pageId: p.id }) })
+      const perf = r.performance ? ` (was ${r.performance.clicks} clicks, pos ${Number(r.performance.position).toFixed(1)})` : ''
+      const wp = r.wpUpdated ? ' Updated on WordPress too.' : ''
+      setNote(`Improved “${r.title}” for “${r.keyword}”${perf}.${wp}${r.changes?.length ? ' Changes: ' + r.changes.slice(0, 3).join('; ') : ''}`)
+      await load()
+    } catch (e: any) { setErr(e.message || 'Could not improve that article') } finally { setBusyId(null) }
+  }
+
   async function normalise(p: Page) {
     if (!window.confirm(`Normalise "${p.title || p.slug}" into the standard article layout (hero → body with sidebar → CTA)? Your text and images are kept; only the structure changes.`)) return
     setBusyId(p.id); setNote('')
@@ -161,6 +177,7 @@ export default function ArticlesPage() {
                       <a className="btn-mini" href={`/w/${slug}/p/${p.id}`}>Edit</a>
                       <button className="btn-mini" disabled={busyId === p.id} onClick={() => structureOne(p)} title="Apply the article layout using existing content — free, instant">{busyId === p.id ? '…' : '⚡ Structure'}</button>
                       <button className="btn-mini" disabled={busyId === p.id} onClick={() => normalise(p)} title="AI cleanup of messy body markup — costs credits">{busyId === p.id ? '…' : '✦ AI clean'}</button>
+                      <button className="btn-mini" disabled={busyId === p.id} onClick={() => refresh(p)} title="Analyse this article against what currently ranks + its own Search Console performance, then improve it in place (the URL never changes)">{busyId === p.id ? '…' : '↻ Improve'}</button>
                       <button className="btn-mini danger" disabled={busyId === p.id} onClick={() => del(p)}>Delete</button>
                     </div>
                   </td>

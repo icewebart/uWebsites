@@ -11,7 +11,7 @@ import { upsertMenu, articleTemplateOf } from './menus.js'
 import { articleBlocksFromImport, structureFromSource } from './import.js'
 import { extractBrandFromDom, headlessRender } from '../lib/headless.js'
 import { fpFromHtml, fitSection, looksStructured } from '../lib/section-classifier.js'
-import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities } from '../lib/google-data.js'
+import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities, scQuery } from '../lib/google-data.js'
 import { guardWriteArticle } from '../lib/entitlements.js'
 import { fetchSerp, serpPromptBlock } from '../lib/serp.js'
 import { publishArticle as wpPublishArticle, linkTargets as wpLinkTargets, type WpConn } from '../lib/wordpress.js'
@@ -2341,4 +2341,129 @@ aiRouter.post('/redesign-page', requireAuth, async (req: AuthRequest, res) => {
   await db.update(pages).set({ blocks: blocks as any, updatedAt: new Date() }).where(eq(pages.id, row.id))
   await logAiJob(row.wsId, 'edit', 'done', { source: 'redesign-page', redesigned, aiUsed }, aiUsed, row.id)
   res.json({ ok: true, data: { blocks, redesigned, aiUsed, kept } })
+})
+
+// POST /ai/refresh-article — ANALYSE an existing article and IMPROVE it in
+// place. This is the other half of the performance loop (gap #7): updating a
+// piece that already has history is usually higher-ROI than writing a new one,
+// and it works on legacy/imported articles too, not just ones we wrote.
+//
+// Grounding: the live SERP for the target keyword, the article's own Search
+// Console performance, the workspace rules/voice/business brief — everything
+// the writer uses, plus the existing text (whose facts must be preserved).
+// The URL/slug is NEVER changed: that would throw away the rankings we're
+// trying to improve.
+aiRouter.post('/refresh-article', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
+  const { pageId } = req.body ?? {}
+  if (!pageId) return res.status(400).json({ ok: false, error: 'pageId required' })
+
+  const [row] = await db.select({
+    id: pages.id, title: pages.title, slug: pages.slug, blocks: pages.blocks, seo: pages.seo,
+    status: pages.status, wsId: pages.workspaceId, wsSlug: workspaces.slug, wsName: workspaces.name, accId: workspaces.accountId,
+  }).from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id)).where(eq(pages.id, String(pageId))).limit(1)
+  if (!row || row.accId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'page not found' })
+
+  const blocks = (Array.isArray(row.blocks) ? row.blocks : []) as any[]
+  const body = blocks.find((b) => b?.type === 'article-body')
+  const currentHtml: string = body?.props?.html || blocks.filter((b) => b?.type === 'raw-html').map((b) => b.props?.html || '').join('\n')
+  if (!currentHtml || currentHtml.replace(/<[^>]+>/g, '').trim().length < 200) {
+    return res.status(400).json({ ok: false, error: 'This article has too little text to analyse. Open it and add content first.' })
+  }
+
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, row.wsId)).limit(1)
+  const tk: any = tok?.tokens || {}
+  const rules = (Array.isArray(tk.article_rules) && tk.article_rules.length ? tk.article_rules : DEFAULT_ARTICLE_RULES)
+  const voice = tk.voice ? `BRAND VOICE (keep this): ${tk.voice}` : ''
+  const bb = tk.business_brief || {}
+  const bizBrief = [bb.about && `What the business does: ${bb.about}`, bb.audience && `Who it's for: ${bb.audience}`, bb.offers && `Offers to reference: ${bb.offers}`, bb.avoid && `Avoid: ${bb.avoid}`].filter(Boolean).join('\n')
+
+  // Target keyword: what it was written for, else what it ACTUALLY ranks for
+  // (Search Console), else the title. Refreshing against the real query is the
+  // whole point for imported/legacy articles that were never keyword-targeted.
+  let keyword = String((row.seo as any)?.keyword || '').trim()
+  let perf: any = null
+  try {
+    const scProperty = tk?.analytics?.scProperty
+    const conn = await getGoogleConn(req.user!.accountId)
+    if (scProperty && conn && hasScope(conn, SCOPE_SEARCH)) {
+      const r: any = await scQuery(req.user!.accountId, scProperty, 90)
+      const urlPart = row.slug === 'home' ? '/' : `/${row.slug}/`
+      const mine = (r?.byPage || r?.pages || []).find((p: any) => String(p?.page || p?.keys?.[0] || '').includes(urlPart))
+      if (mine) perf = { clicks: mine.clicks, impressions: mine.impressions, position: mine.position }
+      if (!keyword) {
+        const q = (r?.byQuery || r?.queries || [])[0]
+        if (q) keyword = String(q.query || q.keys?.[0] || '')
+      }
+    }
+  } catch { /* performance context is optional */ }
+  if (!keyword) keyword = row.title || ''
+
+  const serp = serpPromptBlock(await fetchSerp(keyword))
+
+  try {
+    const r = await a.messages.create({
+      model: MODEL, max_tokens: 8000,
+      system: `You are an expert SEO editor improving an EXISTING published article. ${voice}
+
+ARTICLE RULES (the improved version must satisfy all of them):
+${rules.map((x: string, i: number) => `${i + 1}. ${x}`).join('\n')}
+
+${COPY_RULES}${bizBrief ? '\n\nBUSINESS CONTEXT:\n' + bizBrief : ''}${serp ? '\n\n' + serp : ''}${perf ? `\n\nTHIS ARTICLE'S CURRENT PERFORMANCE (last 90 days): ${perf.clicks} clicks, ${perf.impressions} impressions, average position ${Number(perf.position).toFixed(1)}. It is already ranking — improve it without changing what works.` : ''}
+
+HOW TO IMPROVE IT:
+- KEEP every real fact, number, name, quote, price and claim from the original. Never invent replacements — if something is missing, leave it out.
+- Keep the author's voice and the article's angle. This is an edit, not a rewrite from scratch.
+- Close the gaps versus what currently ranks: add the sub-topics and questions the original misses.
+- Strengthen structure: a direct answer up top, scannable H2/H3, lists/tables where they fit, and a real FAQ.
+- Improve the title and meta description for click-through, keeping the keyword near the front.
+- Keep any existing internal links that still make sense.`,
+      tools: [{ name: 'improved', description: 'The improved article.', input_schema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Improved H1/title, ≤60 chars. Keep the original if it is already strong.' },
+          metaDescription: { type: 'string', description: 'Improved meta description, 140–160 chars.' },
+          bodyHtml: { type: 'string', description: 'The full improved article body, semantic HTML only (p, h2, h3, ul, ol, li, table, strong, em, a).' },
+          changes: { type: 'array', items: { type: 'string' }, description: 'What you actually changed and why — one short line each, most significant first.' },
+        }, required: ['title', 'metaDescription', 'bodyHtml'],
+      } as any }],
+      tool_choice: { type: 'tool', name: 'improved' },
+      messages: [{ role: 'user', content: `Target query: "${keyword}"\n\nCurrent title: ${row.title}\n\nCurrent article HTML:\n${currentHtml.slice(0, 40000)}` }],
+    })
+    const tu = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!tu) return res.status(502).json({ ok: false, error: 'The editor returned nothing — try again.' })
+    const { title, metaDescription, bodyHtml, changes } = tu.input as { title: string; metaDescription: string; bodyHtml: string; changes?: string[] }
+
+    // Rebuild the article blocks, PRESERVING the existing hero image and the
+    // page slug (changing the URL would discard the rankings).
+    const hero = blocks.find((b) => b?.type === 'article-hero')
+    const heroImg = hero?.props?.image_url ? { url: hero.props.image_url, alt: hero.props.image_alt || title } : undefined
+    const nextBlocks = articleBlocksFromImport(title, bodyHtml, heroImg, articleTemplateOf(tk))
+    const nextSeo: any = { ...((row.seo as any) || {}), description: metaDescription, keyword, refreshedAt: new Date().toISOString() }
+    await db.update(pages).set({ title, blocks: nextBlocks as any, seo: nextSeo, updatedAt: new Date() }).where(eq(pages.id, row.id))
+    await logAiJob(row.wsId, 'edit', 'done', { source: 'refresh-article', keyword: keyword.slice(0, 160), title }, 1, row.id)
+
+    // If it lives on a client's WordPress, update the SAME post (the plugin
+    // dedupes on external_id, so this edits in place instead of duplicating).
+    let wpUpdated = false
+    const [wpConn] = await db.select().from(wordpressConnections).where(eq(wordpressConnections.workspaceId, row.wsId)).limit(1)
+    if (wpConn) {
+      try {
+        await wpPublishArticle(wpConn as WpConn, {
+          externalId: row.id, title, content: bodyHtml, excerpt: metaDescription, slug: row.slug,
+          status: (row.status === 'published' && wpConn.defaultStatus === 'publish') ? 'publish' : 'draft',
+          metaTitle: title, metaDescription, imageUrl: heroImg?.url, imageAlt: title,
+        })
+        wpUpdated = true
+      } catch (e: any) {
+        console.error('[refresh] wordpress update failed', e?.message || e)
+        await db.update(wordpressConnections).set({ lastError: String(e?.message || 'unknown'), updatedAt: new Date() }).where(eq(wordpressConnections.id, wpConn.id))
+      }
+    }
+
+    res.json({ ok: true, data: { id: row.id, title, keyword, changes: Array.isArray(changes) ? changes.slice(0, 10) : [], performance: perf, wpUpdated } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Refresh failed: ' + (e?.message || 'unknown') })
+  }
 })
