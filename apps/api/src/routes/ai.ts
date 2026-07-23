@@ -13,6 +13,7 @@ import { extractBrandFromDom, headlessRender } from '../lib/headless.js'
 import { fpFromHtml, fitSection, looksStructured } from '../lib/section-classifier.js'
 import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities } from '../lib/google-data.js'
 import { guardWriteArticle } from '../lib/entitlements.js'
+import { fetchSerp, serpPromptBlock } from '../lib/serp.js'
 import { publishArticle as wpPublishArticle, linkTargets as wpLinkTargets, type WpConn } from '../lib/wordpress.js'
 
 // Default rules the AI follows when writing an article (the Rules page can
@@ -1476,10 +1477,15 @@ export async function writeArticleForKeyword(
     }
   } catch { /* non-fatal */ }
 
+  // (3) SERP GROUNDING — the live top results + People-also-ask for this
+  //     keyword, so "match or exceed what ranks" is based on the real SERP
+  //     instead of the model's memory. No-op without SERPER_API_KEY.
+  const serp = serpPromptBlock(await fetchSerp(String(keyword)))
+
   try {
     const r = await a.messages.create({
       model: MODEL, max_tokens: 6000,
-      system: `You are an expert SEO content writer. Write a genuinely useful, well-structured article fully optimised for the target keyword, in the site's own language. ${voice}\n${examples}\n\n${rulesText}\n\n${COPY_RULES}${brief ? '\n\nSITE CONTEXT (anchor the topic/audience to this):\n' + brief : ''}${internalLinks ? '\n\n' + internalLinks : ''}${relatedSearches ? '\n\n' + relatedSearches : ''}`,
+      system: `You are an expert SEO content writer. Write a genuinely useful, well-structured article fully optimised for the target keyword, in the site's own language. ${voice}\n${examples}\n\n${rulesText}\n\n${COPY_RULES}${brief ? '\n\nBUSINESS CONTEXT (anchor the topic/audience/offers to this):\n' + brief : ''}${internalLinks ? '\n\n' + internalLinks : ''}${serp ? '\n\n' + serp : ''}${relatedSearches ? '\n\n' + relatedSearches : ''}`,
       tools: [{ name: 'article', description: 'The finished article.', input_schema: {
         type: 'object',
         properties: {

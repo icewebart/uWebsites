@@ -25,15 +25,18 @@ const NAV: NavEntry[] = [
   { label: 'Website Content', Icon: IconArticles, group: true },
   { label: 'Plan', Icon: IconArticles, parent: 'Website Content' },
   { label: 'Library', Icon: IconArticles, parent: 'Website Content' },
-  { label: 'Settings', Icon: IconArticles, parent: 'Website Content', divider: true },
+  { label: 'Content setup', Icon: IconArticles, parent: 'Website Content', divider: true },
   { label: 'Business Brief', Icon: IconArticles, parent: 'Website Content' },
   { label: 'Voice & Rules', Icon: IconAi, parent: 'Website Content' },
   { label: 'Authors', Icon: IconArticles, parent: 'Website Content' },
   { label: 'Format', Icon: IconArticles, parent: 'Website Content' },
   { label: 'Destinations', Icon: IconArticles, parent: 'Website Content' },
-  { label: 'Branding', Icon: IconBranding },
-  { label: 'Tracking', Icon: IconTracking },
-  { label: 'Insights', Icon: IconStats },
+  // Everything that configures the workspace rather than producing something.
+  // Tracking connects the data; Insights reads it — they belong together.
+  { label: 'Settings', Icon: IconTracking, group: true },
+  { label: 'Branding', Icon: IconBranding, parent: 'Settings' },
+  { label: 'Tracking', Icon: IconTracking, parent: 'Settings' },
+  { label: 'Insights', Icon: IconStats, parent: 'Settings' },
 ]
 // Pages still pass their old active= labels — map those onto the new nav labels
 // so nothing had to be edited page by page.
