@@ -217,7 +217,7 @@ accountRouter.get('/workspaces/:slug/article-plan', requireAuth, async (req: Aut
   const items = plan.items || []
   const covered = await coverageMap(r.ws.id, items.map((i: any) => i?.keyword || ''))
   const annotated = items.map((i: any) => ({ ...i, coveredBy: covered[normKw(i?.keyword || '')] || null }))
-  res.json({ ok: true, data: { items: annotated, auto: !!plan.auto, pillars: plan.pillars || [], scLinked: !!link.scProperty } })
+  res.json({ ok: true, data: { items: annotated, auto: !!plan.auto, pillars: plan.pillars || [], autoApproveBriefs: !!plan.autoApproveBriefs, scLinked: !!link.scProperty } })
 })
 
 accountRouter.put('/workspaces/:slug/article-plan', requireAuth, async (req: AuthRequest, res) => {
@@ -237,10 +237,15 @@ accountRouter.put('/workspaces/:slug/article-plan', requireAuth, async (req: Aut
         businessValue: ['high', 'medium', 'low'].includes(p?.businessValue) ? p.businessValue : 'medium',
       })).filter((p: any) => p.name)
     : (prevPlan.pillars || [])
-  const tokens = { ...((r.tok?.tokens as any) || {}), article_plan: { items, auto, pillars } }
+  // Auto-approve: briefs are still generated and stored (so the outline, the
+  // interlinks and the compliance gate all still apply) but don't block the
+  // weekly cron. Hands-on clients approve each one; set-and-forget clients don't.
+  const autoApproveBriefs = req.body?.autoApproveBriefs === undefined
+    ? !!prevPlan.autoApproveBriefs : !!req.body.autoApproveBriefs
+  const tokens = { ...((r.tok?.tokens as any) || {}), article_plan: { items, auto, pillars, autoApproveBriefs } }
   if (r.tok) await db.update(brandingTokens).set({ tokens }).where(eq(brandingTokens.id, r.tok.id))
   else await db.insert(brandingTokens).values({ workspaceId: r.ws.id, tokens })
-  res.json({ ok: true, data: { items, auto, pillars } })
+  res.json({ ok: true, data: { items, auto, pillars, autoApproveBriefs } })
 })
 
 // Pull keyword ideas from the workspace's LINKED Search Console property.

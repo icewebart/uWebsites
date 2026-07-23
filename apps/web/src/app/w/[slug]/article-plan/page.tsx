@@ -1,13 +1,23 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 import { ClusterGraph, type GraphPillar } from '@/components/ClusterGraph'
 
-type Item = { id: string; keyword: string; status: 'idea' | 'queued' | 'drafted' | 'published'; priority: number; source: string; impressions?: number; position?: number; pageId?: string; createdAt: string; coveredBy?: { pageId: string; title: string } | null; cluster?: string; role?: string; intent?: string; funnel?: string; contentType?: string }
+// The approved plan for one article — a cheap review surface, since rejecting a
+// twenty-line brief costs seconds and rejecting a finished article costs a
+// regeneration plus your reading time.
+type Brief = {
+  title: string; angle: string; searchIntent?: string; wordTarget?: number
+  outline: { h2: string; points: string[] }[]
+  mustCover: string[]
+  internalLinks: { url: string; anchor: string }[]
+  cta?: string; status: 'draft' | 'approved'; generatedAt?: string; serpUsed?: boolean
+}
+type Item = { id: string; keyword: string; brief?: Brief; status: 'idea' | 'queued' | 'drafted' | 'published'; priority: number; source: string; impressions?: number; position?: number; pageId?: string; createdAt: string; coveredBy?: { pageId: string; title: string } | null; cluster?: string; role?: string; intent?: string; funnel?: string; contentType?: string }
 type Pillar = { name: string; description?: string; businessValue?: string }
-type Plan = { items: Item[]; auto: boolean; scLinked: boolean; pillars?: Pillar[] }
+type Plan = { items: Item[]; auto: boolean; scLinked: boolean; pillars?: Pillar[]; autoApproveBriefs?: boolean }
 // A proposed map from /ai/plan/cluster — reviewed before anything is saved.
 type Proposed = { pillars: { name: string; description: string; businessValue: string; keywords: { keyword: string; role: string; intent: string; funnel: string; contentType: string; alreadyCovered: boolean }[] }[]; unassigned: string[] }
 type Opp = { query: string; impressions: number; position: number; clicks: number }
@@ -39,9 +49,12 @@ export default function ArticlePlanPage() {
   const [wizard, setWizard] = useState<Answers | null>(null)
   const [briefLoaded, setBriefLoaded] = useState(false)
   const [proposing, setProposing] = useState(false)
+  const [openBrief, setOpenBrief] = useState<string | null>(null)
+  const [briefing, setBriefing] = useState('')
+  const [autoApprove, setAutoApprove] = useState(false)
 
   useEffect(() => {
-    api<Plan>(`/account/workspaces/${slug}/article-plan`).then((d) => { setItems(d.items); setAuto(d.auto); setScLinked(d.scLinked); setPillars(d.pillars || []) }).catch(() => router.push(`/w/${slug}`))
+    api<Plan>(`/account/workspaces/${slug}/article-plan`).then((d) => { setItems(d.items); setAuto(d.auto); setScLinked(d.scLinked); setPillars(d.pillars || []); setAutoApprove(!!d.autoApproveBriefs) }).catch(() => router.push(`/w/${slug}`))
     // Step 0 of the interview is to NOT ask what we already know — prefill from
     // the Business Brief so the wizard is a confirmation, not a form.
     api<{ tokens: any }>(`/workspaces/${slug}/branding`).then((d) => {
@@ -53,9 +66,9 @@ export default function ArticlePlanPage() {
   const [prefill, setPrefill] = useState<Answers>(EMPTY_ANSWERS)
 
   // Autosave whenever the list/auto changes (debounced-ish via a stable save).
-  async function persist(next: Item[], nextAuto = auto) {
-    setItems(next); setAuto(nextAuto)
-    try { await api(`/account/workspaces/${slug}/article-plan`, { method: 'PUT', body: JSON.stringify({ items: next, auto: nextAuto, pillars }) }) }
+  async function persist(next: Item[], nextAuto = auto, nextApprove = autoApprove) {
+    setItems(next); setAuto(nextAuto); setAutoApprove(nextApprove)
+    try { await api(`/account/workspaces/${slug}/article-plan`, { method: 'PUT', body: JSON.stringify({ items: next, auto: nextAuto, pillars, autoApproveBriefs: nextApprove }) }) }
     catch (e: any) { setErr(e.message || 'Save failed') }
   }
   const has = (k: string) => items.some((i) => i.keyword.toLowerCase().trim() === k.toLowerCase().trim())
@@ -154,6 +167,36 @@ export default function ArticlePlanPage() {
     setNote(`Added ${fresh.length} missing topics to "${expansion.pillar}".`)
   }
 
+  // ── Content briefs. Generated per keyword, reviewed, then the writer executes
+  //    them instead of improvising. Nothing is auto-approved unless you say so.
+  async function writeBrief(it: Item) {
+    setBriefing(it.id); setErr('')
+    try {
+      const b = await api<Brief>('/ai/plan/brief', { method: 'POST', body: JSON.stringify({ slug, keyword: it.keyword }) })
+      await persist(items.map((i) => i.id === it.id ? { ...i, brief: b } : i))
+      setOpenBrief(it.id)
+    } catch (e: any) { setErr(e.message || 'Could not write the brief') } finally { setBriefing('') }
+  }
+  function patchBrief(id: string, patch: Partial<Brief>) {
+    persist(items.map((i) => i.id === id && i.brief ? { ...i, brief: { ...i.brief, ...patch } } : i))
+  }
+  async function writeBriefsBulk() {
+    // The next few unbriefed keywords, highest priority first — one click for a
+    // month of planning rather than one click per keyword.
+    const queue = sorted.filter((i) => !i.brief && i.status !== 'published').slice(0, 5)
+    if (!queue.length) return
+    setBriefing('bulk'); setErr('')
+    let next = items
+    for (const it of queue) {
+      try {
+        const b = await api<Brief>('/ai/plan/brief', { method: 'POST', body: JSON.stringify({ slug, keyword: it.keyword }) })
+        next = next.map((i) => i.id === it.id ? { ...i, brief: b } : i)
+      } catch { /* one failure shouldn't lose the briefs already written */ }
+    }
+    await persist(next)
+    setBriefing(''); setNote(`Wrote ${next.filter((i) => i.brief).length - items.filter((i) => i.brief).length} briefs — review them before the writer runs.`)
+  }
+
   // The saved map, for the graph: pillars with their keywords + live status.
   const graphPillars: GraphPillar[] = pillars.map((p) => ({
     name: p.name,
@@ -184,8 +227,16 @@ export default function ArticlePlanPage() {
             title="No keyword list yet? Build the map from what the business actually sells.">
             ✦ Start from the business
           </button>
+          <button className="btn btn-secondary" onClick={writeBriefsBulk} disabled={!!briefing || !items.some((i) => !i.brief && i.status !== 'published')}
+            title="Plan the next 5 articles: angle, outline, must-cover points, internal links — before anything gets written.">
+            {briefing === 'bulk' ? 'Planning…' : '✦ Brief next 5'}
+          </button>
           <label className="muted" style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', marginLeft: 'auto' }}>
             <input type="checkbox" checked={auto} onChange={(e) => persist(items, e.target.checked)} style={{ width: 'auto' }} /> Weekly auto-write
+          </label>
+          <label className="muted" style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}
+            title="Briefs are still written and still enforced by the quality gate — they just don't wait for your approval before the weekly writer runs.">
+            <input type="checkbox" checked={autoApprove} onChange={(e) => persist(items, auto, e.target.checked)} style={{ width: 'auto' }} /> Auto-approve briefs
           </label>
         </div>
         <details style={{ marginTop: 10 }}>
@@ -370,10 +421,11 @@ export default function ArticlePlanPage() {
           {[...new Set(items.map((i) => i.cluster).filter(Boolean))].map((c) => <option key={c as string} value={c as string} />)}
         </datalist>
         <table className="tbl">
-          <thead><tr><th>Keyword</th><th style={{ width: 150 }}>Cluster</th><th style={{ width: 110 }}>Source</th><th style={{ width: 90 }}>Status</th><th style={{ width: 90 }}>SC</th><th style={{ width: 190 }}>Actions</th></tr></thead>
+          <thead><tr><th>Keyword</th><th style={{ width: 150 }}>Cluster</th><th style={{ width: 110 }}>Source</th><th style={{ width: 90 }}>Status</th><th style={{ width: 90 }}>SC</th><th style={{ width: 104 }}>Brief</th><th style={{ width: 190 }}>Actions</th></tr></thead>
           <tbody>
             {sorted.map((it) => (
-              <tr key={it.id}>
+              <Fragment key={it.id}>
+              <tr>
                 <td>
                   <b>{it.keyword}</b>
                   {it.coveredBy && (
@@ -393,6 +445,19 @@ export default function ArticlePlanPage() {
                 <td><span className={`status-pill ${it.status === 'published' ? 'live' : it.status === 'drafted' ? 'live' : 'draft'}`}>{it.status}</span></td>
                 <td className="muted" style={{ fontSize: 12 }}>{it.impressions != null ? `${it.impressions} impr · #${it.position}` : '—'}</td>
                 <td>
+                  {it.brief ? (
+                    <button className="btn-mini" onClick={() => setOpenBrief(openBrief === it.id ? null : it.id)}
+                      title={it.brief.angle}>
+                      {openBrief === it.id ? '▾' : '▸'} {it.brief.status === 'approved' || autoApprove ? '✓ brief' : 'draft brief'}
+                    </button>
+                  ) : (
+                    <button className="btn-mini" onClick={() => writeBrief(it)} disabled={!!briefing}
+                      title="Plan the article before writing it — angle, outline, what it must cover, which pages it links to.">
+                      {briefing === it.id ? 'Planning…' : '✦ Brief'}
+                    </button>
+                  )}
+                </td>
+                <td>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                     <button className="btn-mini" onClick={() => draftNow(it)} disabled={busy === it.id || it.status === 'drafted'}>{busy === it.id ? 'Writing…' : it.status === 'drafted' ? 'Drafted' : '✍ Draft now'}</button>
                     <button className="btn-mini" title="Raise priority" onClick={() => bump(it.id, 1)}>▲</button>
@@ -400,12 +465,64 @@ export default function ArticlePlanPage() {
                   </div>
                 </td>
               </tr>
+              {openBrief === it.id && it.brief && (
+                <tr><td colSpan={7} style={{ background: 'var(--bg-soft, rgba(127,127,127,.05))', padding: '14px 12px' }}>
+                  <div style={{ display: 'grid', gap: 10, maxWidth: 780 }}>
+                    <div>
+                      <label className="muted" style={{ fontSize: 11.5 }}>Working title</label>
+                      <input className="inp" defaultValue={it.brief.title} style={{ fontSize: 13 }}
+                        onBlur={(e) => e.target.value !== it.brief!.title && patchBrief(it.id, { title: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="muted" style={{ fontSize: 11.5 }}>The angle — what makes this different from its siblings</label>
+                      <textarea className="inp" rows={2} defaultValue={it.brief.angle} style={{ fontSize: 13 }}
+                        onBlur={(e) => e.target.value !== it.brief!.angle && patchBrief(it.id, { angle: e.target.value })} />
+                    </div>
+                    {!!it.brief.outline?.length && (
+                      <div>
+                        <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Outline · target ~{it.brief.wordTarget} words{it.brief.serpUsed ? ' · grounded in live search results' : ''}</div>
+                        <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+                          {it.brief.outline.map((sec, si) => (
+                            <li key={si} style={{ marginBottom: 4 }}>
+                              <b>{sec.h2}</b>
+                              {!!sec.points?.length && <ul className="muted" style={{ margin: '2px 0 0', paddingLeft: 16, fontSize: 12 }}>{sec.points.map((pt, pi) => <li key={pi}>{pt}</li>)}</ul>}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                    {!!it.brief.mustCover?.length && (
+                      <div><div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Must cover</div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {it.brief.mustCover.map((m, mi) => <span key={mi} className="status-pill" style={{ fontSize: 11 }}>{m}</span>)}
+                        </div></div>
+                    )}
+                    {!!it.brief.internalLinks?.length && (
+                      <div><div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Internal links (verified against real pages)</div>
+                        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>
+                          {it.brief.internalLinks.map((l, li) => <li key={li}>{l.anchor} → <span className="muted">{l.url}</span></li>)}
+                        </ul></div>
+                    )}
+                    {it.brief.cta && <div style={{ fontSize: 12.5 }}><span className="muted">Leads to: </span>{it.brief.cta}</div>}
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {it.brief.status === 'approved'
+                        ? <span className="muted" style={{ fontSize: 12 }}>✓ Approved — the writer will follow this.</span>
+                        : <button className="btn btn-primary" onClick={() => patchBrief(it.id, { status: 'approved' })}>Approve brief</button>}
+                      <button className="btn-mini" onClick={() => writeBrief(it)} disabled={!!briefing}>{briefing === it.id ? 'Rewriting…' : '↻ Rewrite'}</button>
+                      <button className="btn-mini danger" onClick={() => persist(items.map((i) => i.id === it.id ? { ...i, brief: undefined } : i))}>Discard</button>
+                      {autoApprove && it.brief.status !== 'approved' && <span className="muted" style={{ fontSize: 11.5 }}>Auto-approve is on — this will be used as-is.</span>}
+                    </div>
+                  </div>
+                </td></tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table></div>
       )}
       <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
         <b>Weekly auto-write</b> (when enabled) will draft the highest-priority queued keyword each week. Drafts land in <a href={`/w/${slug}/articles`}>Articles</a> for review before publishing.
+        {' '}A keyword with an <b>approved brief</b> is written to that plan rather than improvised, and the quality gate grades it on whether it followed the brief.
       </p>
     </AppShell>
   )

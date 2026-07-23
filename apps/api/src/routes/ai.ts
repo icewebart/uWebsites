@@ -1482,10 +1482,12 @@ export async function writeArticleForKeyword(
   //      siblings exist so it frames the piece as part of that topic and links
   //      to the ones already published.
   let clusterNote = ''
+  let planItem: any = null
   try {
     const planItems: any[] = Array.isArray(tk.article_plan?.items) ? tk.article_plan.items : []
     const norm = (s: any) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim()
     const mine = planItems.find((i) => norm(i?.keyword) === norm(keyword))
+    planItem = mine || null
     const cluster = mine?.cluster ? String(mine.cluster) : ''
     if (cluster) {
       const siblings = planItems
@@ -1501,15 +1503,40 @@ export async function writeArticleForKeyword(
     }
   } catch { /* clustering is optional */ }
 
+  // (2c) CONTENT BRIEF — if this keyword has an approved brief, it stops being
+  //      "write something about X" and becomes "execute this plan". The brief is
+  //      used when it's explicitly approved, or when the workspace auto-approves
+  //      (so flipping that toggle activates briefs already sitting as drafts).
+  const bf = planItem?.brief
+  const briefApproved = !!bf && (bf.status === 'approved' || !!tk.article_plan?.autoApproveBriefs)
+  const briefBlock = briefApproved ? [
+    'CONTENT BRIEF — this is the approved plan for this article. Follow it. It outranks your own instincts about structure.',
+    bf.title && `Working title: ${bf.title}`,
+    bf.angle && `THE ANGLE (what makes this piece distinct — do not drift from it): ${bf.angle}`,
+    bf.searchIntent && `Search intent to satisfy: ${bf.searchIntent}`,
+    bf.wordTarget && `Target length: about ${bf.wordTarget} words.`,
+    Array.isArray(bf.outline) && bf.outline.length
+      ? 'REQUIRED OUTLINE — use these H2s, in this order, each making these points:\n'
+        + bf.outline.map((s: any, i: number) => `${i + 1}. ${s.h2}\n${(s.points || []).map((p: string) => `   - ${p}`).join('\n')}`).join('\n')
+      : '',
+    Array.isArray(bf.mustCover) && bf.mustCover.length
+      ? `MUST COVER (omitting any of these makes the article incomplete):\n${bf.mustCover.map((m: string) => `- ${m}`).join('\n')}` : '',
+    Array.isArray(bf.internalLinks) && bf.internalLinks.length
+      ? `REQUIRED INTERNAL LINKS (use these exact URLs with this anchor text):\n${bf.internalLinks.map((l: any) => `- <a href="${l.url}">${l.anchor}</a>`).join('\n')}` : '',
+    bf.cta && `Lead the reader toward: ${bf.cta}`,
+  ].filter(Boolean).join('\n') : ''
+
   // (3) SERP GROUNDING — the live top results + People-also-ask for this
   //     keyword, so "match or exceed what ranks" is based on the real SERP
   //     instead of the model's memory. No-op without SERPER_API_KEY.
-  const serp = serpPromptBlock(await fetchSerp(String(keyword)))
+  //     Skipped when a brief is driving: the brief already baked this research
+  //     in, so re-fetching would just spend an API call to say the same thing.
+  const serp = briefApproved ? '' : serpPromptBlock(await fetchSerp(String(keyword)))
 
   try {
     const r = await a.messages.create({
       model: MODEL, max_tokens: 6000,
-      system: `You are an expert SEO content writer. Write a genuinely useful, well-structured article fully optimised for the target keyword, in the site's own language. ${voice}\n${examples}\n\n${rulesText}\n\n${COPY_RULES}${brief ? '\n\nBUSINESS CONTEXT (anchor the topic/audience/offers to this):\n' + brief : ''}${internalLinks ? '\n\n' + internalLinks : ''}${clusterNote ? '\n\n' + clusterNote : ''}${serp ? '\n\n' + serp : ''}${relatedSearches ? '\n\n' + relatedSearches : ''}`,
+      system: `You are an expert SEO content writer. Write a genuinely useful, well-structured article fully optimised for the target keyword, in the site's own language. ${voice}\n${examples}\n\n${rulesText}\n\n${COPY_RULES}${brief ? '\n\nBUSINESS CONTEXT (anchor the topic/audience/offers to this):\n' + brief : ''}${internalLinks ? '\n\n' + internalLinks : ''}${clusterNote ? '\n\n' + clusterNote : ''}${briefBlock ? '\n\n' + briefBlock : ''}${serp ? '\n\n' + serp : ''}${relatedSearches ? '\n\n' + relatedSearches : ''}`,
       tools: [{ name: 'article', description: 'The finished article.', input_schema: {
         type: 'object',
         properties: {
@@ -1535,7 +1562,8 @@ export async function writeArticleForKeyword(
     try {
       const rev = await a.messages.create({
         model: MODEL, max_tokens: 700,
-        system: 'You are a demanding SEO editor. Grade this article honestly against its target keyword. Be strict: thin or padded sections, generic filler, unsupported claims, intent mismatch, missing direct answer up top, or no real specifics must all pull the score down. A competent-but-unremarkable article is about 65.',
+        system: 'You are a demanding SEO editor. Grade this article honestly against its target keyword. Be strict: thin or padded sections, generic filler, unsupported claims, intent mismatch, missing direct answer up top, or no real specifics must all pull the score down. A competent-but-unremarkable article is about 65.'
+          + (briefBlock ? '\n\nA CONTENT BRIEF was approved for this article. Grade COMPLIANCE too, and weight it heavily: a fluent article that drifted from the angle, skipped required H2s, or omitted must-cover points is a FAILURE, not a good article. Name every departure as an issue.\n\n' + briefBlock : ''),
         tools: [{ name: 'review', description: 'Publish-readiness verdict.', input_schema: {
           type: 'object',
           properties: {
@@ -2823,5 +2851,141 @@ Rules:
     res.json({ ok: true, data: { pillars, unassigned: [] } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'Proposal failed: ' + (e?.message || 'unknown') })
+  }
+})
+
+// POST /ai/plan/brief — the content brief for ONE planned keyword.
+//
+// The point is a cheap review surface: today the first thing you can judge is a
+// finished article, which is expensive to reject. A brief is twenty lines, so a
+// wrong angle gets caught before generation instead of after. It also persists
+// the SERP research (no second fetch at write time) and names REAL internal link
+// targets, which is what makes a topic cluster rank as a unit.
+aiRouter.post('/plan/brief', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
+  const { slug, keyword } = req.body ?? {}
+  if (!slug || !keyword) return res.status(400).json({ ok: false, error: 'slug and keyword required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const tk: any = tok?.tokens || {}
+  const bb = tk.business_brief || {}
+  const norm = (s: any) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+  const planItems: any[] = Array.isArray(tk.article_plan?.items) ? tk.article_plan.items : []
+  const mine = planItems.find((i) => norm(i?.keyword) === norm(keyword))
+  const cluster = mine?.cluster ? String(mine.cluster) : ''
+  const pillar = (Array.isArray(tk.article_plan?.pillars) ? tk.article_plan.pillars : []).find((p: any) => p?.name === cluster)
+
+  // Link targets must be REAL — a brief that invents URLs is worse than none.
+  const [wpConn] = await db.select().from(wordpressConnections).where(eq(wordpressConnections.workspaceId, ws.id)).limit(1)
+  let targets: { title: string; url: string }[] = []
+  if (wpConn) targets = (await wpLinkTargets(wpConn as WpConn).catch(() => [])).slice(0, 60)
+  else {
+    const rows = await db.select({ slug: pages.slug, title: pages.title }).from(pages).where(eq(pages.workspaceId, ws.id))
+    targets = rows.filter((p) => p.title && p.slug).slice(0, 60)
+      .map((p) => ({ title: p.title as string, url: p.slug === 'home' ? '/' : `/${p.slug}/` }))
+  }
+
+  const siblings = cluster
+    ? planItems.filter((i) => i?.cluster === cluster && norm(i?.keyword) !== norm(keyword) && i?.keyword).slice(0, 14)
+    : []
+  const serp = serpPromptBlock(await fetchSerp(String(keyword)))
+
+  const bizBrief = [
+    bb.about && `What the business does: ${bb.about}`,
+    bb.audience && `Who it's for: ${bb.audience}`,
+    bb.offers && `Products/services sold: ${bb.offers}`,
+    bb.avoid && `Avoid: ${bb.avoid}`,
+  ].filter(Boolean).join('\n')
+
+  try {
+    const r = await a.messages.create({
+      model: MODEL, max_tokens: 3000,
+      system: `You are a senior content strategist writing the brief a writer will follow. Not the article — the plan for it.
+
+TARGET KEYWORD: "${keyword}"
+${mine?.intent ? `Search intent: ${mine.intent}` : ''}${mine?.funnel ? ` · Funnel stage: ${mine.funnel}` : ''}${mine?.contentType ? ` · Format: ${mine.contentType}` : ''}
+${cluster ? `\nTOPIC CLUSTER: "${cluster}"${pillar?.description ? ` — ${pillar.description}` : ''}${pillar?.businessValue ? ` (business value: ${pillar.businessValue})` : ''}
+This article is one piece of that cluster, not a standalone.` : ''}
+${siblings.length ? `\nSIBLINGS IN THIS CLUSTER — the angle you define MUST NOT overlap these:\n${siblings.map((s) => `- "${s.keyword}"${s.pageId ? ' [PUBLISHED]' : ' [planned]'}`).join('\n')}` : ''}
+${bizBrief ? `\nTHE BUSINESS:\n${bizBrief}` : ''}
+${targets.length ? `\nREAL PAGES ON THE SITE — internal links may ONLY come from this list, quoted exactly:\n${targets.map((t) => `- "${t.title}" → ${t.url}`).join('\n')}` : ''}
+${serp ? `\n${serp}` : ''}
+
+Write the brief. Rules:
+- "angle" is the sharpest thing here: state what makes THIS piece different from
+  its siblings and from what already ranks. If the angle is interchangeable with
+  a sibling's, you have created a cannibalisation problem — pick another.
+- The outline is the article's real skeleton: H2s in order, with the specific
+  points each must make. No filler sections.
+- "mustCover" = concrete entities, numbers, questions and objections that a
+  credible piece on this cannot omit. Draw on the SERP and People-also-ask.
+- "internalLinks": 2-4, ONLY from the list above, with anchor text that reads
+  naturally. If the list is empty, return an empty array — never invent a URL.
+- "cta" names which of the business's actual offers this article should lead to.
+- Write every field in the language the keyword is in.`,
+      tools: [{ name: 'brief', description: 'The content brief.', input_schema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Working H1 — keyword near the front, max 60 chars.' },
+          angle: { type: 'string', description: 'One or two sentences: what makes this piece distinct and worth reading.' },
+          searchIntent: { type: 'string', description: 'What the searcher actually wants, in one line.' },
+          wordTarget: { type: 'number', description: 'Realistic target length, based on what ranks.' },
+          outline: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { h2: { type: 'string' }, points: { type: 'array', items: { type: 'string' } } },
+              required: ['h2', 'points'],
+            },
+          },
+          mustCover: { type: 'array', items: { type: 'string' } },
+          internalLinks: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { url: { type: 'string' }, anchor: { type: 'string' } },
+              required: ['url', 'anchor'],
+            },
+          },
+          cta: { type: 'string' },
+        }, required: ['title', 'angle', 'outline', 'mustCover'],
+      } as any }],
+      tool_choice: { type: 'tool', name: 'brief' },
+      messages: [{ role: 'user', content: `Write the content brief for "${keyword}".` }],
+    })
+    const tu = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!tu) return res.status(502).json({ ok: false, error: 'The strategist returned nothing — try again.' })
+    const b: any = tu.input
+    // Drop invented URLs — the model is told to quote the list, but a brief that
+    // ships a 404 as a "real" link target is exactly the failure this prevents.
+    const allowed = new Set(targets.map((t) => t.url))
+    const internalLinks = (Array.isArray(b.internalLinks) ? b.internalLinks : [])
+      .filter((l: any) => l?.url && allowed.has(String(l.url)))
+      .slice(0, 4)
+      .map((l: any) => ({ url: String(l.url), anchor: String(l.anchor || '').slice(0, 120) }))
+
+    const brief = {
+      title: String(b.title || '').slice(0, 120),
+      angle: String(b.angle || '').slice(0, 600),
+      searchIntent: String(b.searchIntent || '').slice(0, 300),
+      wordTarget: Math.min(4000, Math.max(400, Math.round(Number(b.wordTarget) || 1200))),
+      outline: (Array.isArray(b.outline) ? b.outline : []).slice(0, 12).map((s: any) => ({
+        h2: String(s?.h2 || '').slice(0, 160),
+        points: (Array.isArray(s?.points) ? s.points : []).slice(0, 8).map((p: any) => String(p).slice(0, 300)),
+      })).filter((s: any) => s.h2),
+      mustCover: (Array.isArray(b.mustCover) ? b.mustCover : []).slice(0, 20).map((m: any) => String(m).slice(0, 200)),
+      internalLinks,
+      cta: String(b.cta || '').slice(0, 300),
+      status: 'draft' as const,
+      generatedAt: new Date().toISOString(),
+      serpUsed: !!serp,
+    }
+    await logAiJob(ws.id, 'edit', 'done', { source: 'plan-brief', keyword: String(keyword).slice(0, 120) }, 1)
+    res.json({ ok: true, data: brief })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Brief failed: ' + (e?.message || 'unknown') })
   }
 })
