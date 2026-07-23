@@ -4,7 +4,11 @@ import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
-type Tokens = { article_rules?: string[] } & Record<string, any>
+// Merged "how the AI writes" page — brand voice + few-shot examples + the
+// per-article SEO rules. All three live on branding tokens and save together.
+
+type Example = { label: string; text: string }
+type Tokens = { voice?: string; tagline?: string; voice_examples?: Example[]; article_rules?: string[] } & Record<string, any>
 
 // Kept in sync with DEFAULT_ARTICLE_RULES on the server.
 const DEFAULT_RULES = [
@@ -29,12 +33,13 @@ const DEFAULT_RULES = [
   'Semantic HTML only in the body: p, h2, h3, ul, ol, li, table, thead, tbody, tr, th, td, strong, em, a — no inline styles or scripts.',
 ]
 
-export default function ArticleRulesPage() {
+export default function VoiceRulesPage() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
   const [t, setT] = useState<Tokens | null>(null)
   const [saving, setSaving] = useState(false)
-  const [savedAt, setSavedAt] = useState(''); const [err, setErr] = useState('')
+  const [savedAt, setSavedAt] = useState('')
+  const [err, setErr] = useState('')
 
   useEffect(() => {
     api<{ tokens: Tokens }>(`/workspaces/${slug}/branding`).then((d) => {
@@ -44,8 +49,9 @@ export default function ArticleRulesPage() {
     }).catch(() => router.push(`/w/${slug}`))
   }, [slug])
 
-  const rules = t?.article_rules || []
-  const setRules = (r: string[]) => setT((c) => c ? { ...c, article_rules: r } : c)
+  const set = (patch: Partial<Tokens>) => setT((c) => c ? { ...c, ...patch } : c)
+  const setEx = (i: number, patch: Partial<Example>) => set({ voice_examples: (t?.voice_examples || []).map((e, k) => k === i ? { ...e, ...patch } : e) })
+  const setRules = (r: string[]) => set({ article_rules: r })
 
   async function save() {
     if (!t) return
@@ -55,13 +61,43 @@ export default function ArticleRulesPage() {
   }
 
   if (!t) return <div className="empty">Loading…</div>
+  const examples = t.voice_examples || []
+  const rules = t.article_rules || []
 
   return (
-    <AppShell title="Article Rules" currentSlug={slug} active="Article Rules">
+    <AppShell title="Voice & Rules" currentSlug={slug} active="Voice & Rules">
       <div className="dash-sub" style={{ marginBottom: 18 }}>
-        The rules the AI follows every time it writes a new article (from <a href={`/w/${slug}/article-plan`}>Article Plan</a> or "Draft"). Edit them to match how <em>you</em> want articles written — combined with your <a href={`/w/${slug}/brand-voice`}>Brand Voice</a>.
+        How the AI writes for you. Your <b>voice</b> shapes tone; the <b>rules</b> below are applied to every article. Together they make content read like <em>you</em>, not a template.
       </div>
 
+      <div className="dash-h" style={{ marginTop: 0 }}>Voice &amp; tagline</div>
+      <div className="ctl-group card">
+        <div className="field">
+          <label>Tagline</label>
+          <input className="inp" value={t.tagline || ''} placeholder='e.g. "German for kids, through play"' onChange={(e) => set({ tagline: e.target.value })} />
+        </div>
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>Brand voice / personality</label>
+          <textarea className="inp" rows={4} value={t.voice || ''} placeholder='e.g. "Warm and encouraging, speaks directly to parents, concrete outcomes over hype, one light joke is fine, never corporate. Short sentences. Romanian, informal (tu)."' onChange={(e) => set({ voice: e.target.value })} />
+          <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>Cover: tone, who you speak to, what to avoid, sentence length, language &amp; formality. Leave blank to use the auto-detected voice for your industry.</p>
+        </div>
+      </div>
+
+      <div className="dash-h" style={{ marginTop: 22 }}>Writing examples <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>(few-shot — the AI mimics these)</span></div>
+      <div className="ctl-group card">
+        <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Paste 1–3 short passages that sound exactly right (an intro paragraph, an "about" blurb, a real email). Concrete examples steer the AI far better than adjectives.</p>
+        {examples.map((ex, i) => (
+          <div className="field" key={i} style={{ paddingBottom: 8, borderBottom: '1px dashed var(--border)' }}>
+            <label>Example {i + 1}</label>
+            <input className="inp" placeholder="Label (e.g. Homepage intro, Newsletter)" value={ex.label} onChange={(e) => setEx(i, { label: e.target.value })} />
+            <textarea className="inp" style={{ marginTop: 6 }} rows={3} placeholder="Paste a passage that sounds like your brand…" value={ex.text} onChange={(e) => setEx(i, { text: e.target.value })} />
+            <button className="btn-mini danger" style={{ marginTop: 6 }} onClick={() => set({ voice_examples: examples.filter((_, k) => k !== i) })}>Remove</button>
+          </div>
+        ))}
+        {examples.length < 5 && <button className="btn-mini" onClick={() => set({ voice_examples: [...examples, { label: '', text: '' }] })}>＋ Add example</button>}
+      </div>
+
+      <div className="dash-h" style={{ marginTop: 22 }}>Article rules <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>(applied to every article the AI writes)</span></div>
       <div className="ctl-group card">
         {rules.map((r, i) => (
           <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
@@ -81,9 +117,8 @@ export default function ArticleRulesPage() {
 
       {err && <div className="err" style={{ marginTop: 14 }}>{err}</div>}
       <div className="save-row" style={{ marginTop: 14 }}>
-        <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save rules'}</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
         {savedAt && <span className="saved-tag">Saved {savedAt}</span>}
-        <span className="muted" style={{ fontSize: 12, marginLeft: 'auto' }}>Applied to every new article the AI writes.</span>
       </div>
     </AppShell>
   )

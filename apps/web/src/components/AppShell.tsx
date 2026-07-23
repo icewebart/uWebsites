@@ -12,7 +12,7 @@ type Me = { user: { id: string; name?: string; email: string } }
 // shown only while its group is open. The group's own destination lives as a
 // normal child ("Website overview" / "All articles") so the header is purely a
 // toggle and the general page is still one click away.
-type NavEntry = { label: string; Icon: (p: { size?: number }) => React.JSX.Element; sub?: boolean; group?: boolean; parent?: string }
+type NavEntry = { label: string; Icon: (p: { size?: number }) => React.JSX.Element; sub?: boolean; group?: boolean; parent?: string; divider?: boolean }
 const NAV: NavEntry[] = [
   { label: 'Dashboard', Icon: IconDashboard },
   { label: 'Website', Icon: IconWebsite, group: true },
@@ -20,21 +20,28 @@ const NAV: NavEntry[] = [
   { label: 'Menu', Icon: IconMenu, parent: 'Website' },
   { label: 'Footer', Icon: IconFooter, parent: 'Website' },
   { label: 'CTAs', Icon: IconFooter, parent: 'Website' },
-  { label: 'Article Template', Icon: IconArticles, parent: 'Website' },
-  { label: 'Articles', Icon: IconArticles, group: true },
-  { label: 'All articles', Icon: IconArticles, parent: 'Articles' },
-  { label: 'Article Plan', Icon: IconArticles, parent: 'Articles' },
-  { label: 'Article Rules', Icon: IconArticles, parent: 'Articles' },
-  { label: 'Authors', Icon: IconArticles, parent: 'Articles' },
-  { label: 'WordPress', Icon: IconArticles, parent: 'Articles' },
+  // The content product — everything about planning, writing and delivering
+  // articles, in one place (was scattered across Website / Articles / Branding).
+  { label: 'Website Content', Icon: IconArticles, group: true },
+  { label: 'Plan', Icon: IconArticles, parent: 'Website Content' },
+  { label: 'Library', Icon: IconArticles, parent: 'Website Content' },
+  { label: 'Settings', Icon: IconArticles, parent: 'Website Content', divider: true },
+  { label: 'Business Brief', Icon: IconArticles, parent: 'Website Content' },
+  { label: 'Voice & Rules', Icon: IconAi, parent: 'Website Content' },
+  { label: 'Authors', Icon: IconArticles, parent: 'Website Content' },
+  { label: 'Format', Icon: IconArticles, parent: 'Website Content' },
+  { label: 'Destinations', Icon: IconArticles, parent: 'Website Content' },
   { label: 'Branding', Icon: IconBranding },
-  { label: 'Brand Voice', Icon: IconAi, sub: true },
   { label: 'Tracking', Icon: IconTracking },
   { label: 'Insights', Icon: IconStats },
 ]
-// Pages still pass active="Website"/"Articles" (the old parent labels) — map
-// those onto the new child items so nothing had to be edited page by page.
-const ACTIVE_ALIAS: Record<string, string> = { Website: 'Website overview', Articles: 'All articles' }
+// Pages still pass their old active= labels — map those onto the new nav labels
+// so nothing had to be edited page by page.
+const ACTIVE_ALIAS: Record<string, string> = {
+  Website: 'Website overview',
+  Articles: 'Library', 'Article Plan': 'Plan',
+  'Article Template': 'Format', WordPress: 'Destinations',
+}
 const PROFILE_ITEMS = ['Settings', 'Domains', 'Integrations', 'Email Setup', 'Billing']
 
 export function AppShell({ title, currentSlug, active = 'Dashboard', children, chatPageId, chatPageContext, onChatMutate, hideWorkspaceSwitch }: {
@@ -98,7 +105,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
       <aside className="sidebar">
         <div className="sidebar-brand"><img className="logo-full" src="/uwebsites.svg" alt="uWebsites" /></div>
         <nav className="sidebar-nav">
-          {NAV.map(({ label, Icon, sub, group, parent }) => {
+          {NAV.map(({ label, Icon, sub, group, parent, divider }) => {
             // A group header toggles; it never navigates.
             if (group) {
               const isOpen = !!openGroups[label]
@@ -111,21 +118,23 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               )
             }
             if (parent && !openGroups[parent]) return null // collapsed away
+            // A non-interactive sub-header inside an open group (e.g. "Settings").
+            if (divider) return <div key={label} className="sidebar-divider">{label}</div>
             const href = label === 'Dashboard' ? '/'
               : label === 'Insights' ? '/insights'
               : !current ? undefined
               : label === 'Website overview' ? `/w/${current.slug}`
-              : label === 'All articles' ? `/w/${current.slug}/articles`
+              : label === 'Library' ? `/w/${current.slug}/articles`
               : label === 'Menu' ? `/w/${current.slug}/menu`
               : label === 'Footer' ? `/w/${current.slug}/footer`
               : label === 'CTAs' ? `/w/${current.slug}/cta`
-              : label === 'Article Template' ? `/w/${current.slug}/article-template`
-              : label === 'Article Plan' ? `/w/${current.slug}/article-plan`
-              : label === 'Article Rules' ? `/w/${current.slug}/article-rules`
+              : label === 'Plan' ? `/w/${current.slug}/article-plan`
+              : label === 'Business Brief' ? `/w/${current.slug}/business-brief`
+              : label === 'Voice & Rules' ? `/w/${current.slug}/voice-rules`
               : label === 'Authors' ? `/w/${current.slug}/authors`
-              : label === 'WordPress' ? `/w/${current.slug}/wordpress`
+              : label === 'Format' ? `/w/${current.slug}/article-template`
+              : label === 'Destinations' ? `/w/${current.slug}/wordpress`
               : label === 'Branding' ? `/w/${current.slug}/branding`
-              : label === 'Brand Voice' ? `/w/${current.slug}/brand-voice`
               : label === 'Tracking' ? `/w/${current.slug}/tracking`
               : undefined
             const cls = `sidebar-link${label === activeLabel ? ' active' : ''}${(sub || parent) ? ' sidebar-sub' : ''}`
