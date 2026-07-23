@@ -2694,3 +2694,134 @@ expect that aren't there yet. Rules:
     res.status(502).json({ ok: false, error: 'Expansion failed: ' + (e?.message || 'unknown') })
   }
 })
+
+// POST /ai/plan/propose — Plan Builder, entry mode A: build a topic map from
+// NOTHING but the business itself. For a site with no keyword list yet (a new
+// client, or a WordPress-only workspace), this is the cold start.
+//
+// Returns the same shape as /plan/cluster so the review UI is shared; the only
+// difference is the source — the Business Brief instead of existing keywords.
+aiRouter.post('/plan/propose', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
+  const { slug, answers } = req.body ?? {}
+  if (!slug) return res.status(400).json({ ok: false, error: 'slug required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const tk: any = tok?.tokens || {}
+  const bb = tk.business_brief || {}
+  // The wizard's answers override/extend the stored brief for this run.
+  const about = String(answers?.about || bb.about || '').trim()
+  const audience = String(answers?.audience || bb.audience || '').trim()
+  const offers = String(answers?.offers || bb.offers || '').trim()
+  const market = String(answers?.market || '').trim()
+  const language = String(answers?.language || '').trim()
+  const priority = String(answers?.priorityServices || '').trim()
+
+  if (!about && !offers) {
+    return res.status(400).json({ ok: false, error: 'Tell me what the business does first — a topic map built from nothing would be generic. Fill in the Business Brief, or answer the questions.' })
+  }
+
+  const existingArticles = await db.select({ title: pages.title, seo: pages.seo, type: pages.type })
+    .from(pages).where(eq(pages.workspaceId, ws.id))
+  const covered = existingArticles
+    .filter((p) => String(p.type).includes('article') || p.type === 'collection_item')
+    .map((p) => `- "${p.title}"${(p.seo as any)?.keyword ? ` (targets: ${(p.seo as any).keyword})` : ''}`)
+    .slice(0, 80)
+
+  try {
+    const r = await a.messages.create({
+      model: MODEL, max_tokens: 8000,
+      system: `You are an SEO content strategist designing a topic map for a business from scratch.
+
+THE BUSINESS:
+${about ? `What it does: ${about}` : ''}
+${audience ? `Audience: ${audience}` : ''}
+${offers ? `Services/products sold: ${offers}` : ''}
+${priority ? `The services that actually drive revenue (weight these highest): ${priority}` : ''}
+${market ? `Market/location served: ${market}` : ''}
+${language ? `Write all keywords in: ${language}` : 'Write keywords in the language the business plainly uses.'}
+${covered.length ? `\nALREADY PUBLISHED (mark anything you propose that duplicates these as alreadyCovered:true):\n${covered.join('\n')}` : ''}
+
+Design 3-6 PILLARS — the topics this business should own in search. For each:
+- one "pillar" keyword (the broad hub term someone searches for the topic itself),
+- 6-10 "supporting" keywords: the specific questions and sub-topics under it.
+
+Rules:
+- These must be REAL search phrases people type, not marketing slogans or
+  internal jargon. If a human wouldn't type it into Google, don't propose it.
+- Weight pillars by commercial value: businessValue "high" if the topic leads to
+  something sold, "low" if it is purely informational traffic.
+- Cover the funnel: some BOFU (ready to buy), some MOFU (comparing), some TOFU.
+- Ground everything in the stated location/market where relevant.
+- No duplicates across pillars.`,
+      tools: [{ name: 'topic_map', description: 'The proposed content map.', input_schema: {
+        type: 'object',
+        properties: {
+          pillars: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                description: { type: 'string', description: 'One line: what owning this topic means for the business.' },
+                businessValue: { type: 'string', enum: ['high', 'medium', 'low'] },
+                keywords: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      keyword: { type: 'string' },
+                      role: { type: 'string', enum: ['pillar', 'supporting'] },
+                      intent: { type: 'string', enum: ['informational', 'commercial', 'transactional', 'navigational'] },
+                      funnel: { type: 'string', enum: ['TOFU', 'MOFU', 'BOFU'] },
+                      contentType: { type: 'string' },
+                      alreadyCovered: { type: 'boolean' },
+                    }, required: ['keyword', 'role', 'intent'],
+                  },
+                },
+              }, required: ['name', 'keywords'],
+            },
+          },
+          unassigned: { type: 'array', items: { type: 'string' } },
+        }, required: ['pillars'],
+      } as any }],
+      tool_choice: { type: 'tool', name: 'topic_map' },
+      messages: [{ role: 'user', content: 'Design the topic map for this business.' }],
+    })
+    const tu = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!tu) return res.status(502).json({ ok: false, error: 'The strategist returned nothing — try again.' })
+    const out = tu.input as { pillars: any[] }
+
+    // Dedupe across the whole proposal — the same phrase under two pillars would
+    // set up cannibalisation on day one.
+    const seen = new Set<string>()
+    const pillars = (out.pillars || []).map((p: any) => ({
+      name: String(p?.name || '').trim(),
+      description: String(p?.description || '').trim(),
+      businessValue: ['high', 'medium', 'low'].includes(p?.businessValue) ? p.businessValue : 'medium',
+      keywords: (Array.isArray(p?.keywords) ? p.keywords : []).reduce((acc: any[], k: any) => {
+        const kw = String(k?.keyword || '').trim()
+        const key = kw.toLowerCase()
+        if (!kw || seen.has(key)) return acc
+        seen.add(key)
+        acc.push({
+          keyword: kw,
+          role: k?.role === 'pillar' ? 'pillar' : 'supporting',
+          intent: String(k?.intent || 'informational'),
+          funnel: String(k?.funnel || 'TOFU'),
+          contentType: String(k?.contentType || '').slice(0, 40),
+          alreadyCovered: !!k?.alreadyCovered,
+        })
+        return acc
+      }, []),
+    })).filter((p: any) => p.name && p.keywords.length)
+
+    await logAiJob(ws.id, 'edit', 'done', { source: 'plan-propose', pillars: pillars.length, keywords: seen.size }, 1)
+    res.json({ ok: true, data: { pillars, unassigned: [] } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Proposal failed: ' + (e?.message || 'unknown') })
+  }
+})

@@ -14,6 +14,9 @@ type Opp = { query: string; impressions: number; position: number; clicks: numbe
 // Gap analysis for one pillar — proposed, never auto-added.
 type Gap = { keyword: string; intent: string; funnel: string; contentType: string; reason: string }
 type Expansion = { pillar: string; hub: string; missing: Gap[]; serpUsed: boolean }
+// Plan Builder entry mode A — the interview, for a site with no keywords yet.
+type Answers = { about: string; offers: string; audience: string; priorityServices: string; market: string; language: string }
+const EMPTY_ANSWERS: Answers = { about: '', offers: '', audience: '', priorityServices: '', market: '', language: '' }
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()))
 
@@ -33,10 +36,21 @@ export default function ArticlePlanPage() {
   const [clustering, setClustering] = useState(false)
   const [expansion, setExpansion] = useState<Expansion | null>(null)
   const [expanding, setExpanding] = useState('')
+  const [wizard, setWizard] = useState<Answers | null>(null)
+  const [briefLoaded, setBriefLoaded] = useState(false)
+  const [proposing, setProposing] = useState(false)
 
   useEffect(() => {
     api<Plan>(`/account/workspaces/${slug}/article-plan`).then((d) => { setItems(d.items); setAuto(d.auto); setScLinked(d.scLinked); setPillars(d.pillars || []) }).catch(() => router.push(`/w/${slug}`))
+    // Step 0 of the interview is to NOT ask what we already know — prefill from
+    // the Business Brief so the wizard is a confirmation, not a form.
+    api<{ tokens: any }>(`/workspaces/${slug}/branding`).then((d) => {
+      const bb = d?.tokens?.business_brief || {}
+      setPrefill({ ...EMPTY_ANSWERS, about: bb.about || '', offers: bb.offers || '', audience: bb.audience || '' })
+      setBriefLoaded(true)
+    }).catch(() => setBriefLoaded(true))
   }, [slug])
+  const [prefill, setPrefill] = useState<Answers>(EMPTY_ANSWERS)
 
   // Autosave whenever the list/auto changes (debounced-ish via a stable save).
   async function persist(next: Item[], nextAuto = auto) {
@@ -80,24 +94,43 @@ export default function ArticlePlanPage() {
     try { setProposal(await api<Proposed>('/ai/plan/cluster', { method: 'POST', body: JSON.stringify({ slug }) })) }
     catch (e: any) { setErr(e.message || 'Could not build the topic map') } finally { setClustering(false) }
   }
+  // Entry mode A — no keywords yet. The map is derived from the business itself
+  // (Business Brief + what's already published), then reviewed in the same panel.
+  async function proposeFromBusiness() {
+    if (!wizard) return
+    setProposing(true); setErr(''); setNote('')
+    try {
+      setProposal(await api<Proposed>('/ai/plan/propose', { method: 'POST', body: JSON.stringify({ slug, answers: wizard }) }))
+      setWizard(null)
+    } catch (e: any) { setErr(e.message || 'Could not build a proposal') } finally { setProposing(false) }
+  }
+
   async function applyProposal() {
     if (!proposal) return
     const byKw = new Map<string, { cluster: string; role: string; intent: string; funnel: string; contentType: string }>()
+    const order: string[] = []
     for (const p of proposal.pillars) {
       for (const k of p.keywords) {
-        byKw.set(k.keyword.toLowerCase().trim(), { cluster: p.name, role: k.role, intent: k.intent, funnel: k.funnel, contentType: k.contentType })
+        const key = k.keyword.toLowerCase().trim()
+        if (!byKw.has(key)) order.push(k.keyword.trim())
+        byKw.set(key, { cluster: p.name, role: k.role, intent: k.intent, funnel: k.funnel, contentType: k.contentType })
       }
     }
-    const next = items.map((i) => {
+    // Existing keywords get enriched in place; anything the proposal invented
+    // (entry mode A) is created — otherwise a from-scratch map would apply to
+    // nothing and look like it silently failed.
+    const enriched = items.map((i) => {
       const m = byKw.get(i.keyword.toLowerCase().trim())
       return m ? { ...i, ...m } : i
     })
+    const created = order.filter((k) => !has(k)).map((k) => mk(k, 'ai-plan', byKw.get(k.toLowerCase())!))
+    const next = [...created, ...enriched]
     const nextPillars: Pillar[] = proposal.pillars.map((p) => ({ name: p.name, description: p.description, businessValue: p.businessValue }))
     setPillars(nextPillars)
     setItems(next)
     try {
       await api(`/account/workspaces/${slug}/article-plan`, { method: 'PUT', body: JSON.stringify({ items: next, auto, pillars: nextPillars }) })
-      setNote(`Applied ${nextPillars.length} pillars across ${byKw.size} keywords.`)
+      setNote(`Applied ${nextPillars.length} pillars${created.length ? ` · ${created.length} new keywords added` : ''} across ${byKw.size} keywords.`)
       setProposal(null)
     } catch (e: any) { setErr(e.message || 'Could not save the topic map') }
   }
@@ -147,6 +180,10 @@ export default function ArticlePlanPage() {
             title={items.length < 3 ? 'Add at least 3 keywords first' : 'Let the AI organise these keywords into pillars — the topics this site should own'}>
             {clustering ? 'Organising…' : '✦ Build topic map'}
           </button>
+          <button className={`btn ${items.length < 3 ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setWizard(prefill)} disabled={!briefLoaded || !!wizard}
+            title="No keyword list yet? Build the map from what the business actually sells.">
+            ✦ Start from the business
+          </button>
           <label className="muted" style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', marginLeft: 'auto' }}>
             <input type="checkbox" checked={auto} onChange={(e) => persist(items, e.target.checked)} style={{ width: 'auto' }} /> Weekly auto-write
           </label>
@@ -177,6 +214,55 @@ export default function ArticlePlanPage() {
 
       {note && <div className="banner-ok" style={{ marginBottom: 12 }}>{note}</div>}
       {err && <div className="err" style={{ marginBottom: 12 }}>{err}</div>}
+
+      {/* Entry mode A: the interview. Prefilled from the Business Brief — every
+          field left blank here is a field the AI has to guess, so the answers
+          are the difference between a real map and generic slop. */}
+      {wizard && (
+        <div className="ctl-group card" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+            <b style={{ fontSize: 14 }}>Build the plan from the business</b>
+            <button className="btn-mini" onClick={() => setWizard(null)}>Cancel</button>
+          </div>
+          <p className="muted" style={{ fontSize: 12.5, margin: '0 0 12px' }}>
+            Answer what you can — this is prefilled from your <a href={`/w/${slug}/business-brief`}>Business Brief</a>. The AI proposes pillars and keywords; nothing is saved until you review and apply.
+          </p>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {([
+              ['about', 'What does the business do?', 'e.g. We run German language courses for adults and children in Bucharest', 3],
+              ['offers', 'What do you actually sell?', 'e.g. group courses, private lessons, exam prep (Goethe, telc), corporate training', 2],
+              ['priorityServices', 'Which of those bring in the most revenue?', 'The AI weights these pillars highest', 1],
+              ['audience', 'Who buys it?', 'e.g. parents of school-age kids, professionals relocating to Germany', 2],
+            ] as [keyof Answers, string, string, number][]).map(([k, label, ph, rows]) => (
+              <div key={k}>
+                <label className="muted" style={{ fontSize: 12 }}>{label}</label>
+                <textarea className="inp" rows={rows} value={wizard[k]} placeholder={ph}
+                  onChange={(e) => setWizard({ ...wizard, [k]: e.target.value })} />
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 200px' }}>
+                <label className="muted" style={{ fontSize: 12 }}>Where do you serve?</label>
+                <input className="inp" value={wizard.market} placeholder="e.g. Bucharest / nationwide / EU"
+                  onChange={(e) => setWizard({ ...wizard, market: e.target.value })} />
+              </div>
+              <div style={{ flex: '1 1 160px' }}>
+                <label className="muted" style={{ fontSize: 12 }}>Keyword language</label>
+                <input className="inp" value={wizard.language} placeholder="e.g. Romanian"
+                  onChange={(e) => setWizard({ ...wizard, language: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
+            <button className="btn btn-primary" onClick={proposeFromBusiness} disabled={proposing || (!wizard.about.trim() && !wizard.offers.trim())}>
+              {proposing ? 'Thinking…' : '✦ Propose pillars & keywords'}
+            </button>
+            {!wizard.about.trim() && !wizard.offers.trim() && (
+              <span className="muted" style={{ fontSize: 12 }}>Describe the business first — a map built from nothing would be generic.</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Proposed topic map — nothing is saved until this is applied. */}
       {proposal && (
