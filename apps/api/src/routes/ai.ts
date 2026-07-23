@@ -1429,7 +1429,17 @@ export async function writeArticleForKeyword(
     ? 'WRITING EXAMPLES — mimic this exact style:\n' + tk.voice_examples.filter((e: any) => e?.text).map((e: any) => `« ${e.text} »`).join('\n') : ''
   const rules = (Array.isArray(tk.article_rules) && tk.article_rules.length ? tk.article_rules : DEFAULT_ARTICLE_RULES)
   const rulesText = 'ARTICLE RULES (mandatory):\n' + rules.map((r: string, i: number) => `${i + 1}. ${r}`).join('\n')
-  const brief = await siteBrief(ws.id, ws.name)
+  // BUSINESS CONTEXT (gap #3) — the explicit brief the owner wrote is the
+  // authoritative grounding (especially for content-only workspaces with no
+  // site to infer from); the visual siteBrief is appended when present.
+  const bb = tk.business_brief || {}
+  const bizBrief = [
+    bb.about && `What the business does: ${bb.about}`,
+    bb.audience && `Who it's for: ${bb.audience}`,
+    bb.offers && `Products/services to reference (link where relevant): ${bb.offers}`,
+    bb.avoid && `Avoid / be careful with: ${bb.avoid}`,
+  ].filter(Boolean).join('\n')
+  const brief = [bizBrief, await siteBrief(ws.id, ws.name)].filter(Boolean).join('\n\n')
   const tmpl = articleTemplateOf(tk)
 
   // Is this workspace delivering into a client's own WordPress site?
@@ -1486,8 +1496,17 @@ export async function writeArticleForKeyword(
     if (!tu) throw new Error('Model returned no article')
     const { title, metaDescription, deck, bodyHtml } = tu.input as { title: string; metaDescription: string; deck?: string; bodyHtml: string }
     const html = deck ? `<p><strong>${deck}</strong></p>\n${bodyHtml}` : bodyHtml
-    const blocks = articleBlocksFromImport(title, html, undefined, tmpl)
     const pslug = String(keyword).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) + '-' + Math.random().toString(36).slice(2, 5)
+    // FEATURED IMAGE (gap #1) — every article gets a hero image, so uWebsites
+    // articles have a hero AND the WordPress delivery has a real featured image.
+    // Best-effort: if image gen is off / rate-limited / billing-blocked, the
+    // article still ships without one.
+    let featuredImg: { url: string; alt?: string } | undefined
+    try {
+      const r = await generateImageResult(ws.slug, photoPrompt(title, `${bb.about || ws.name}. Wide editorial hero banner, 16:9, clean, room for a title overlay.`), `article:${pslug}`)
+      if (r.url) { featuredImg = { url: r.url, alt: title }; await logAiJob(ws.id, 'image', 'done', { source: 'article-hero', keyword: String(keyword).slice(0, 120) }, 2) }
+    } catch { /* image is optional */ }
+    const blocks = articleBlocksFromImport(title, html, featuredImg, tmpl)
     const [created] = await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug: pslug, title, status: opts.publish ? 'published' : 'draft', blocks: blocks as any, seo: { description: metaDescription, keyword } as any }).returning()
     await logAiJob(ws.id, 'article', 'done', { source: opts.publish ? 'auto-write' : 'generate-article', keyword: String(keyword).slice(0, 200), title }, 1, created.id)
 
