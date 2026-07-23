@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
-type Item = { id: string; keyword: string; status: 'idea' | 'queued' | 'drafted' | 'published'; priority: number; source: string; impressions?: number; position?: number; pageId?: string; createdAt: string; coveredBy?: { pageId: string; title: string } | null }
+type Item = { id: string; keyword: string; status: 'idea' | 'queued' | 'drafted' | 'published'; priority: number; source: string; impressions?: number; position?: number; pageId?: string; createdAt: string; coveredBy?: { pageId: string; title: string } | null; cluster?: string }
 type Plan = { items: Item[]; auto: boolean; scLinked: boolean }
 type Opp = { query: string; impressions: number; position: number; clicks: number }
 
@@ -48,6 +48,9 @@ export default function ArticlePlanPage() {
   }
   function addOpp(o: Opp) { if (has(o.query)) return; persist([mk(o.query, 'search-console', { impressions: o.impressions, position: Math.round(o.position * 10) / 10 }), ...items]) }
   function remove(id: string) { persist(items.filter((i) => i.id !== id)) }
+  // Topic cluster: articles sharing one interlink as a group, which is how a
+  // topic ranks as a unit rather than as scattered posts.
+  function setCluster(id: string, cluster: string) { persist(items.map((i) => i.id === id ? { ...i, cluster: cluster.trim() || undefined } : i)) }
   function bump(id: string, d: number) { persist(items.map((i) => i.id === id ? { ...i, priority: (i.priority || 0) + d } : i)) }
 
   async function draftNow(it: Item) {
@@ -106,8 +109,13 @@ export default function ArticlePlanPage() {
       {items.length === 0 ? (
         <div className="aside-block" style={{ textAlign: 'center', padding: 34 }}><p className="muted">No keywords yet. Add one above or pull ideas from Search Console.</p></div>
       ) : (
-        <div className="tblwrap"><table className="tbl">
-          <thead><tr><th>Keyword</th><th style={{ width: 110 }}>Source</th><th style={{ width: 90 }}>Status</th><th style={{ width: 90 }}>SC</th><th style={{ width: 190 }}>Actions</th></tr></thead>
+        <div className="tblwrap">
+        {/* Existing cluster names, so they're one keystroke to reuse. */}
+        <datalist id="uw-clusters">
+          {[...new Set(items.map((i) => i.cluster).filter(Boolean))].map((c) => <option key={c as string} value={c as string} />)}
+        </datalist>
+        <table className="tbl">
+          <thead><tr><th>Keyword</th><th style={{ width: 150 }}>Cluster</th><th style={{ width: 110 }}>Source</th><th style={{ width: 90 }}>Status</th><th style={{ width: 90 }}>SC</th><th style={{ width: 190 }}>Actions</th></tr></thead>
           <tbody>
             {sorted.map((it) => (
               <tr key={it.id}>
@@ -119,6 +127,12 @@ export default function ArticlePlanPage() {
                       ⚠ Already covered by <a href={`/w/${slug}/p/${it.coveredBy.pageId}`}>{it.coveredBy.title || 'an existing article'}</a>
                     </div>
                   )}
+                </td>
+                <td>
+                  <input className="inp" style={{ fontSize: 12, padding: '5px 8px' }} defaultValue={it.cluster || ''}
+                    placeholder="— none —" list="uw-clusters"
+                    title="Group related keywords under one topic. Articles in a cluster link to each other, which is how a topic ranks as a unit."
+                    onBlur={(e) => { if ((e.target.value.trim() || undefined) !== it.cluster) setCluster(it.id, e.target.value) }} />
                 </td>
                 <td className="muted" style={{ fontSize: 12 }}>{it.source === 'search-console' ? 'Search Console' : it.source}</td>
                 <td><span className={`status-pill ${it.status === 'published' ? 'live' : it.status === 'drafted' ? 'live' : 'draft'}`}>{it.status}</span></td>

@@ -1477,6 +1477,30 @@ export async function writeArticleForKeyword(
     }
   } catch { /* non-fatal */ }
 
+  // (2b) TOPIC CLUSTER (gap #4) — a cluster ranks as a unit only if its pieces
+  //      interlink. If this keyword belongs to one, tell the writer which
+  //      siblings exist so it frames the piece as part of that topic and links
+  //      to the ones already published.
+  let clusterNote = ''
+  try {
+    const planItems: any[] = Array.isArray(tk.article_plan?.items) ? tk.article_plan.items : []
+    const norm = (s: any) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+    const mine = planItems.find((i) => norm(i?.keyword) === norm(keyword))
+    const cluster = mine?.cluster ? String(mine.cluster) : ''
+    if (cluster) {
+      const siblings = planItems
+        .filter((i) => i?.cluster === cluster && norm(i?.keyword) !== norm(keyword) && i?.keyword)
+        .slice(0, 12)
+      const written = siblings.filter((s) => s.pageId).map((s) => `"${s.keyword}"`)
+      const planned = siblings.filter((s) => !s.pageId).map((s) => `"${s.keyword}"`)
+      clusterNote = [
+        `TOPIC CLUSTER: this article is part of the "${cluster}" cluster — write it as one piece of that topic, not a standalone.`,
+        written.length ? `Already published in this cluster (link to these where genuinely relevant, using the internal pages listed above): ${written.join(', ')}.` : '',
+        planned.length ? `Also planned in this cluster (do NOT link — not published yet — but avoid duplicating their angle): ${planned.join(', ')}.` : '',
+      ].filter(Boolean).join('\n')
+    }
+  } catch { /* clustering is optional */ }
+
   // (3) SERP GROUNDING — the live top results + People-also-ask for this
   //     keyword, so "match or exceed what ranks" is based on the real SERP
   //     instead of the model's memory. No-op without SERPER_API_KEY.
@@ -1485,7 +1509,7 @@ export async function writeArticleForKeyword(
   try {
     const r = await a.messages.create({
       model: MODEL, max_tokens: 6000,
-      system: `You are an expert SEO content writer. Write a genuinely useful, well-structured article fully optimised for the target keyword, in the site's own language. ${voice}\n${examples}\n\n${rulesText}\n\n${COPY_RULES}${brief ? '\n\nBUSINESS CONTEXT (anchor the topic/audience/offers to this):\n' + brief : ''}${internalLinks ? '\n\n' + internalLinks : ''}${serp ? '\n\n' + serp : ''}${relatedSearches ? '\n\n' + relatedSearches : ''}`,
+      system: `You are an expert SEO content writer. Write a genuinely useful, well-structured article fully optimised for the target keyword, in the site's own language. ${voice}\n${examples}\n\n${rulesText}\n\n${COPY_RULES}${brief ? '\n\nBUSINESS CONTEXT (anchor the topic/audience/offers to this):\n' + brief : ''}${internalLinks ? '\n\n' + internalLinks : ''}${clusterNote ? '\n\n' + clusterNote : ''}${serp ? '\n\n' + serp : ''}${relatedSearches ? '\n\n' + relatedSearches : ''}`,
       tools: [{ name: 'article', description: 'The finished article.', input_schema: {
         type: 'object',
         properties: {
