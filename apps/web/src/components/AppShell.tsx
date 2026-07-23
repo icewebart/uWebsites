@@ -8,24 +8,33 @@ import { ChatPanel } from './ChatPanel'
 type Workspace = { id: string; name: string; slug: string }
 type Me = { user: { id: string; name?: string; email: string } }
 
-type NavEntry = { label: string; Icon: (p: { size?: number }) => React.JSX.Element; sub?: boolean }
+// `group` = a collapsible header (toggles, never navigates). `parent` = a child
+// shown only while its group is open. The group's own destination lives as a
+// normal child ("Website overview" / "All articles") so the header is purely a
+// toggle and the general page is still one click away.
+type NavEntry = { label: string; Icon: (p: { size?: number }) => React.JSX.Element; sub?: boolean; group?: boolean; parent?: string }
 const NAV: NavEntry[] = [
   { label: 'Dashboard', Icon: IconDashboard },
-  { label: 'Website', Icon: IconWebsite },
-  { label: 'Menu', Icon: IconMenu, sub: true },
-  { label: 'Footer', Icon: IconFooter, sub: true },
-  { label: 'CTAs', Icon: IconFooter, sub: true },
-  { label: 'Article Template', Icon: IconArticles, sub: true },
-  { label: 'Articles', Icon: IconArticles },
-  { label: 'Article Plan', Icon: IconArticles, sub: true },
-  { label: 'Article Rules', Icon: IconArticles, sub: true },
-  { label: 'Authors', Icon: IconArticles, sub: true },
-  { label: 'WordPress', Icon: IconArticles, sub: true },
+  { label: 'Website', Icon: IconWebsite, group: true },
+  { label: 'Website overview', Icon: IconWebsite, parent: 'Website' },
+  { label: 'Menu', Icon: IconMenu, parent: 'Website' },
+  { label: 'Footer', Icon: IconFooter, parent: 'Website' },
+  { label: 'CTAs', Icon: IconFooter, parent: 'Website' },
+  { label: 'Article Template', Icon: IconArticles, parent: 'Website' },
+  { label: 'Articles', Icon: IconArticles, group: true },
+  { label: 'All articles', Icon: IconArticles, parent: 'Articles' },
+  { label: 'Article Plan', Icon: IconArticles, parent: 'Articles' },
+  { label: 'Article Rules', Icon: IconArticles, parent: 'Articles' },
+  { label: 'Authors', Icon: IconArticles, parent: 'Articles' },
+  { label: 'WordPress', Icon: IconArticles, parent: 'Articles' },
   { label: 'Branding', Icon: IconBranding },
   { label: 'Brand Voice', Icon: IconAi, sub: true },
   { label: 'Tracking', Icon: IconTracking },
   { label: 'Insights', Icon: IconStats },
 ]
+// Pages still pass active="Website"/"Articles" (the old parent labels) — map
+// those onto the new child items so nothing had to be edited page by page.
+const ACTIVE_ALIAS: Record<string, string> = { Website: 'Website overview', Articles: 'All articles' }
 const PROFILE_ITEMS = ['Settings', 'Domains', 'Integrations', 'Email Setup', 'Billing']
 
 export function AppShell({ title, currentSlug, active = 'Dashboard', children, chatPageId, chatPageContext, onChatMutate, hideWorkspaceSwitch }: {
@@ -65,21 +74,52 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
     router.push('/login')
   }
 
+  // Collapsible nav groups. Remembered across pages, and the group holding the
+  // current page is always forced open so you never land somewhere "hidden".
+  const activeLabel = ACTIVE_ALIAS[active] || active
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    let saved: Record<string, boolean> = {}
+    try { saved = JSON.parse(localStorage.getItem('uw-nav-open') || '{}') } catch {}
+    const g = NAV.find((n) => n.label === activeLabel)?.parent
+    if (g) saved[g] = true
+    setOpenGroups(saved)
+  }, [activeLabel])
+  function toggleGroup(label: string) {
+    setOpenGroups((cur) => {
+      const next = { ...cur, [label]: !cur[label] }
+      try { localStorage.setItem('uw-nav-open', JSON.stringify(next)) } catch {}
+      return next
+    })
+  }
+
   return (
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-brand"><img className="logo-full" src="/uwebsites.svg" alt="uWebsites" /></div>
         <nav className="sidebar-nav">
-          {NAV.map(({ label, Icon, sub }) => {
+          {NAV.map(({ label, Icon, sub, group, parent }) => {
+            // A group header toggles; it never navigates.
+            if (group) {
+              const isOpen = !!openGroups[label]
+              return (
+                <button key={label} type="button" className={`sidebar-link sidebar-group${isOpen ? ' open' : ''}`}
+                  aria-expanded={isOpen} onClick={() => toggleGroup(label)}>
+                  <Icon size={18} />{label}
+                  <span className="sidebar-caret" aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
+                </button>
+              )
+            }
+            if (parent && !openGroups[parent]) return null // collapsed away
             const href = label === 'Dashboard' ? '/'
               : label === 'Insights' ? '/insights'
               : !current ? undefined
-              : label === 'Website' ? `/w/${current.slug}`
+              : label === 'Website overview' ? `/w/${current.slug}`
+              : label === 'All articles' ? `/w/${current.slug}/articles`
               : label === 'Menu' ? `/w/${current.slug}/menu`
               : label === 'Footer' ? `/w/${current.slug}/footer`
               : label === 'CTAs' ? `/w/${current.slug}/cta`
               : label === 'Article Template' ? `/w/${current.slug}/article-template`
-              : label === 'Articles' ? `/w/${current.slug}/articles`
               : label === 'Article Plan' ? `/w/${current.slug}/article-plan`
               : label === 'Article Rules' ? `/w/${current.slug}/article-rules`
               : label === 'Authors' ? `/w/${current.slug}/authors`
@@ -88,7 +128,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               : label === 'Brand Voice' ? `/w/${current.slug}/brand-voice`
               : label === 'Tracking' ? `/w/${current.slug}/tracking`
               : undefined
-            const cls = `sidebar-link${label === active ? ' active' : ''}${sub ? ' sidebar-sub' : ''}`
+            const cls = `sidebar-link${label === activeLabel ? ' active' : ''}${(sub || parent) ? ' sidebar-sub' : ''}`
             const inner = <><Icon size={18} />{label}</>
             return href
               ? <a key={label} href={href} className={cls}>{inner}</a>

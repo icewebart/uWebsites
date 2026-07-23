@@ -44,6 +44,10 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 .sidebar-brand .mk{width:24px;height:24px;border-radius:6px;background:var(--lime);color:var(--forest);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px}
 .sidebar-nav{display:flex;flex-direction:column;gap:2px;flex:1}
 .sidebar-link{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:var(--r-sm);color:var(--text-muted);font-size:13px;font-weight:500;cursor:pointer;text-decoration:none}
+/* Collapsible group header — a <button>, so reset the UA styles it brings. */
+.sidebar-group{width:100%;background:none;border:0;font-family:inherit;font-size:13px;font-weight:600;text-align:left;color:var(--text)}
+.sidebar-group .sidebar-caret{margin-left:auto;font-size:10px;opacity:.55;transition:opacity .15s}
+.sidebar-group:hover .sidebar-caret{opacity:.9}
 .sidebar-link svg{flex-shrink:0;color:var(--text-faint)}
 .sidebar-link:hover svg,.sidebar-link.active svg{color:var(--forest)}
 .sidebar-sub{padding-left:22px;font-size:12px;position:relative}

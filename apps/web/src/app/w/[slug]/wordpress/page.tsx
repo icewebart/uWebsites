@@ -76,11 +76,11 @@ export default function WordPressPage() {
   if (loading) return <div className="empty">Loading…</div>
 
   return (
-    <AppShell title="WordPress" currentSlug={slug} active="Website">
+    <AppShell title="WordPress" currentSlug={slug} active="WordPress">
       <div className="dash-h">Publish to WordPress</div>
       <p className="muted" style={{ fontSize: 13, maxWidth: 720 }}>
         Connect an existing WordPress site and every article this workspace writes is published straight into it —
-        with its featured image, and links into your own posts. No migration, no plugin required.
+        with its featured image, SEO meta, and links into your own posts. No migration needed.
       </p>
 
       {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
