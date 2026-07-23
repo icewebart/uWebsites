@@ -1503,6 +1503,31 @@ export async function writeArticleForKeyword(
     const { title, metaDescription, deck, bodyHtml } = tu.input as { title: string; metaDescription: string; deck?: string; bodyHtml: string }
     const html = deck ? `<p><strong>${deck}</strong></p>\n${bodyHtml}` : bodyHtml
     const pslug = String(keyword).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) + '-' + Math.random().toString(36).slice(2, 5)
+
+    // QUALITY GATE (gap #5) — a second, deliberately strict pass grades the
+    // draft. It never blocks the article; it only downgrades an auto-PUBLISH to
+    // a draft so a weak piece can't land on a client's live site unseen.
+    let review: { score: number; issues: string[] } | null = null
+    try {
+      const rev = await a.messages.create({
+        model: MODEL, max_tokens: 700,
+        system: 'You are a demanding SEO editor. Grade this article honestly against its target keyword. Be strict: thin or padded sections, generic filler, unsupported claims, intent mismatch, missing direct answer up top, or no real specifics must all pull the score down. A competent-but-unremarkable article is about 65.',
+        tools: [{ name: 'review', description: 'Publish-readiness verdict.', input_schema: {
+          type: 'object',
+          properties: {
+            score: { type: 'number', description: '0-100 overall publish-readiness.' },
+            issues: { type: 'array', items: { type: 'string' }, description: 'Concrete, specific problems, worst first. Empty if genuinely none.' },
+          }, required: ['score'],
+        } as any }],
+        tool_choice: { type: 'tool', name: 'review' },
+        messages: [{ role: 'user', content: `Target keyword: "${keyword}"\n\nTitle: ${title}\n\nArticle:\n${html.slice(0, 20000)}` }],
+      })
+      const rtu = rev.content.find((b: any) => b.type === 'tool_use') as any
+      if (rtu) review = { score: Math.round(Number(rtu.input?.score) || 0), issues: Array.isArray(rtu.input?.issues) ? rtu.input.issues.slice(0, 8).map(String) : [] }
+    } catch { /* the gate is advisory — never fail the write over it */ }
+    const QUALITY_BAR = 70
+    const heldForReview = !!(opts.publish && review && review.score < QUALITY_BAR)
+    const willPublish = !!opts.publish && !heldForReview
     // FEATURED IMAGE (gap #1) — every article gets a hero image, so uWebsites
     // articles have a hero AND the WordPress delivery has a real featured image.
     // Best-effort: if image gen is off / rate-limited / billing-blocked, the
@@ -1513,8 +1538,11 @@ export async function writeArticleForKeyword(
       if (r.url) { featuredImg = { url: r.url, alt: title }; await logAiJob(ws.id, 'image', 'done', { source: 'article-hero', keyword: String(keyword).slice(0, 120) }, 2) }
     } catch { /* image is optional */ }
     const blocks = articleBlocksFromImport(title, html, featuredImg, tmpl)
-    const [created] = await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug: pslug, title, status: opts.publish ? 'published' : 'draft', blocks: blocks as any, seo: { description: metaDescription, keyword } as any }).returning()
-    await logAiJob(ws.id, 'article', 'done', { source: opts.publish ? 'auto-write' : 'generate-article', keyword: String(keyword).slice(0, 200), title }, 1, created.id)
+    const seo: any = { description: metaDescription, keyword }
+    if (review) seo.review = { score: review.score, issues: review.issues, heldForReview }
+    const [created] = await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug: pslug, title, status: willPublish ? 'published' : 'draft', blocks: blocks as any, seo: seo as any }).returning()
+    await logAiJob(ws.id, 'article', 'done', { source: opts.publish ? 'auto-write' : 'generate-article', keyword: String(keyword).slice(0, 200), title, ...(review ? { score: review.score, heldForReview } : {}) }, 1, created.id)
+    if (heldForReview) console.warn(`[quality-gate] "${title}" scored ${review!.score} — held as draft for review`)
 
     // DELIVERY — if this workspace is connected to a client's WordPress, push the
     // article there too. Best-effort: the article is already saved on our side,
@@ -1525,11 +1553,13 @@ export async function writeArticleForKeyword(
         const remote = await wpPublishArticle(wpConn as WpConn, {
           externalId: created.id,           // dedupes a retried delivery
           title, content: html, excerpt: metaDescription, slug: pslug,
-          status: wpConn.defaultStatus === 'publish' ? 'publish' : 'draft',
+          // A piece the quality gate held back never auto-publishes on a
+          // client's site either — it lands as a draft for them to review.
+          status: (wpConn.defaultStatus === 'publish' && !heldForReview) ? 'publish' : 'draft',
           metaTitle: title, metaDescription,
           imageUrl: heroImg, imageAlt: title,
         })
-        await db.update(pages).set({ seo: { description: metaDescription, keyword, wordpress: { postId: remote.id, link: remote.link, status: remote.status } } as any }).where(eq(pages.id, created.id))
+        await db.update(pages).set({ seo: { ...seo, wordpress: { postId: remote.id, link: remote.link, status: remote.status } } as any }).where(eq(pages.id, created.id))
         await db.update(wordpressConnections).set({ postsCreated: (wpConn.postsCreated || 0) + 1, lastPostAt: new Date(), lastError: null, updatedAt: new Date() }).where(eq(wordpressConnections.id, wpConn.id))
       } catch (e: any) {
         console.error('[wordpress] publish failed for', ws.slug, e?.message || e)

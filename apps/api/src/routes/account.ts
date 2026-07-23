@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { and, eq, inArray } from 'drizzle-orm'
-import { db, accounts, workspaces, domains, brandingTokens } from '@uwebsites/db'
+import { db, accounts, workspaces, domains, brandingTokens, pages } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { getGoogleConn, saveGoogleConn, hasScope, SCOPE_SEARCH, SCOPE_ANALYTICS, scListSites, scQuery, scOpportunities, gaListProperties, gaReport } from '../lib/google-data.js'
 
@@ -183,18 +183,49 @@ accountRouter.get('/workspaces/:slug/insights', requireAuth, async (req: AuthReq
 // tools. Stored in tokens.article_plan { items:[], auto:bool }.
 type PlanItem = { id: string; keyword: string; status: 'idea' | 'queued' | 'drafted' | 'published'; priority: number; source: string; impressions?: number; position?: number; pageId?: string; createdAt: string }
 
+// Keyword cannibalisation guard (gap #6): flag plan keywords this site ALREADY
+// has an article for. Two pages chasing one query compete with each other and
+// both rank worse — better to refresh the existing piece than write a rival.
+const normKw = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim()
+
+async function coverageMap(workspaceId: string, keywords: string[]): Promise<Record<string, { pageId: string; title: string }>> {
+  const out: Record<string, { pageId: string; title: string }> = {}
+  const wanted = keywords.map(normKw).filter(Boolean)
+  if (!wanted.length) return out
+  const rows = await db.select({ id: pages.id, title: pages.title, seo: pages.seo, type: pages.type }).from(pages).where(eq(pages.workspaceId, workspaceId))
+  for (const p of rows) {
+    if (!String(p.type || '').includes('article') && p.type !== 'collection_item') continue
+    const pageKw = normKw((p.seo as any)?.keyword || '')
+    const pageTitle = normKw(p.title || '')
+    for (const kw of wanted) {
+      if (out[kw]) continue
+      // Conservative: the page explicitly targets this keyword, or its title
+      // contains the whole phrase. Avoids false positives on shared words.
+      if ((pageKw && pageKw === kw) || (kw.length > 6 && pageTitle.includes(kw))) {
+        out[kw] = { pageId: p.id, title: p.title || '' }
+      }
+    }
+  }
+  return out
+}
+
 accountRouter.get('/workspaces/:slug/article-plan', requireAuth, async (req: AuthRequest, res) => {
   const r = await ownedWsTokens(String(req.params.slug), req.user!.accountId)
   if (!r) return res.status(404).json({ ok: false, error: 'workspace not found' })
   const plan = (r.tok?.tokens as any)?.article_plan || { items: [], auto: false }
   const link = (r.tok?.tokens as any)?.analytics || {}
-  res.json({ ok: true, data: { items: plan.items || [], auto: !!plan.auto, scLinked: !!link.scProperty } })
+  const items = plan.items || []
+  const covered = await coverageMap(r.ws.id, items.map((i: any) => i?.keyword || ''))
+  const annotated = items.map((i: any) => ({ ...i, coveredBy: covered[normKw(i?.keyword || '')] || null }))
+  res.json({ ok: true, data: { items: annotated, auto: !!plan.auto, scLinked: !!link.scProperty } })
 })
 
 accountRouter.put('/workspaces/:slug/article-plan', requireAuth, async (req: AuthRequest, res) => {
   const r = await ownedWsTokens(String(req.params.slug), req.user!.accountId)
   if (!r) return res.status(404).json({ ok: false, error: 'workspace not found' })
-  const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 500) : []
+  // `coveredBy` is annotated on read (cannibalisation guard) — never persist it.
+  const items = (Array.isArray(req.body?.items) ? req.body.items.slice(0, 500) : [])
+    .map(({ coveredBy, ...rest }: any) => rest)
   const auto = !!req.body?.auto
   const tokens = { ...((r.tok?.tokens as any) || {}), article_plan: { items, auto } }
   if (r.tok) await db.update(brandingTokens).set({ tokens }).where(eq(brandingTokens.id, r.tok.id))

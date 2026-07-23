@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
-type Item = { id: string; keyword: string; status: 'idea' | 'queued' | 'drafted' | 'published'; priority: number; source: string; impressions?: number; position?: number; pageId?: string; createdAt: string }
+type Item = { id: string; keyword: string; status: 'idea' | 'queued' | 'drafted' | 'published'; priority: number; source: string; impressions?: number; position?: number; pageId?: string; createdAt: string; coveredBy?: { pageId: string; title: string } | null }
 type Plan = { items: Item[]; auto: boolean; scLinked: boolean }
 type Opp = { query: string; impressions: number; position: number; clicks: number }
 
@@ -111,7 +111,15 @@ export default function ArticlePlanPage() {
           <tbody>
             {sorted.map((it) => (
               <tr key={it.id}>
-                <td><b>{it.keyword}</b></td>
+                <td>
+                  <b>{it.keyword}</b>
+                  {it.coveredBy && (
+                    <div className="muted" style={{ fontSize: 11.5, marginTop: 2, color: 'var(--warn, #a15c00)' }}
+                      title="Two articles chasing the same query compete with each other and both rank worse. Consider refreshing the existing one instead.">
+                      ⚠ Already covered by <a href={`/w/${slug}/p/${it.coveredBy.pageId}`}>{it.coveredBy.title || 'an existing article'}</a>
+                    </div>
+                  )}
+                </td>
                 <td className="muted" style={{ fontSize: 12 }}>{it.source === 'search-console' ? 'Search Console' : it.source}</td>
                 <td><span className={`status-pill ${it.status === 'published' ? 'live' : it.status === 'drafted' ? 'live' : 'draft'}`}>{it.status}</span></td>
                 <td className="muted" style={{ fontSize: 12 }}>{it.impressions != null ? `${it.impressions} impr · #${it.position}` : '—'}</td>
