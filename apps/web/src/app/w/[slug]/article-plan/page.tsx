@@ -11,6 +11,9 @@ type Plan = { items: Item[]; auto: boolean; scLinked: boolean; pillars?: Pillar[
 // A proposed map from /ai/plan/cluster — reviewed before anything is saved.
 type Proposed = { pillars: { name: string; description: string; businessValue: string; keywords: { keyword: string; role: string; intent: string; funnel: string; contentType: string; alreadyCovered: boolean }[] }[]; unassigned: string[] }
 type Opp = { query: string; impressions: number; position: number; clicks: number }
+// Gap analysis for one pillar — proposed, never auto-added.
+type Gap = { keyword: string; intent: string; funnel: string; contentType: string; reason: string }
+type Expansion = { pillar: string; hub: string; missing: Gap[]; serpUsed: boolean }
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()))
 
@@ -28,6 +31,8 @@ export default function ArticlePlanPage() {
   const [pillars, setPillars] = useState<Pillar[]>([])
   const [proposal, setProposal] = useState<Proposed | null>(null)
   const [clustering, setClustering] = useState(false)
+  const [expansion, setExpansion] = useState<Expansion | null>(null)
+  const [expanding, setExpanding] = useState('')
 
   useEffect(() => {
     api<Plan>(`/account/workspaces/${slug}/article-plan`).then((d) => { setItems(d.items); setAuto(d.auto); setScLinked(d.scLinked); setPillars(d.pillars || []) }).catch(() => router.push(`/w/${slug}`))
@@ -95,6 +100,25 @@ export default function ArticlePlanPage() {
       setNote(`Applied ${nextPillars.length} pillars across ${byKw.size} keywords.`)
       setProposal(null)
     } catch (e: any) { setErr(e.message || 'Could not save the topic map') }
+  }
+
+  // Gap analysis: what is MISSING from a pillar (SERP-mined), reviewed before adding.
+  async function expandPillar(name: string) {
+    setExpanding(name); setErr(''); setNote(''); setExpansion(null)
+    try { setExpansion(await api<Expansion>('/ai/plan/expand', { method: 'POST', body: JSON.stringify({ slug, pillar: name }) })) }
+    catch (e: any) { setErr(e.message || 'Could not find missing topics') } finally { setExpanding('') }
+  }
+  function addGap(g: Gap, pillarName: string) {
+    if (has(g.keyword)) return
+    persist([mk(g.keyword, 'ai-gap', { cluster: pillarName, intent: g.intent, funnel: g.funnel, contentType: g.contentType }), ...items])
+    setExpansion((cur) => cur ? { ...cur, missing: cur.missing.filter((m) => m.keyword !== g.keyword) } : cur)
+  }
+  function addAllGaps() {
+    if (!expansion) return
+    const fresh = expansion.missing.filter((g) => !has(g.keyword))
+    if (fresh.length) persist([...fresh.map((g) => mk(g.keyword, 'ai-gap', { cluster: expansion.pillar, intent: g.intent, funnel: g.funnel, contentType: g.contentType })), ...items])
+    setExpansion(null)
+    setNote(`Added ${fresh.length} missing topics to "${expansion.pillar}".`)
   }
 
   // The saved map, for the graph: pillars with their keywords + live status.
@@ -186,6 +210,64 @@ export default function ArticlePlanPage() {
             <div className="muted" style={{ fontSize: 12, marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
               Didn&apos;t fit a pillar: {proposal.unassigned.join(' · ')}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Saved pillars — each can be gap-analysed for what's missing. */}
+      {pillars.length > 0 && (
+        <div className="ctl-group card" style={{ marginBottom: 14 }}>
+          <b style={{ fontSize: 14 }}>Pillars</b>
+          <div className="muted" style={{ fontSize: 12, marginTop: 2, marginBottom: 10 }}>
+            The topics this site should own. “Find missing topics” mines the live search results for what a visitor expects but you don&apos;t have yet.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {pillars.map((p) => {
+              const count = items.filter((i) => i.cluster === p.name).length
+              return (
+                <div key={p.name} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                  <b style={{ fontSize: 13 }}>{p.name}</b>
+                  <span className="status-pill" style={{ fontSize: 10 }}>{p.businessValue || 'medium'} value</span>
+                  <span className="muted" style={{ fontSize: 12 }}>{count} keyword{count === 1 ? '' : 's'}</span>
+                  <button className="btn-mini" style={{ marginLeft: 'auto' }} disabled={!!expanding}
+                    onClick={() => expandPillar(p.name)}>
+                    {expanding === p.name ? 'Analysing…' : '✦ Find missing topics'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Gap analysis for one pillar. */}
+      {expansion && (
+        <div className="ctl-group card" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+            <b style={{ fontSize: 14 }}>Missing from “{expansion.pillar}”
+              <span className="muted" style={{ fontWeight: 400 }}> · {expansion.missing.length} found{expansion.serpUsed ? ' · from live search results' : ''}</span>
+            </b>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {!!expansion.missing.length && <button className="btn btn-primary" onClick={addAllGaps}>Add all</button>}
+              <button className="btn btn-ghost" onClick={() => setExpansion(null)}>Close</button>
+            </div>
+          </div>
+          {!expansion.missing.length ? (
+            <p className="muted" style={{ fontSize: 13, margin: 0 }}>Nothing obvious is missing — this cluster looks complete.</p>
+          ) : (
+            <div className="tblwrap"><table className="tbl">
+              <thead><tr><th>Topic</th><th>Why it&apos;s missing</th><th style={{ width: 120 }}>Intent</th><th style={{ width: 70 }}></th></tr></thead>
+              <tbody>
+                {expansion.missing.map((g) => (
+                  <tr key={g.keyword}>
+                    <td><b style={{ fontSize: 13 }}>{g.keyword}</b></td>
+                    <td className="muted" style={{ fontSize: 12 }}>{g.reason}</td>
+                    <td className="muted" style={{ fontSize: 11.5 }}>{g.intent}{g.funnel ? ` · ${g.funnel}` : ''}</td>
+                    <td><button className="btn-mini" onClick={() => addGap(g, expansion.pillar)}>＋ Add</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
           )}
         </div>
       )}

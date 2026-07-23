@@ -2587,3 +2587,110 @@ Group the keywords into PILLARS — the handful of topics this site should own. 
     res.status(502).json({ ok: false, error: 'Clustering failed: ' + (e?.message || 'unknown') })
   }
 })
+
+// POST /ai/plan/expand — gap analysis for ONE pillar: what is MISSING from this
+// cluster? Mines the live SERP (People-also-ask + related searches) for the
+// pillar's hub term, then asks for the subtopics that would complete the
+// cluster — excluding everything already planned or already published.
+//
+// This is what turns the topic map from "what we have" into "what we're missing".
+aiRouter.post('/plan/expand', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
+  const { slug, pillar } = req.body ?? {}
+  if (!slug || !pillar) return res.status(400).json({ ok: false, error: 'slug and pillar required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const tk: any = tok?.tokens || {}
+  const bb = tk.business_brief || {}
+  const planItems: any[] = Array.isArray(tk.article_plan?.items) ? tk.article_plan.items : []
+  const pillars: any[] = Array.isArray(tk.article_plan?.pillars) ? tk.article_plan.pillars : []
+  const meta = pillars.find((p) => p?.name === String(pillar))
+
+  const inCluster = planItems.filter((i) => i?.cluster === String(pillar))
+  if (!inCluster.length && !meta) return res.status(400).json({ ok: false, error: 'That pillar has no keywords yet — build the topic map first.' })
+  const hub = inCluster.find((i) => i?.role === 'pillar')?.keyword || String(pillar)
+
+  // Everything we must NOT propose again: this cluster, the rest of the plan,
+  // and what's already published on the site.
+  const existingArticles = await db.select({ title: pages.title, seo: pages.seo, type: pages.type })
+    .from(pages).where(eq(pages.workspaceId, ws.id))
+  const covered = existingArticles
+    .filter((p) => String(p.type).includes('article') || p.type === 'collection_item')
+    .map((p) => (p.seo as any)?.keyword || p.title).filter(Boolean).slice(0, 100)
+  const taken = [...new Set([...planItems.map((i) => i?.keyword), ...covered].map((k: any) => String(k || '').toLowerCase().trim()).filter(Boolean))]
+
+  // Live SERP signal for the hub term — the questions real searchers ask.
+  const serp = await fetchSerp(hub)
+  const serpBlock = serpPromptBlock(serp)
+
+  const bizBrief = [bb.about && `What the business does: ${bb.about}`, bb.audience && `Audience: ${bb.audience}`, bb.offers && `Services sold: ${bb.offers}`].filter(Boolean).join('\n')
+
+  try {
+    const r = await a.messages.create({
+      model: MODEL, max_tokens: 3000,
+      system: `You are an SEO strategist completing a topic cluster.
+
+PILLAR: "${pillar}"${meta?.description ? ` — ${meta.description}` : ''}
+${bizBrief ? `\nTHE BUSINESS:\n${bizBrief}\n` : ''}
+ALREADY IN THIS CLUSTER (do not repeat, do not rephrase):
+${inCluster.map((i) => `- ${i.keyword}`).join('\n') || '- (empty)'}
+
+ALREADY COVERED OR PLANNED ELSEWHERE ON THIS SITE (never propose these again):
+${taken.slice(0, 120).map((k) => `- ${k}`).join('\n')}
+${serpBlock ? `\n${serpBlock}\n` : ''}
+Propose the subtopics MISSING from this cluster — the articles a visitor would
+expect that aren't there yet. Rules:
+- 5-12 proposals, ordered most valuable first.
+- Each must be a distinct search topic, not a rewording of an existing one.
+- Favour real questions people ask (use the People-also-ask list above when present).
+- Prefer topics with commercial relevance to what the business sells; include
+  informational ones only where they genuinely support the pillar.
+- Write in the same language as the existing cluster keywords.
+- Give a one-line reason for each, saying what gap it fills.`,
+      tools: [{ name: 'gaps', description: 'The missing subtopics.', input_schema: {
+        type: 'object',
+        properties: {
+          missing: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                keyword: { type: 'string' },
+                intent: { type: 'string', enum: ['informational', 'commercial', 'transactional', 'navigational'] },
+                funnel: { type: 'string', enum: ['TOFU', 'MOFU', 'BOFU'] },
+                contentType: { type: 'string' },
+                reason: { type: 'string', description: 'One line: the gap this fills.' },
+              }, required: ['keyword', 'intent', 'reason'],
+            },
+          },
+        }, required: ['missing'],
+      } as any }],
+      tool_choice: { type: 'tool', name: 'gaps' },
+      messages: [{ role: 'user', content: `Complete the "${pillar}" cluster. Hub term: "${hub}".` }],
+    })
+    const tu = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!tu) return res.status(502).json({ ok: false, error: 'No suggestions came back — try again.' })
+
+    // Belt and braces: drop anything that duplicates what we already have, even
+    // if the model was told not to.
+    const takenSet = new Set(taken)
+    const missing = (tu.input?.missing || [])
+      .filter((m: any) => m?.keyword && !takenSet.has(String(m.keyword).toLowerCase().trim()))
+      .slice(0, 12)
+      .map((m: any) => ({
+        keyword: String(m.keyword).trim(),
+        intent: String(m.intent || 'informational'),
+        funnel: String(m.funnel || 'TOFU'),
+        contentType: String(m.contentType || '').slice(0, 40),
+        reason: String(m.reason || '').slice(0, 200),
+      }))
+
+    await logAiJob(ws.id, 'edit', 'done', { source: 'plan-expand', pillar: String(pillar).slice(0, 120), found: missing.length, serp: !!serp }, 1)
+    res.json({ ok: true, data: { pillar: String(pillar), hub, missing, serpUsed: !!serp } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Expansion failed: ' + (e?.message || 'unknown') })
+  }
+})
