@@ -3,9 +3,13 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
+import { ClusterGraph, type GraphPillar } from '@/components/ClusterGraph'
 
-type Item = { id: string; keyword: string; status: 'idea' | 'queued' | 'drafted' | 'published'; priority: number; source: string; impressions?: number; position?: number; pageId?: string; createdAt: string; coveredBy?: { pageId: string; title: string } | null; cluster?: string }
-type Plan = { items: Item[]; auto: boolean; scLinked: boolean }
+type Item = { id: string; keyword: string; status: 'idea' | 'queued' | 'drafted' | 'published'; priority: number; source: string; impressions?: number; position?: number; pageId?: string; createdAt: string; coveredBy?: { pageId: string; title: string } | null; cluster?: string; role?: string; intent?: string; funnel?: string; contentType?: string }
+type Pillar = { name: string; description?: string; businessValue?: string }
+type Plan = { items: Item[]; auto: boolean; scLinked: boolean; pillars?: Pillar[] }
+// A proposed map from /ai/plan/cluster — reviewed before anything is saved.
+type Proposed = { pillars: { name: string; description: string; businessValue: string; keywords: { keyword: string; role: string; intent: string; funnel: string; contentType: string; alreadyCovered: boolean }[] }[]; unassigned: string[] }
 type Opp = { query: string; impressions: number; position: number; clicks: number }
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()))
@@ -21,15 +25,18 @@ export default function ArticlePlanPage() {
   const [opps, setOpps] = useState<Opp[] | null>(null)
   const [busy, setBusy] = useState('')
   const [note, setNote] = useState(''); const [err, setErr] = useState('')
+  const [pillars, setPillars] = useState<Pillar[]>([])
+  const [proposal, setProposal] = useState<Proposed | null>(null)
+  const [clustering, setClustering] = useState(false)
 
   useEffect(() => {
-    api<Plan>(`/account/workspaces/${slug}/article-plan`).then((d) => { setItems(d.items); setAuto(d.auto); setScLinked(d.scLinked) }).catch(() => router.push(`/w/${slug}`))
+    api<Plan>(`/account/workspaces/${slug}/article-plan`).then((d) => { setItems(d.items); setAuto(d.auto); setScLinked(d.scLinked); setPillars(d.pillars || []) }).catch(() => router.push(`/w/${slug}`))
   }, [slug])
 
   // Autosave whenever the list/auto changes (debounced-ish via a stable save).
   async function persist(next: Item[], nextAuto = auto) {
     setItems(next); setAuto(nextAuto)
-    try { await api(`/account/workspaces/${slug}/article-plan`, { method: 'PUT', body: JSON.stringify({ items: next, auto: nextAuto }) }) }
+    try { await api(`/account/workspaces/${slug}/article-plan`, { method: 'PUT', body: JSON.stringify({ items: next, auto: nextAuto, pillars }) }) }
     catch (e: any) { setErr(e.message || 'Save failed') }
   }
   const has = (k: string) => items.some((i) => i.keyword.toLowerCase().trim() === k.toLowerCase().trim())
@@ -62,6 +69,43 @@ export default function ArticlePlanPage() {
     } catch (e: any) { setErr(e.message || 'Draft failed') } finally { setBusy('') }
   }
 
+  // ── Plan Builder: let the AI organise the keywords into pillars, review, apply.
+  async function buildClusters() {
+    setClustering(true); setErr(''); setNote('')
+    try { setProposal(await api<Proposed>('/ai/plan/cluster', { method: 'POST', body: JSON.stringify({ slug }) })) }
+    catch (e: any) { setErr(e.message || 'Could not build the topic map') } finally { setClustering(false) }
+  }
+  async function applyProposal() {
+    if (!proposal) return
+    const byKw = new Map<string, { cluster: string; role: string; intent: string; funnel: string; contentType: string }>()
+    for (const p of proposal.pillars) {
+      for (const k of p.keywords) {
+        byKw.set(k.keyword.toLowerCase().trim(), { cluster: p.name, role: k.role, intent: k.intent, funnel: k.funnel, contentType: k.contentType })
+      }
+    }
+    const next = items.map((i) => {
+      const m = byKw.get(i.keyword.toLowerCase().trim())
+      return m ? { ...i, ...m } : i
+    })
+    const nextPillars: Pillar[] = proposal.pillars.map((p) => ({ name: p.name, description: p.description, businessValue: p.businessValue }))
+    setPillars(nextPillars)
+    setItems(next)
+    try {
+      await api(`/account/workspaces/${slug}/article-plan`, { method: 'PUT', body: JSON.stringify({ items: next, auto, pillars: nextPillars }) })
+      setNote(`Applied ${nextPillars.length} pillars across ${byKw.size} keywords.`)
+      setProposal(null)
+    } catch (e: any) { setErr(e.message || 'Could not save the topic map') }
+  }
+
+  // The saved map, for the graph: pillars with their keywords + live status.
+  const graphPillars: GraphPillar[] = pillars.map((p) => ({
+    name: p.name,
+    businessValue: p.businessValue,
+    keywords: items.filter((i) => i.cluster === p.name).map((i) => ({
+      keyword: i.keyword, role: i.role, status: i.status, alreadyCovered: !!i.coveredBy,
+    })),
+  })).filter((p) => p.keywords.length)
+
   const sorted = [...items].sort((a, b) => (b.priority || 0) - (a.priority || 0) || (b.impressions || 0) - (a.impressions || 0))
 
   return (
@@ -75,6 +119,10 @@ export default function ArticlePlanPage() {
           <div style={{ flex: '1 1 260px' }}><label className="muted" style={{ fontSize: 12 }}>Add a keyword</label><input className="inp" value={kw} onChange={(e) => setKw(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addOne()} placeholder="e.g. tabere de vara pentru copii" /></div>
           <button className="btn btn-primary" onClick={addOne} disabled={!kw.trim()}>＋ Add</button>
           <button className="btn btn-secondary" onClick={pullSC} disabled={!scLinked || busy === 'sc'} title={scLinked ? 'Pull near-ranking queries from Search Console' : 'Link a Search Console property first (Tracking)'}>{busy === 'sc' ? 'Pulling…' : '↧ Pull from Search Console'}</button>
+          <button className="btn btn-secondary" onClick={buildClusters} disabled={clustering || items.length < 3}
+            title={items.length < 3 ? 'Add at least 3 keywords first' : 'Let the AI organise these keywords into pillars — the topics this site should own'}>
+            {clustering ? 'Organising…' : '✦ Build topic map'}
+          </button>
           <label className="muted" style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', marginLeft: 'auto' }}>
             <input type="checkbox" checked={auto} onChange={(e) => persist(items, e.target.checked)} style={{ width: 'auto' }} /> Weekly auto-write
           </label>
@@ -105,6 +153,45 @@ export default function ArticlePlanPage() {
 
       {note && <div className="banner-ok" style={{ marginBottom: 12 }}>{note}</div>}
       {err && <div className="err" style={{ marginBottom: 12 }}>{err}</div>}
+
+      {/* Proposed topic map — nothing is saved until this is applied. */}
+      {proposal && (
+        <div className="ctl-group card" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <b style={{ fontSize: 14 }}>Proposed topic map <span className="muted" style={{ fontWeight: 400 }}>({proposal.pillars.length} pillars · review before applying)</span></b>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-primary" onClick={applyProposal}>Apply to plan</button>
+              <button className="btn btn-ghost" onClick={() => setProposal(null)}>Discard</button>
+            </div>
+          </div>
+          {proposal.pillars.map((p) => (
+            <div key={p.name} style={{ borderTop: '1px solid var(--border)', padding: '10px 0' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                <b style={{ fontSize: 13.5 }}>{p.name}</b>
+                <span className="status-pill" style={{ fontSize: 10 }}>{p.businessValue} value</span>
+                <span className="muted" style={{ fontSize: 12 }}>{p.keywords.length} keywords</span>
+              </div>
+              {p.description && <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{p.description}</div>}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                {p.keywords.map((k) => (
+                  <span key={k.keyword} className="build-chip" style={{ cursor: 'default', opacity: k.alreadyCovered ? 0.55 : 1 }}
+                    title={`${k.intent} · ${k.funnel}${k.contentType ? ' · ' + k.contentType : ''}${k.alreadyCovered ? ' · already covered' : ''}`}>
+                    {k.role === 'pillar' ? '★ ' : ''}{k.keyword}{k.alreadyCovered ? ' ⚠' : ''}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+          {!!proposal.unassigned?.length && (
+            <div className="muted" style={{ fontSize: 12, marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              Didn&apos;t fit a pillar: {proposal.unassigned.join(' · ')}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* The saved map. Hover a pillar to isolate its cluster. */}
+      {graphPillars.length > 0 && <ClusterGraph pillars={graphPillars} siteName={slug} />}
 
       {items.length === 0 ? (
         <div className="aside-block" style={{ textAlign: 'center', padding: 34 }}><p className="muted">No keywords yet. Add one above or pull ideas from Search Console.</p></div>
