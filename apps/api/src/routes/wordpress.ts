@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
 import { db, workspaces, wordpressConnections } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
-import { verifyConnection, createPost, type WpConn } from '../lib/wordpress.js'
+import { verifyConnection, publishArticle, decodeConnectionCode, type WpConn } from '../lib/wordpress.js'
 
 // Connect a client's own WordPress site so generated articles publish into it.
 // The auth secret is stored server-side and NEVER returned — reads get a masked
@@ -39,11 +39,20 @@ wordpressRouter.get('/:slug/wordpress', requireAuth, async (req: AuthRequest, re
 wordpressRouter.post('/:slug/wordpress', requireAuth, async (req: AuthRequest, res) => {
   const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
-  const { siteUrl, username, appPassword, defaultStatus } = req.body ?? {}
-  if (!siteUrl || !username || !appPassword) return res.status(400).json({ ok: false, error: 'siteUrl, username and appPassword are required' })
-  if (!/^https?:\/\//i.test(String(siteUrl))) return res.status(400).json({ ok: false, error: 'siteUrl must start with http:// or https://' })
+  const { siteUrl, username, appPassword, defaultStatus, connectionCode } = req.body ?? {}
 
-  const conn: WpConn = { siteUrl: String(siteUrl), username: String(username), authSecret: String(appPassword) }
+  // Two ways in: the plugin's one-paste connection code, or a site URL +
+  // username + Application Password (no plugin needed).
+  let conn: WpConn
+  if (connectionCode) {
+    const decoded = decodeConnectionCode(String(connectionCode))
+    if (!decoded) return res.status(400).json({ ok: false, error: 'That connection code is not valid. Copy it again from Settings → uWebsites in your WordPress admin.' })
+    conn = { siteUrl: decoded.siteUrl, mode: 'plugin', authSecret: decoded.token }
+  } else {
+    if (!siteUrl || !username || !appPassword) return res.status(400).json({ ok: false, error: 'siteUrl, username and appPassword are required' })
+    if (!/^https?:\/\//i.test(String(siteUrl))) return res.status(400).json({ ok: false, error: 'siteUrl must start with http:// or https://' })
+    conn = { siteUrl: String(siteUrl), mode: 'app_password', username: String(username), authSecret: String(appPassword) }
+  }
   let check: { name: string; canPublish: boolean; siteName?: string }
   try {
     check = await verifyConnection(conn)
@@ -57,8 +66,8 @@ wordpressRouter.post('/:slug/wordpress', requireAuth, async (req: AuthRequest, r
   const status = defaultStatus === 'publish' ? 'publish' : 'draft'
   const existing = await connectionFor(ws.id)
   const values = {
-    workspaceId: ws.id, siteUrl: String(siteUrl).replace(/\/+$/, ''), mode: 'app_password',
-    username: String(username), authSecret: String(appPassword), defaultStatus: status,
+    workspaceId: ws.id, siteUrl: conn.siteUrl.replace(/\/+$/, ''), mode: conn.mode || 'app_password',
+    username: conn.username || null, authSecret: conn.authSecret, defaultStatus: status,
     lastError: null as string | null, updatedAt: new Date(),
   }
   if (existing) await db.update(wordpressConnections).set(values).where(eq(wordpressConnections.id, existing.id))
@@ -94,7 +103,8 @@ wordpressRouter.post('/:slug/wordpress/test', requireAuth, async (req: AuthReque
   const c = await connectionFor(ws.id)
   if (!c) return res.status(404).json({ ok: false, error: 'not connected' })
   try {
-    const post = await createPost(c as WpConn, {
+    const post = await publishArticle(c as WpConn, {
+      externalId: `test-${c.id}`,
       title: 'uWebsites test post',
       content: '<p>If you can read this, uWebsites is connected to your site. You can safely delete this draft.</p>',
       status: 'draft',

@@ -17,6 +17,7 @@ export default function WordPressPage() {
   const [siteUrl, setSiteUrl] = useState('')
   const [username, setUsername] = useState('')
   const [appPassword, setAppPassword] = useState('')
+  const [code, setCode] = useState('')
   const [status, setStatus] = useState<'draft' | 'publish'>('draft')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -38,6 +39,17 @@ export default function WordPressPage() {
       })
       setNote(`Connected to ${r.siteName || siteUrl} as ${r.connectedAs}.`)
       setAppPassword('')
+      await load()
+    } catch (e: any) { setErr(e.message || 'Could not connect') } finally { setBusy(false) }
+  }
+  async function connectPlugin() {
+    setErr(''); setNote(''); setBusy(true)
+    try {
+      const r = await api<{ connectedAs: string; siteName?: string }>(`/workspaces/${slug}/wordpress`, {
+        method: 'POST', body: JSON.stringify({ connectionCode: code.trim(), defaultStatus: status }),
+      })
+      setNote(`Connected to ${r.siteName || 'your site'} via the plugin.`)
+      setCode('')
       await load()
     } catch (e: any) { setErr(e.message || 'Could not connect') } finally { setBusy(false) }
   }
@@ -93,8 +105,24 @@ export default function WordPressPage() {
           </div>
         </div>
       ) : (
+        <>
         <div className="ctl-group card" style={{ marginTop: 16, maxWidth: 720 }}>
-          <h3>Connect your site</h3>
+          <h3>Option A — with our plugin <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>(recommended)</span></h3>
+          <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
+            Install the uWebsites plugin, open <b>Settings → uWebsites</b>, copy the connection code and paste it here.
+            The plugin also writes your <b>Yoast / RankMath</b> meta and puts the featured image in your media library —
+            things the plain WordPress API can&apos;t do.
+          </p>
+          <div className="ctl-row"><label>Connection code</label>
+            <input className="inp" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Paste the code from your WordPress admin" />
+          </div>
+          <button className="btn btn-primary" style={{ marginTop: 10 }} onClick={connectPlugin} disabled={busy || !code.trim()}>
+            {busy ? 'Connecting…' : 'Connect with plugin'}
+          </button>
+        </div>
+
+        <div className="ctl-group card" style={{ marginTop: 16, maxWidth: 720 }}>
+          <h3>Option B — without a plugin</h3>
           <ol className="muted" style={{ fontSize: 13, paddingLeft: 18, margin: '4px 0 14px', lineHeight: 1.7 }}>
             <li>In your WordPress admin go to <b>Users → Profile</b>.</li>
             <li>Scroll to <b>Application Passwords</b>, type a name (e.g. “uWebsites”) and click <b>Add New</b>.</li>
@@ -123,6 +151,7 @@ export default function WordPressPage() {
             never sent to your browser — and you can revoke it anytime from WordPress without changing your login password.
           </p>
         </div>
+        </>
       )}
     </AppShell>
   )

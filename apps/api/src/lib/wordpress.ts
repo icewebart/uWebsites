@@ -21,12 +21,15 @@ export function restRoot(siteUrl: string): string {
   return /\/wp-json$/.test(clean) ? clean : `${clean}/wp-json`
 }
 
-function authHeader(conn: WpConn): string {
-  // Application Passwords authenticate over HTTP Basic. WP accepts the spaces
-  // in the generated password, but strip them defensively — pasting from the
-  // WP admin usually carries them and some proxies mangle the header.
+export const isPluginMode = (conn: WpConn) => conn.mode === 'plugin'
+
+function authHeaders(conn: WpConn): Record<string, string> {
+  // Plugin mode: our own site token. App-password mode: HTTP Basic. WP accepts
+  // the spaces in a generated app password, but strip them defensively —
+  // pasting from the WP admin carries them and some proxies mangle the header.
+  if (isPluginMode(conn)) return { 'X-UW-Token': conn.authSecret.trim() }
   const pass = conn.authSecret.replace(/\s+/g, '')
-  return 'Basic ' + Buffer.from(`${conn.username || ''}:${pass}`).toString('base64')
+  return { Authorization: 'Basic ' + Buffer.from(`${conn.username || ''}:${pass}`).toString('base64') }
 }
 
 async function wpFetch(conn: WpConn, path: string, init: RequestInit = {}): Promise<Response> {
@@ -34,13 +37,23 @@ async function wpFetch(conn: WpConn, path: string, init: RequestInit = {}): Prom
   return fetch(url, {
     ...init,
     headers: {
-      Authorization: authHeader(conn),
+      ...authHeaders(conn),
       'User-Agent': UA,
       ...(init.headers || {}),
     },
     // A slow shared host shouldn't hang the whole auto-write run.
     signal: AbortSignal.timeout(30_000),
   })
+}
+
+/** Decode the plugin's connection code → { siteUrl, token }. */
+export function decodeConnectionCode(code: string): { siteUrl: string; token: string } | null {
+  try {
+    const raw = Buffer.from(String(code).trim(), 'base64').toString('utf8')
+    const [siteUrl, token] = raw.split('|')
+    if (!/^https?:\/\//i.test(siteUrl || '') || !token) return null
+    return { siteUrl: siteUrl.replace(/\/+$/, ''), token }
+  } catch { return null }
 }
 
 async function wpJson<T = any>(conn: WpConn, path: string, init: RequestInit = {}): Promise<T> {
@@ -62,7 +75,11 @@ async function wpJson<T = any>(conn: WpConn, path: string, init: RequestInit = {
  * the user can actually publish (a subscriber-level account authenticates fine
  * but can't create posts — better to fail here than at the first article).
  */
-export async function verifyConnection(conn: WpConn): Promise<{ name: string; canPublish: boolean; siteName?: string }> {
+export async function verifyConnection(conn: WpConn): Promise<{ name: string; canPublish: boolean; siteName?: string; seo?: string }> {
+  if (isPluginMode(conn)) {
+    const s = await wpJson<any>(conn, '/uwebsites/v1/status')
+    return { name: 'uWebsites plugin', canPublish: true, siteName: s?.site, seo: s?.seo }
+  }
   const me = await wpJson<any>(conn, '/wp/v2/users/me?context=edit')
   const caps = me?.capabilities || {}
   const canPublish = !!(caps.publish_posts || caps.edit_posts || me?.roles?.includes?.('administrator'))
@@ -118,6 +135,50 @@ export async function createPost(conn: WpConn, post: {
     body: JSON.stringify(body),
   })
   return { id: created.id, link: created.link, status: created.status }
+}
+
+/**
+ * Publish an article — the ONE entry point the article engine calls.
+ *
+ * Plugin mode sends everything in a single request and the plugin does the
+ * heavy lifting on-site (sideloads the image into their media library, writes
+ * Yoast/RankMath meta, dedupes by external_id). App-password mode falls back to
+ * core REST: upload the media first, then create the post — no SEO meta,
+ * because core exposes no field for it.
+ */
+export async function publishArticle(conn: WpConn, a: {
+  externalId?: string
+  title: string
+  content: string
+  excerpt?: string
+  slug?: string
+  status?: 'draft' | 'publish'
+  metaTitle?: string
+  metaDescription?: string
+  imageUrl?: string
+  imageAlt?: string
+}): Promise<{ id: number; link: string; status: string }> {
+  const status = a.status || 'draft'
+  if (isPluginMode(conn)) {
+    const created = await wpJson<any>(conn, '/uwebsites/v1/article', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        external_id: a.externalId, title: a.title, content: a.content, excerpt: a.excerpt,
+        slug: a.slug, status, meta_title: a.metaTitle, meta_description: a.metaDescription,
+        image_url: a.imageUrl, image_alt: a.imageAlt,
+      }),
+    })
+    return { id: created.id, link: created.link, status: created.status }
+  }
+  let featuredMedia: number | null = null
+  if (a.imageUrl && /^https?:\/\//i.test(a.imageUrl)) {
+    const up = await uploadMedia(conn, a.imageUrl, `${a.slug || 'image'}.jpg`, a.imageAlt || a.title)
+    featuredMedia = up?.id ?? null
+  }
+  return createPost(conn, {
+    title: a.title, content: a.content, excerpt: a.excerpt, slug: a.slug, status, featuredMedia,
+  })
 }
 
 /**

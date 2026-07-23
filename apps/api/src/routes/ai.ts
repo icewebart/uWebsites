@@ -13,7 +13,7 @@ import { extractBrandFromDom, headlessRender } from '../lib/headless.js'
 import { fpFromHtml, fitSection, looksStructured } from '../lib/section-classifier.js'
 import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities } from '../lib/google-data.js'
 import { guardWriteArticle } from '../lib/entitlements.js'
-import { uploadMedia, createPost as wpCreatePost, linkTargets as wpLinkTargets, type WpConn } from '../lib/wordpress.js'
+import { publishArticle as wpPublishArticle, linkTargets as wpLinkTargets, type WpConn } from '../lib/wordpress.js'
 
 // Default rules the AI follows when writing an article (the Rules page can
 // override these per workspace via tokens.article_rules).
@@ -1496,16 +1496,13 @@ export async function writeArticleForKeyword(
     // so a WP failure is recorded on the connection, never lost.
     if (wpConn) {
       try {
-        let featuredMedia: number | null = null
         const heroImg = (blocks as any[]).find((b) => b?.type === 'article-hero')?.props?.image_url
-        if (heroImg && /^https?:\/\//i.test(heroImg)) {
-          const up = await uploadMedia(wpConn as WpConn, heroImg, `${pslug}.jpg`, title)
-          featuredMedia = up?.id ?? null
-        }
-        const remote = await wpCreatePost(wpConn as WpConn, {
+        const remote = await wpPublishArticle(wpConn as WpConn, {
+          externalId: created.id,           // dedupes a retried delivery
           title, content: html, excerpt: metaDescription, slug: pslug,
           status: wpConn.defaultStatus === 'publish' ? 'publish' : 'draft',
-          featuredMedia,
+          metaTitle: title, metaDescription,
+          imageUrl: heroImg, imageAlt: title,
         })
         await db.update(pages).set({ seo: { description: metaDescription, keyword, wordpress: { postId: remote.id, link: remote.link, status: remote.status } } as any }).where(eq(pages.id, created.id))
         await db.update(wordpressConnections).set({ postsCreated: (wpConn.postsCreated || 0) + 1, lastPostAt: new Date(), lastError: null, updatedAt: new Date() }).where(eq(wordpressConnections.id, wpConn.id))
