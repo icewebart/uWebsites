@@ -217,7 +217,7 @@ accountRouter.get('/workspaces/:slug/article-plan', requireAuth, async (req: Aut
   const items = plan.items || []
   const covered = await coverageMap(r.ws.id, items.map((i: any) => i?.keyword || ''))
   const annotated = items.map((i: any) => ({ ...i, coveredBy: covered[normKw(i?.keyword || '')] || null }))
-  res.json({ ok: true, data: { items: annotated, auto: !!plan.auto, scLinked: !!link.scProperty } })
+  res.json({ ok: true, data: { items: annotated, auto: !!plan.auto, pillars: plan.pillars || [], scLinked: !!link.scProperty } })
 })
 
 accountRouter.put('/workspaces/:slug/article-plan', requireAuth, async (req: AuthRequest, res) => {
@@ -227,10 +227,20 @@ accountRouter.put('/workspaces/:slug/article-plan', requireAuth, async (req: Aut
   const items = (Array.isArray(req.body?.items) ? req.body.items.slice(0, 500) : [])
     .map(({ coveredBy, ...rest }: any) => rest)
   const auto = !!req.body?.auto
-  const tokens = { ...((r.tok?.tokens as any) || {}), article_plan: { items, auto } }
+  // Pillars (the topic map). Kept alongside items so a cluster name on an item
+  // resolves to a pillar with a description + business value.
+  const prevPlan = ((r.tok?.tokens as any) || {}).article_plan || {}
+  const pillars = Array.isArray(req.body?.pillars)
+    ? req.body.pillars.slice(0, 30).map((p: any) => ({
+        name: String(p?.name || '').slice(0, 120),
+        description: String(p?.description || '').slice(0, 400),
+        businessValue: ['high', 'medium', 'low'].includes(p?.businessValue) ? p.businessValue : 'medium',
+      })).filter((p: any) => p.name)
+    : (prevPlan.pillars || [])
+  const tokens = { ...((r.tok?.tokens as any) || {}), article_plan: { items, auto, pillars } }
   if (r.tok) await db.update(brandingTokens).set({ tokens }).where(eq(brandingTokens.id, r.tok.id))
   else await db.insert(brandingTokens).values({ workspaceId: r.ws.id, tokens })
-  res.json({ ok: true, data: { items, auto } })
+  res.json({ ok: true, data: { items, auto, pillars } })
 })
 
 // Pull keyword ideas from the workspace's LINKED Search Console property.
