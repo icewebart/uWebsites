@@ -189,14 +189,15 @@ wordpressRouter.post('/:slug/wordpress/publish-page', requireAuth, async (req: A
   if (!html || !html.trim()) return res.status(400).json({ ok: false, error: 'This article has no body content to publish.' })
   const heroImg = blocks.find((b) => b?.type === 'article-hero')?.props?.image_url
   const metaDescription = String(seo.description || '')
-  // Respect the connection's default: publish live, or land as a WP draft.
-  const wantLive = c.defaultStatus === 'publish'
+  // "Publish to WordPress" means publish — this explicit action goes LIVE by
+  // default. A caller can still ask for a WP draft with status:'draft'.
+  const status = req.body?.status === 'draft' ? 'draft' : 'publish'
 
   try {
     const remote = await publishArticle(c as WpConn, {
       externalId: page.id,                 // dedupes on re-publish
       title: page.title, content: html, excerpt: metaDescription, slug: page.slug,
-      status: wantLive ? 'publish' : 'draft',
+      status,
       metaTitle: page.title, metaDescription,
       imageUrl: heroImg, imageAlt: page.title,
     })

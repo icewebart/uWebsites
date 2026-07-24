@@ -28,12 +28,15 @@ export default function ArticlesPage() {
     api<{ siteUrl?: string } | null>(`/workspaces/${slug}/wordpress`).then((d) => setWpConnected(!!d)).catch(() => {})
   }, [slug])
 
-  // Explicit delivery — writing never touches the client's site; this does.
+  // Explicit delivery — writing never touches the client's site; this does, and
+  // it goes LIVE. Confirm first, since it's a client's public site.
   async function publishToWp(p: Page) {
+    const verb = p.seo?.wordpress ? 'Update the live post for' : 'Publish live to WordPress:'
+    if (!window.confirm(`${verb} “${p.title || p.slug}”?\n\nThis makes it public on the connected WordPress site immediately.`)) return
     setNote(''); setErr(''); setBusyId(p.id)
     try {
       const r = await api<{ link: string; live: boolean }>(`/workspaces/${slug}/wordpress/publish-page`, { method: 'POST', body: JSON.stringify({ pageId: p.id }) })
-      setNote(`“${p.title}” ${r.live ? 'is live on WordPress' : 'sent to WordPress as a draft'}.${r.link ? '' : ''}`)
+      setNote(`“${p.title}” is live on WordPress.`); setPubUrl(r.link || '')
       await load()
     } catch (e: any) { setErr(e.message || 'Publish to WordPress failed') } finally { setBusyId(null) }
   }
