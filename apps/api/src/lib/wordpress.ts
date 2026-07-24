@@ -186,6 +186,38 @@ export async function publishArticle(conn: WpConn, a: {
  * Same shape the internal writer already uses, so articles link into THEIR site
  * instead of dead-ending.
  */
+// Pull existing published posts (full content) so we can index a client's
+// current articles on the platform. Published posts are public over REST, so
+// this works in both auth modes without special plugin support. Paginates.
+export async function fetchPosts(conn: WpConn, max = 100): Promise<Array<{
+  id: number; title: string; link: string; html: string; excerpt: string; date: string; slug: string
+}>> {
+  const out: Array<{ id: number; title: string; link: string; html: string; excerpt: string; date: string; slug: string }> = []
+  const per = 50
+  for (let page = 1; out.length < max && page <= 20; page++) {
+    let rows: any[] = []
+    try {
+      rows = await wpJson<any[]>(conn, `/wp/v2/posts?per_page=${per}&page=${page}&status=publish&_fields=id,title,link,content,excerpt,date,slug`)
+    } catch { break } // past the last page WP returns 400 — stop quietly
+    if (!Array.isArray(rows) || !rows.length) break
+    for (const r of rows) {
+      const title = r?.title?.rendered?.replace(/<[^>]+>/g, '').trim() || '(untitled)'
+      out.push({
+        id: Number(r?.id) || 0,
+        title,
+        link: String(r?.link || ''),
+        html: String(r?.content?.rendered || ''),
+        excerpt: String(r?.excerpt?.rendered || '').replace(/<[^>]+>/g, '').trim(),
+        date: String(r?.date || ''),
+        slug: String(r?.slug || ''),
+      })
+      if (out.length >= max) break
+    }
+    if (rows.length < per) break
+  }
+  return out
+}
+
 export async function linkTargets(conn: WpConn, limit = 50): Promise<Array<{ title: string; url: string }>> {
   const out: Array<{ title: string; url: string }> = []
   for (const type of ['posts', 'pages']) {

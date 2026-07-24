@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
-type Page = { id: string; type: string; slug: string; title: string; status: string; updatedAt?: string }
+type Page = { id: string; type: string; slug: string; title: string; status: string; updatedAt?: string; seo?: { wp_imported?: { link?: string }; wordpress?: { link?: string } } }
 type PagesResp = { workspace: { id: string; name: string; slug: string }; pages: Page[] }
 
 // Types that belong in the Articles hub (everything editorial / long-form).
@@ -125,6 +125,18 @@ export default function ArticlesPage() {
     setBusyId(null); setNote(`Normalised ${ok}/${articles.length} article(s) ✓`); await load()
   }
 
+  // Pull the client's existing WordPress posts onto the platform (read-only
+  // reference copies) so Library is a complete overview, not just what we wrote.
+  const [pulling, setPulling] = useState(false)
+  async function pullWp() {
+    setNote(''); setErr(''); setPulling(true)
+    try {
+      const r = await api<{ imported: number; updated: number; total: number }>(`/workspaces/${slug}/wordpress/pull`, { method: 'POST', body: JSON.stringify({}) })
+      setNote(r.total === 0 ? 'No published posts found on the connected site.' : `Pulled ${r.total} post${r.total === 1 ? '' : 's'} from WordPress — ${r.imported} new, ${r.updated} updated.`)
+      await load()
+    } catch (e: any) { setErr(e.message || 'Could not pull from WordPress') } finally { setPulling(false) }
+  }
+
   const [publishing, setPublishing] = useState(false)
   const [pubUrl, setPubUrl] = useState('')
   // Publishing rebuilds the whole static site — every article goes live at once.
@@ -151,6 +163,7 @@ export default function ArticlesPage() {
           {articles.length > 0 && <button className="btn btn-secondary" onClick={structureAll} disabled={structuring} title="Give every article the hero + sidebar layout using existing content — instant, no AI credits">{structuring ? 'Structuring…' : '⚡ Structure all (free)'}</button>}
           {articles.length > 1 && <button className="btn btn-secondary" onClick={normaliseAll} title="AI cleanup of messy body markup — costs credits, slow">✦ AI Normalise all</button>}
           {articles.length > 0 && <button className="btn btn-secondary" onClick={publishAll} disabled={publishing} title="Rebuild the site and take every article live">{publishing ? 'Publishing…' : '↗ Publish all articles'}</button>}
+          <button className="btn btn-secondary" onClick={pullWp} disabled={pulling} title="Import the existing published posts from the connected WordPress site so they show here too">{pulling ? 'Pulling…' : '↧ Pull from WordPress'}</button>
           <button className="btn btn-primary" onClick={newArticle}>＋ New article</button>
         </div>
       </div>
@@ -169,7 +182,13 @@ export default function ArticlesPage() {
             <tbody>
               {articles.map((p) => (
                 <tr key={p.id}>
-                  <td><a href={`/w/${slug}/p/${p.id}`} style={{ fontWeight: 500, color: 'var(--text)', textDecoration: 'none' }}>{p.title || '(untitled)'}</a></td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <a href={`/w/${slug}/p/${p.id}`} style={{ fontWeight: 500, color: 'var(--text)', textDecoration: 'none' }}>{p.title || '(untitled)'}</a>
+                      {p.seo?.wp_imported && <span className="status-pill" style={{ fontSize: 10 }} title="Imported from the connected WordPress site — edits here are not pushed back">↧ WordPress</span>}
+                      {(p.seo?.wp_imported?.link || p.seo?.wordpress?.link) && <a href={p.seo.wp_imported?.link || p.seo.wordpress?.link} target="_blank" rel="noreferrer" className="muted" style={{ fontSize: 11.5 }}>view ↗</a>}
+                    </div>
+                  </td>
                   <td><span className="muted" style={{ fontSize: 12 }}>{p.type}</span></td>
                   <td><span className={`status-pill ${p.status === 'published' ? 'live' : 'draft'}`}>{p.status}</span></td>
                   <td>

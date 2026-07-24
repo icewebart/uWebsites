@@ -2488,7 +2488,11 @@ HOW TO IMPROVE IT:
     // dedupes on external_id, so this edits in place instead of duplicating).
     let wpUpdated = false
     const [wpConn] = await db.select().from(wordpressConnections).where(eq(wordpressConnections.workspaceId, row.wsId)).limit(1)
-    if (wpConn) {
+    // An imported post already lives on the client's site under its own native
+    // id; pushing via externalId would create a DUPLICATE, not update it. So we
+    // improve it locally only. (Updating the original in place is a later step.)
+    const isImported = !!(row.seo as any)?.wp_imported
+    if (wpConn && !isImported) {
       try {
         await wpPublishArticle(wpConn as WpConn, {
           externalId: row.id, title, content: bodyHtml, excerpt: metaDescription, slug: row.slug,
