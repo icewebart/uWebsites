@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
-type Page = { id: string; type: string; slug: string; title: string; status: string; updatedAt?: string; seo?: { wp_imported?: { link?: string }; wordpress?: { link?: string } } }
+type Page = { id: string; type: string; slug: string; title: string; status: string; updatedAt?: string; seo?: { wp_imported?: { link?: string }; wordpress?: { link?: string; status?: string } } }
 type PagesResp = { workspace: { id: string; name: string; slug: string }; pages: Page[] }
 
 // Types that belong in the Articles hub (everything editorial / long-form).
@@ -19,10 +19,24 @@ export default function ArticlesPage() {
   const [note, setNote] = useState('')
   const [err, setErr] = useState('')
 
+  const [wpConnected, setWpConnected] = useState(false)
   function load() {
     return api<PagesResp>(`/workspaces/${slug}/pages`).then(setData).catch(() => router.push(`/w/${slug}`))
   }
-  useEffect(() => { load().finally(() => setLoading(false)) }, [slug])
+  useEffect(() => {
+    load().finally(() => setLoading(false))
+    api<{ siteUrl?: string } | null>(`/workspaces/${slug}/wordpress`).then((d) => setWpConnected(!!d)).catch(() => {})
+  }, [slug])
+
+  // Explicit delivery — writing never touches the client's site; this does.
+  async function publishToWp(p: Page) {
+    setNote(''); setErr(''); setBusyId(p.id)
+    try {
+      const r = await api<{ link: string; live: boolean }>(`/workspaces/${slug}/wordpress/publish-page`, { method: 'POST', body: JSON.stringify({ pageId: p.id }) })
+      setNote(`“${p.title}” ${r.live ? 'is live on WordPress' : 'sent to WordPress as a draft'}.${r.link ? '' : ''}`)
+      await load()
+    } catch (e: any) { setErr(e.message || 'Publish to WordPress failed') } finally { setBusyId(null) }
+  }
 
   const articles = (data?.pages || []).filter((p) => ARTICLE_TYPES.has(p.type))
 
@@ -194,6 +208,12 @@ export default function ArticlesPage() {
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <a className="btn-mini" href={`/w/${slug}/p/${p.id}`}>Edit</a>
+                      {wpConnected && !p.seo?.wp_imported && (
+                        <button className="btn-mini" disabled={busyId === p.id} onClick={() => publishToWp(p)}
+                          title="Push this article to the connected WordPress site (respects your draft/publish setting)">
+                          {busyId === p.id ? '…' : p.seo?.wordpress ? '↻ Update on WP' : '↗ Publish to WP'}
+                        </button>
+                      )}
                       <button className="btn-mini" disabled={busyId === p.id} onClick={() => structureOne(p)} title="Apply the article layout using existing content — free, instant">{busyId === p.id ? '…' : '⚡ Structure'}</button>
                       <button className="btn-mini" disabled={busyId === p.id} onClick={() => normalise(p)} title="AI cleanup of messy body markup — costs credits">{busyId === p.id ? '…' : '✦ AI clean'}</button>
                       <button className="btn-mini" disabled={busyId === p.id} onClick={() => refresh(p)} title="Analyse this article against what currently ranks + its own Search Console performance, then improve it in place (the URL never changes)">{busyId === p.id ? '…' : '↻ Improve'}</button>

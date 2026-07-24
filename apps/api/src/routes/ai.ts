@@ -1608,28 +1608,11 @@ export async function writeArticleForKeyword(
     await logAiJob(ws.id, 'article', 'done', { source: opts.publish ? 'auto-write' : 'generate-article', keyword: String(keyword).slice(0, 200), title, ...(review ? { score: review.score, heldForReview } : {}) }, 1, created.id)
     if (heldForReview) console.warn(`[quality-gate] "${title}" scored ${review!.score} — held as draft for review`)
 
-    // DELIVERY — if this workspace is connected to a client's WordPress, push the
-    // article there too. Best-effort: the article is already saved on our side,
-    // so a WP failure is recorded on the connection, never lost.
-    if (wpConn) {
-      try {
-        const heroImg = (blocks as any[]).find((b) => b?.type === 'article-hero')?.props?.image_url
-        const remote = await wpPublishArticle(wpConn as WpConn, {
-          externalId: created.id,           // dedupes a retried delivery
-          title, content: html, excerpt: metaDescription, slug: pslug,
-          // A piece the quality gate held back never auto-publishes on a
-          // client's site either — it lands as a draft for them to review.
-          status: (wpConn.defaultStatus === 'publish' && !heldForReview) ? 'publish' : 'draft',
-          metaTitle: title, metaDescription,
-          imageUrl: heroImg, imageAlt: title,
-        })
-        await db.update(pages).set({ seo: { ...seo, wordpress: { postId: remote.id, link: remote.link, status: remote.status } } as any }).where(eq(pages.id, created.id))
-        await db.update(wordpressConnections).set({ postsCreated: (wpConn.postsCreated || 0) + 1, lastPostAt: new Date(), lastError: null, updatedAt: new Date() }).where(eq(wordpressConnections.id, wpConn.id))
-      } catch (e: any) {
-        console.error('[wordpress] publish failed for', ws.slug, e?.message || e)
-        await db.update(wordpressConnections).set({ lastError: String(e?.message || 'unknown'), updatedAt: new Date() }).where(eq(wordpressConnections.id, wpConn.id))
-      }
-    }
+    // DELIVERY is intentionally decoupled from writing. Reaching a client's live
+    // site is an explicit, human-gated step ("Publish to WordPress" in Library) —
+    // so writing (Draft now, or the weekly auto-write) only produces a reviewable
+    // draft here, and nothing lands on their site unseen. See wordpress/publish-page.
+    void wpConn
     return { id: created.id, slug: created.slug, title: created.title }
   } catch (e: any) {
     if (e?.message === 'Model returned no article') throw e
@@ -2488,11 +2471,12 @@ HOW TO IMPROVE IT:
     // dedupes on external_id, so this edits in place instead of duplicating).
     let wpUpdated = false
     const [wpConn] = await db.select().from(wordpressConnections).where(eq(wordpressConnections.workspaceId, row.wsId)).limit(1)
-    // An imported post already lives on the client's site under its own native
-    // id; pushing via externalId would create a DUPLICATE, not update it. So we
-    // improve it locally only. (Updating the original in place is a later step.)
+    // Only update WordPress when this article is ALREADY live there (delivery is
+    // an explicit step). Never push a local-only draft on improve, and never push
+    // an imported post via externalId (that would duplicate a native post).
     const isImported = !!(row.seo as any)?.wp_imported
-    if (wpConn && !isImported) {
+    const alreadyOnWp = !!(row.seo as any)?.wordpress?.postId
+    if (wpConn && !isImported && alreadyOnWp) {
       try {
         await wpPublishArticle(wpConn as WpConn, {
           externalId: row.id, title, content: bodyHtml, excerpt: metaDescription, slug: row.slug,

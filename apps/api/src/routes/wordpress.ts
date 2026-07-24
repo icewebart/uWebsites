@@ -165,3 +165,46 @@ wordpressRouter.post('/:slug/wordpress/pull', requireAuth, async (req: AuthReque
     res.status(502).json({ ok: false, error: `Pull failed: ${e?.message || 'unknown'}` })
   }
 })
+
+// POST /workspaces/:slug/wordpress/publish-page — the explicit "Publish to
+// WordPress" action. Writing an article never touches the client's site; this
+// is the human-gated step that does. Idempotent: externalId dedupes, so
+// re-running updates the same post instead of creating a second one.
+wordpressRouter.post('/:slug/wordpress/publish-page', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const c = await connectionFor(ws.id)
+  if (!c) return res.status(404).json({ ok: false, error: 'This workspace is not connected to WordPress.' })
+  const pageId = String(req.body?.pageId || '')
+  if (!pageId) return res.status(400).json({ ok: false, error: 'pageId required' })
+
+  const [page] = await db.select().from(pages).where(and(eq(pages.id, pageId), eq(pages.workspaceId, ws.id))).limit(1)
+  if (!page) return res.status(404).json({ ok: false, error: 'article not found' })
+  const seo: any = page.seo || {}
+  if (seo.wp_imported) return res.status(400).json({ ok: false, error: 'This article was imported FROM WordPress — it already lives on the site.' })
+
+  const blocks: any[] = Array.isArray(page.blocks) ? (page.blocks as any[]) : []
+  const html = blocks.find((b) => b?.type === 'article-body')?.props?.html
+    || blocks.filter((b) => typeof b?.props?.html === 'string').map((b) => b.props.html).join('\n')
+  if (!html || !html.trim()) return res.status(400).json({ ok: false, error: 'This article has no body content to publish.' })
+  const heroImg = blocks.find((b) => b?.type === 'article-hero')?.props?.image_url
+  const metaDescription = String(seo.description || '')
+  // Respect the connection's default: publish live, or land as a WP draft.
+  const wantLive = c.defaultStatus === 'publish'
+
+  try {
+    const remote = await publishArticle(c as WpConn, {
+      externalId: page.id,                 // dedupes on re-publish
+      title: page.title, content: html, excerpt: metaDescription, slug: page.slug,
+      status: wantLive ? 'publish' : 'draft',
+      metaTitle: page.title, metaDescription,
+      imageUrl: heroImg, imageAlt: page.title,
+    })
+    await db.update(pages).set({ seo: { ...seo, wordpress: { postId: remote.id, link: remote.link, status: remote.status } }, updatedAt: new Date() }).where(eq(pages.id, page.id))
+    await db.update(wordpressConnections).set({ postsCreated: (c.postsCreated || 0) + 1, lastPostAt: new Date(), lastError: null, updatedAt: new Date() }).where(eq(wordpressConnections.id, c.id))
+    res.json({ ok: true, data: { link: remote.link, status: remote.status, live: remote.status === 'publish' } })
+  } catch (e: any) {
+    await db.update(wordpressConnections).set({ lastError: String(e?.message || 'unknown'), updatedAt: new Date() }).where(eq(wordpressConnections.id, c.id))
+    res.status(502).json({ ok: false, error: `Publish to WordPress failed: ${e?.message || 'unknown'}` })
+  }
+})
