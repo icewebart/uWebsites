@@ -9,7 +9,7 @@ import { AppShell } from '@/components/AppShell'
 // blind. This is the one place to say what the business actually is; the writer
 // reads tokens.business_brief on every article.
 
-type Brief = { about?: string; audience?: string; offers?: string; avoid?: string }
+type Brief = { about?: string; audience?: string; offers?: string; avoid?: string; guardrails?: string[] }
 type Tokens = { business_brief?: Brief } & Record<string, any>
 
 export default function BusinessBriefPage() {
@@ -61,7 +61,34 @@ export default function BusinessBriefPage() {
         <div className="field" style={{ marginBottom: 0 }}>
           <label>Avoid / careful with</label>
           <textarea className="inp" rows={2} value={b.avoid || ''} placeholder='e.g. "Don&apos;t promise exam pass rates or guaranteed results. Don&apos;t compare competitors by name."' onChange={(e) => setB({ avoid: e.target.value })} />
-          <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>Claims, topics or phrasing to stay away from.</p>
+          <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>Soft guidance — claims, topics or phrasing to stay away from.</p>
+        </div>
+      </div>
+
+      <div className="dash-h" style={{ marginTop: 22 }}>Guardrails <span className="muted" style={{ fontSize: 12, fontWeight: 400 }}>(hard rules — enforced on every article, twice)</span></div>
+      <div className="ctl-group card">
+        <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>
+          Unlike “Avoid” above, these are <b>non-negotiable</b>. The writer is told they override everything, and the quality gate re-reads each article against them — a breach holds the piece as a draft even if it scores well, so it can never auto-publish to a client site.
+        </p>
+        {(b.guardrails || []).map((g, i) => (
+          <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
+            <span className="muted" style={{ fontSize: 13, paddingTop: 9, width: 20, textAlign: 'right', flex: '0 0 auto' }}>{i + 1}.</span>
+            <textarea className="inp" rows={2} style={{ flex: 1 }} value={g}
+              onChange={(e) => setB({ guardrails: (b.guardrails || []).map((x, k) => k === i ? e.target.value : x) })} />
+            <button className="btn-mini danger" title="Remove" onClick={() => setB({ guardrails: (b.guardrails || []).filter((_, k) => k !== i) })}>✕</button>
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+          <button className="btn-mini" onClick={() => setB({ guardrails: [...(b.guardrails || []), ''] })}>＋ Add guardrail</button>
+          {!(b.guardrails || []).length && (
+            <button className="btn-mini" title="Insert common starting guardrails to edit"
+              onClick={() => setB({ guardrails: [
+                'Never mention or name competitors.',
+                'Only quote our own pricing and offers — never invent or cite generic/market pricing.',
+                'Never promise guaranteed results, outcomes or pass rates.',
+                'Never fabricate statistics, studies, testimonials or client names.',
+              ] })}>↳ Start from common guardrails</button>
+          )}
         </div>
       </div>
 

@@ -1440,6 +1440,14 @@ export async function writeArticleForKeyword(
     bb.offers && `Products/services to reference (link where relevant): ${bb.offers}`,
     bb.avoid && `Avoid / be careful with: ${bb.avoid}`,
   ].filter(Boolean).join('\n')
+  // GUARDRAILS — hard, non-negotiable rules (no competitor names, use OUR
+  // pricing not generic figures, etc). Enforced twice: stated forcefully to the
+  // writer here, and checked by the quality gate below so a violation can never
+  // auto-publish. Kept separate from soft "avoid" guidance on purpose.
+  const guardrails: string[] = Array.isArray(bb.guardrails) ? bb.guardrails.map((g: any) => String(g || '').trim()).filter(Boolean) : []
+  const guardrailsBlock = guardrails.length
+    ? 'NON-NEGOTIABLE GUARDRAILS — these override everything else, including SEO advice. Breaking even one makes the article unusable:\n' + guardrails.map((g, i) => `${i + 1}. ${g}`).join('\n')
+    : ''
   const brief = [bizBrief, await siteBrief(ws.id, ws.name)].filter(Boolean).join('\n\n')
   const tmpl = articleTemplateOf(tk)
 
@@ -1536,7 +1544,7 @@ export async function writeArticleForKeyword(
   try {
     const r = await a.messages.create({
       model: MODEL, max_tokens: 6000,
-      system: `You are an expert SEO content writer. Write a genuinely useful, well-structured article fully optimised for the target keyword, in the site's own language. ${voice}\n${examples}\n\n${rulesText}\n\n${COPY_RULES}${brief ? '\n\nBUSINESS CONTEXT (anchor the topic/audience/offers to this):\n' + brief : ''}${internalLinks ? '\n\n' + internalLinks : ''}${clusterNote ? '\n\n' + clusterNote : ''}${briefBlock ? '\n\n' + briefBlock : ''}${serp ? '\n\n' + serp : ''}${relatedSearches ? '\n\n' + relatedSearches : ''}`,
+      system: `You are an expert SEO content writer. Write a genuinely useful, well-structured article fully optimised for the target keyword, in the site's own language. ${voice}\n${examples}\n\n${rulesText}\n\n${COPY_RULES}${brief ? '\n\nBUSINESS CONTEXT (anchor the topic/audience/offers to this):\n' + brief : ''}${internalLinks ? '\n\n' + internalLinks : ''}${guardrailsBlock ? '\n\n' + guardrailsBlock : ''}${clusterNote ? '\n\n' + clusterNote : ''}${briefBlock ? '\n\n' + briefBlock : ''}${serp ? '\n\n' + serp : ''}${relatedSearches ? '\n\n' + relatedSearches : ''}`,
       tools: [{ name: 'article', description: 'The finished article.', input_schema: {
         type: 'object',
         properties: {
@@ -1558,27 +1566,31 @@ export async function writeArticleForKeyword(
     // QUALITY GATE (gap #5) — a second, deliberately strict pass grades the
     // draft. It never blocks the article; it only downgrades an auto-PUBLISH to
     // a draft so a weak piece can't land on a client's live site unseen.
-    let review: { score: number; issues: string[] } | null = null
+    let review: { score: number; issues: string[]; violatesGuardrail?: boolean } | null = null
     try {
       const rev = await a.messages.create({
         model: MODEL, max_tokens: 700,
         system: 'You are a demanding SEO editor. Grade this article honestly against its target keyword. Be strict: thin or padded sections, generic filler, unsupported claims, intent mismatch, missing direct answer up top, or no real specifics must all pull the score down. A competent-but-unremarkable article is about 65.'
-          + (briefBlock ? '\n\nA CONTENT BRIEF was approved for this article. Grade COMPLIANCE too, and weight it heavily: a fluent article that drifted from the angle, skipped required H2s, or omitted must-cover points is a FAILURE, not a good article. Name every departure as an issue.\n\n' + briefBlock : ''),
+          + (briefBlock ? '\n\nA CONTENT BRIEF was approved for this article. Grade COMPLIANCE too, and weight it heavily: a fluent article that drifted from the angle, skipped required H2s, or omitted must-cover points is a FAILURE, not a good article. Name every departure as an issue.\n\n' + briefBlock : '')
+          + (guardrailsBlock ? '\n\nCRITICAL: the article MUST obey these guardrails. Read it against each one. If it breaks ANY guardrail, set violatesGuardrail=true and name which one(s) in issues — this holds regardless of how good the writing is.\n\n' + guardrailsBlock : ''),
         tools: [{ name: 'review', description: 'Publish-readiness verdict.', input_schema: {
           type: 'object',
           properties: {
             score: { type: 'number', description: '0-100 overall publish-readiness.' },
             issues: { type: 'array', items: { type: 'string' }, description: 'Concrete, specific problems, worst first. Empty if genuinely none.' },
+            violatesGuardrail: { type: 'boolean', description: 'True if the article breaks any stated guardrail.' },
           }, required: ['score'],
         } as any }],
         tool_choice: { type: 'tool', name: 'review' },
         messages: [{ role: 'user', content: `Target keyword: "${keyword}"\n\nTitle: ${title}\n\nArticle:\n${html.slice(0, 20000)}` }],
       })
       const rtu = rev.content.find((b: any) => b.type === 'tool_use') as any
-      if (rtu) review = { score: Math.round(Number(rtu.input?.score) || 0), issues: Array.isArray(rtu.input?.issues) ? rtu.input.issues.slice(0, 8).map(String) : [] }
+      if (rtu) review = { score: Math.round(Number(rtu.input?.score) || 0), issues: Array.isArray(rtu.input?.issues) ? rtu.input.issues.slice(0, 8).map(String) : [], violatesGuardrail: !!rtu.input?.violatesGuardrail }
     } catch { /* the gate is advisory — never fail the write over it */ }
     const QUALITY_BAR = 70
-    const heldForReview = !!(opts.publish && review && review.score < QUALITY_BAR)
+    // A guardrail breach holds the piece as a draft even if it scores well — a
+    // clean article that names a competitor still must not auto-publish.
+    const heldForReview = !!(opts.publish && review && (review.score < QUALITY_BAR || review.violatesGuardrail))
     const willPublish = !!opts.publish && !heldForReview
     // FEATURED IMAGE (gap #1) — every article gets a hero image, so uWebsites
     // articles have a hero AND the WordPress delivery has a real featured image.
@@ -2893,11 +2905,13 @@ aiRouter.post('/plan/brief', requireAuth, async (req: AuthRequest, res) => {
     : []
   const serp = serpPromptBlock(await fetchSerp(String(keyword)))
 
+  const guardrails: string[] = Array.isArray(bb.guardrails) ? bb.guardrails.map((g: any) => String(g || '').trim()).filter(Boolean) : []
   const bizBrief = [
     bb.about && `What the business does: ${bb.about}`,
     bb.audience && `Who it's for: ${bb.audience}`,
     bb.offers && `Products/services sold: ${bb.offers}`,
     bb.avoid && `Avoid: ${bb.avoid}`,
+    guardrails.length && `NON-NEGOTIABLE GUARDRAILS the article (and this brief) must respect:\n${guardrails.map((g) => `- ${g}`).join('\n')}`,
   ].filter(Boolean).join('\n')
 
   try {
