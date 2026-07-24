@@ -2989,3 +2989,73 @@ Write the brief. Rules:
     res.status(502).json({ ok: false, error: 'Brief failed: ' + (e?.message || 'unknown') })
   }
 })
+
+// POST /ai/suggest-voice — infer the brand voice + writing style from the site
+// and business, so a new workspace isn't a blank textarea. Returns editable text
+// (a voice paragraph, a tagline, and two short examples written in that voice);
+// the owner tweaks and saves. Never writes to branding itself — the page owns saving.
+aiRouter.post('/suggest-voice', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
+  const { slug } = req.body ?? {}
+  if (!slug) return res.status(400).json({ ok: false, error: 'slug required' })
+  const ws = await ownedWs(String(slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+
+  const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const tk: any = tok?.tokens || {}
+  const bb = tk.business_brief || {}
+  const bizBrief = [
+    bb.about && `What the business does: ${bb.about}`,
+    bb.audience && `Who it's for: ${bb.audience}`,
+    bb.offers && `Products/services: ${bb.offers}`,
+    bb.avoid && `Avoid: ${bb.avoid}`,
+    tk.tagline && `Current tagline: ${tk.tagline}`,
+  ].filter(Boolean).join('\n')
+  const grounding = [bizBrief, await siteBrief(ws.id, ws.name)].filter(Boolean).join('\n\n')
+  if (!grounding) {
+    return res.status(400).json({ ok: false, error: 'Nothing to infer a voice from yet — fill in the Business Brief (or import the site) first.' })
+  }
+
+  try {
+    const r = await a.messages.create({
+      model: MODEL, max_tokens: 1500,
+      system: `You define a brand's writing voice from what the business is and who it serves. Concrete and usable, not adjectives-for-their-own-sake.
+
+THE BUSINESS:
+${grounding}
+
+Produce:
+- "voice": a short, directive paragraph a writer could follow — tone, who it speaks to, what to avoid, sentence length, and the LANGUAGE + formality (e.g. Romanian informal "tu"). Write it as instructions, not marketing prose. Infer the language from the business; if it clearly operates in a non-English market, the voice paragraph itself should say to write in that language.
+- "tagline": one short line (only if a good one is obvious; else empty).
+- "examples": exactly two 2-3 sentence passages WRITTEN IN THIS VOICE (e.g. a homepage intro and an article opener) that a writer can mimic. These are the most valuable output — make them sound unmistakably like this specific business, in the business's own language.`,
+      tools: [{ name: 'voice', description: 'The inferred brand voice.', input_schema: {
+        type: 'object',
+        properties: {
+          voice: { type: 'string' },
+          tagline: { type: 'string' },
+          examples: {
+            type: 'array',
+            items: { type: 'object', properties: { label: { type: 'string' }, text: { type: 'string' } }, required: ['label', 'text'] },
+          },
+        }, required: ['voice'],
+      } as any }],
+      tool_choice: { type: 'tool', name: 'voice' },
+      messages: [{ role: 'user', content: 'Define the brand voice for this business.' }],
+    })
+    const tu = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!tu) return res.status(502).json({ ok: false, error: 'The model returned nothing — try again.' })
+    const out: any = tu.input
+    const data = {
+      voice: String(out.voice || '').slice(0, 1500),
+      tagline: String(out.tagline || '').slice(0, 160),
+      examples: (Array.isArray(out.examples) ? out.examples : []).slice(0, 3).map((e: any) => ({
+        label: String(e?.label || '').slice(0, 80), text: String(e?.text || '').slice(0, 800),
+      })).filter((e: any) => e.text),
+    }
+    await logAiJob(ws.id, 'edit', 'done', { source: 'suggest-voice' }, 1)
+    res.json({ ok: true, data })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Suggestion failed: ' + (e?.message || 'unknown') })
+  }
+})

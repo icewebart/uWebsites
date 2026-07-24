@@ -30,6 +30,22 @@ const EMPTY_ANSWERS: Answers = { about: '', offers: '', audience: '', prioritySe
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()))
 
+// The brief outline is structured (H2 + points) but edits best as plain text:
+// one H2 per line, its points indented with "- ". These round-trip it.
+function outlineToText(outline: Brief['outline']): string {
+  return (outline || []).map((s) => [s.h2, ...(s.points || []).map((p) => `- ${p}`)].join('\n')).join('\n')
+}
+function textToOutline(text: string): Brief['outline'] {
+  const out: Brief['outline'] = []
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    if (/^[-*•]\s*/.test(line)) { if (out.length) out[out.length - 1].points.push(line.replace(/^[-*•]\s*/, '')) }
+    else out.push({ h2: line, points: [] })
+  }
+  return out
+}
+
 export default function ArticlePlanPage() {
   const { slug } = useParams<{ slug: string }>()
   const router = useRouter()
@@ -231,30 +247,28 @@ export default function ArticlePlanPage() {
       </div>
       {!!it.brief.outline?.length && (
         <div>
-          <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Outline · target ~{it.brief.wordTarget} words{it.brief.serpUsed ? ' · grounded in live search results' : ''}</div>
-          <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
-            {it.brief.outline.map((sec, si) => (
-              <li key={si} style={{ marginBottom: 4 }}>
-                <b>{sec.h2}</b>
-                {!!sec.points?.length && <ul className="muted" style={{ margin: '2px 0 0', paddingLeft: 16, fontSize: 12 }}>{sec.points.map((pt, pi) => <li key={pi}>{pt}</li>)}</ul>}
-              </li>
-            ))}
-          </ol>
+          <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Outline · target ~{it.brief.wordTarget} words{it.brief.serpUsed ? ' · grounded in live search results' : ''} · one H2 per line, indent points with “- ”</div>
+          <textarea className="inp" style={{ fontSize: 12.5, minHeight: 130, fontFamily: 'inherit' }}
+            defaultValue={outlineToText(it.brief.outline)}
+            onBlur={(e) => { const o = textToOutline(e.target.value); if (JSON.stringify(o) !== JSON.stringify(it.brief!.outline)) patchBrief(it.id, { outline: o }) }} />
         </div>
       )}
-      {!!it.brief.mustCover?.length && (
-        <div><div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Must cover</div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {it.brief.mustCover.map((m, mi) => <span key={mi} className="status-pill" style={{ fontSize: 11 }}>{m}</span>)}
-          </div></div>
-      )}
+      <div><div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Must cover · one per line</div>
+        <textarea className="inp" style={{ fontSize: 12.5, minHeight: 70, fontFamily: 'inherit' }}
+          defaultValue={(it.brief.mustCover || []).join('\n')}
+          onBlur={(e) => { const m = e.target.value.split('\n').map((s) => s.trim()).filter(Boolean); if (JSON.stringify(m) !== JSON.stringify(it.brief!.mustCover)) patchBrief(it.id, { mustCover: m }) }} />
+      </div>
       {!!it.brief.internalLinks?.length && (
         <div><div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Internal links (verified against real pages)</div>
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>
             {it.brief.internalLinks.map((l, li) => <li key={li}>{l.anchor} → <span className="muted">{l.url}</span></li>)}
           </ul></div>
       )}
-      {it.brief.cta && <div style={{ fontSize: 12.5 }}><span className="muted">Leads to: </span>{it.brief.cta}</div>}
+      <div>
+        <label className="muted" style={{ fontSize: 11.5 }}>Leads to (which offer this article should push)</label>
+        <input className="inp" defaultValue={it.brief.cta || ''} style={{ fontSize: 13 }}
+          onBlur={(e) => e.target.value !== (it.brief!.cta || '') && patchBrief(it.id, { cta: e.target.value })} />
+      </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         {it.brief.status === 'approved'
           ? <span className="muted" style={{ fontSize: 12 }}>✓ Approved — the writer will follow this.</span>

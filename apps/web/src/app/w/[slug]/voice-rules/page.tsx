@@ -40,6 +40,8 @@ export default function VoiceRulesPage() {
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState('')
   const [err, setErr] = useState('')
+  const [suggesting, setSuggesting] = useState(false)
+  const [note, setNote] = useState('')
 
   useEffect(() => {
     api<{ tokens: Tokens }>(`/workspaces/${slug}/branding`).then((d) => {
@@ -50,6 +52,19 @@ export default function VoiceRulesPage() {
   }, [slug])
 
   const set = (patch: Partial<Tokens>) => setT((c) => c ? { ...c, ...patch } : c)
+
+  // Infer voice + tagline + two example passages from the business, then leave
+  // everything editable — the AI fills the blank page, the owner tweaks & saves.
+  async function suggestVoice() {
+    setErr(''); setNote(''); setSuggesting(true)
+    try {
+      const d = await api<{ voice: string; tagline: string; examples: Example[] }>('/ai/suggest-voice', { method: 'POST', body: JSON.stringify({ slug }) })
+      // Don't clobber a tagline the owner already wrote; merge in the examples.
+      const merged = [...(t?.voice_examples || []).filter((e) => e.text.trim()), ...(d.examples || [])].slice(0, 5)
+      set({ voice: d.voice || t?.voice, tagline: t?.tagline?.trim() ? t.tagline : (d.tagline || t?.tagline), voice_examples: merged })
+      setNote('Filled from your site — edit anything, then Save.')
+    } catch (e: any) { setErr(e.message || 'Could not suggest a voice') } finally { setSuggesting(false) }
+  }
   const setEx = (i: number, patch: Partial<Example>) => set({ voice_examples: (t?.voice_examples || []).map((e, k) => k === i ? { ...e, ...patch } : e) })
   const setRules = (r: string[]) => set({ article_rules: r })
 
@@ -70,7 +85,14 @@ export default function VoiceRulesPage() {
         How the AI writes for you. Your <b>voice</b> shapes tone; the <b>rules</b> below are applied to every article. Together they make content read like <em>you</em>, not a template.
       </div>
 
-      <div className="dash-h" style={{ marginTop: 0 }}>Voice &amp; tagline</div>
+      <div className="dash-h" style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span>Voice &amp; tagline</span>
+        <button className="btn-mini" style={{ marginLeft: 'auto' }} onClick={suggestVoice} disabled={suggesting}
+          title="Let the AI infer your voice, tagline and two example passages from your Business Brief and site — then edit anything.">
+          {suggesting ? 'Thinking…' : '✦ Suggest from my site'}
+        </button>
+      </div>
+      {note && <div className="banner-ok" style={{ marginBottom: 10 }}>{note}</div>}
       <div className="ctl-group card">
         <div className="field">
           <label>Tagline</label>
