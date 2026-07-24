@@ -52,6 +52,10 @@ export default function ArticlePlanPage() {
   const [openBrief, setOpenBrief] = useState<string | null>(null)
   const [briefing, setBriefing] = useState('')
   const [autoApprove, setAutoApprove] = useState(false)
+  // The page does four jobs; tabs keep each one calm. Remembered across visits.
+  const [tab, setTab] = useState<'map' | 'keywords' | 'briefs'>('keywords')
+  useEffect(() => { try { const t = localStorage.getItem('uw-plan-tab') as any; if (t) setTab(t) } catch {} }, [])
+  function goTab(t: 'map' | 'keywords' | 'briefs') { setTab(t); try { localStorage.setItem('uw-plan-tab', t) } catch {} }
 
   useEffect(() => {
     api<Plan>(`/account/workspaces/${slug}/article-plan`).then((d) => { setItems(d.items); setAuto(d.auto); setScLinked(d.scLinked); setPillars(d.pillars || []); setAutoApprove(!!d.autoApproveBriefs) }).catch(() => router.push(`/w/${slug}`))
@@ -208,63 +212,109 @@ export default function ArticlePlanPage() {
 
   const sorted = [...items].sort((a, b) => (b.priority || 0) - (a.priority || 0) || (b.impressions || 0) - (a.impressions || 0))
 
-  return (
-    <AppShell title="Article Plan" currentSlug={slug} active="Article Plan">
-      <div className="dash-sub" style={{ marginBottom: 16 }}>
-        Your keyword pipeline. Add targets manually, paste a list, or pull ideas from Search Console — the content engine writes an optimised article per keyword. {scLinked ? '' : <span>Link a Search Console property on <a href={`/w/${slug}/tracking`}>Tracking</a> to pull ideas.</span>}
-      </div>
+  // Live counts, shown above every tab so switching lens never loses the big picture.
+  const briefedCount = items.filter((i) => i.brief).length
+  const approvedCount = items.filter((i) => i.brief && (i.brief.status === 'approved' || autoApprove)).length
 
-      <div className="ctl-group card" style={{ marginBottom: 14 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 260px' }}><label className="muted" style={{ fontSize: 12 }}>Add a keyword</label><input className="inp" value={kw} onChange={(e) => setKw(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addOne()} placeholder="e.g. tabere de vara pentru copii" /></div>
-          <button className="btn btn-primary" onClick={addOne} disabled={!kw.trim()}>＋ Add</button>
-          <button className="btn btn-secondary" onClick={pullSC} disabled={!scLinked || busy === 'sc'} title={scLinked ? 'Pull near-ranking queries from Search Console' : 'Link a Search Console property first (Tracking)'}>{busy === 'sc' ? 'Pulling…' : '↧ Pull from Search Console'}</button>
-          <button className="btn btn-secondary" onClick={buildClusters} disabled={clustering || items.length < 3}
-            title={items.length < 3 ? 'Add at least 3 keywords first' : 'Let the AI organise these keywords into pillars — the topics this site should own'}>
-            {clustering ? 'Organising…' : '✦ Build topic map'}
-          </button>
-          <button className={`btn ${items.length < 3 ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setWizard(prefill)} disabled={!briefLoaded || !!wizard}
-            title="No keyword list yet? Build the map from what the business actually sells.">
-            ✦ Start from the business
-          </button>
-          <button className="btn btn-secondary" onClick={writeBriefsBulk} disabled={!!briefing || !items.some((i) => !i.brief && i.status !== 'published')}
-            title="Plan the next 5 articles: angle, outline, must-cover points, internal links — before anything gets written.">
-            {briefing === 'bulk' ? 'Planning…' : '✦ Brief next 5'}
-          </button>
-          <label className="muted" style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', marginLeft: 'auto' }}>
-            <input type="checkbox" checked={auto} onChange={(e) => persist(items, e.target.checked)} style={{ width: 'auto' }} /> Weekly auto-write
-          </label>
-          <label className="muted" style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}
-            title="Briefs are still written and still enforced by the quality gate — they just don't wait for your approval before the weekly writer runs.">
-            <input type="checkbox" checked={autoApprove} onChange={(e) => persist(items, auto, e.target.checked)} style={{ width: 'auto' }} /> Auto-approve briefs
-          </label>
-        </div>
-        <details style={{ marginTop: 10 }}>
-          <summary className="muted" style={{ fontSize: 12, cursor: 'pointer' }}>Paste a list (one keyword per line)</summary>
-          <textarea className="inp" rows={4} style={{ marginTop: 8 }} value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder={'keyword one\nkeyword two\nkeyword three'} />
-          <button className="btn-mini" style={{ marginTop: 6 }} onClick={addBulk} disabled={!bulk.trim()}>Add all</button>
-        </details>
+  // The expandable brief editor, shared by the Keywords and Briefs tabs.
+  const briefPanel = (it: Item) => (!it.brief ? null : (
+    <div style={{ display: 'grid', gap: 10, maxWidth: 780 }}>
+      <div>
+        <label className="muted" style={{ fontSize: 11.5 }}>Working title</label>
+        <input className="inp" defaultValue={it.brief.title} style={{ fontSize: 13 }}
+          onBlur={(e) => e.target.value !== it.brief!.title && patchBrief(it.id, { title: e.target.value })} />
       </div>
-
-      {opps && (
-        <div className="ctl-group card" style={{ marginBottom: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <b style={{ fontSize: 14 }}>Ideas from Search Console <span className="muted" style={{ fontWeight: 400 }}>(near-ranking queries — position 4–20)</span></b>
-            <button className="btn-mini" onClick={() => setOpps(null)}>Close</button>
-          </div>
-          {!opps.length ? <p className="muted" style={{ fontSize: 13 }}>No strong opportunities right now.</p> : (
-            <div className="tblwrap"><table className="tbl">
-              <thead><tr><th>Query</th><th style={{ width: 90 }}>Impr.</th><th style={{ width: 70 }}>Pos.</th><th style={{ width: 80 }}></th></tr></thead>
-              <tbody>{opps.map((o) => (
-                <tr key={o.query}><td>{o.query}</td><td>{o.impressions}</td><td>{o.position.toFixed(1)}</td><td>{has(o.query) ? <span className="muted" style={{ fontSize: 12 }}>added</span> : <button className="btn-mini" onClick={() => addOpp(o)}>＋ Add</button>}</td></tr>
-              ))}</tbody>
-            </table></div>
-          )}
+      <div>
+        <label className="muted" style={{ fontSize: 11.5 }}>The angle — what makes this different from its siblings</label>
+        <textarea className="inp" rows={2} defaultValue={it.brief.angle} style={{ fontSize: 13 }}
+          onBlur={(e) => e.target.value !== it.brief!.angle && patchBrief(it.id, { angle: e.target.value })} />
+      </div>
+      {!!it.brief.outline?.length && (
+        <div>
+          <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Outline · target ~{it.brief.wordTarget} words{it.brief.serpUsed ? ' · grounded in live search results' : ''}</div>
+          <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+            {it.brief.outline.map((sec, si) => (
+              <li key={si} style={{ marginBottom: 4 }}>
+                <b>{sec.h2}</b>
+                {!!sec.points?.length && <ul className="muted" style={{ margin: '2px 0 0', paddingLeft: 16, fontSize: 12 }}>{sec.points.map((pt, pi) => <li key={pi}>{pt}</li>)}</ul>}
+              </li>
+            ))}
+          </ol>
         </div>
       )}
+      {!!it.brief.mustCover?.length && (
+        <div><div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Must cover</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {it.brief.mustCover.map((m, mi) => <span key={mi} className="status-pill" style={{ fontSize: 11 }}>{m}</span>)}
+          </div></div>
+      )}
+      {!!it.brief.internalLinks?.length && (
+        <div><div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Internal links (verified against real pages)</div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>
+            {it.brief.internalLinks.map((l, li) => <li key={li}>{l.anchor} → <span className="muted">{l.url}</span></li>)}
+          </ul></div>
+      )}
+      {it.brief.cta && <div style={{ fontSize: 12.5 }}><span className="muted">Leads to: </span>{it.brief.cta}</div>}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {it.brief.status === 'approved'
+          ? <span className="muted" style={{ fontSize: 12 }}>✓ Approved — the writer will follow this.</span>
+          : <button className="btn btn-primary" onClick={() => patchBrief(it.id, { status: 'approved' })}>Approve brief</button>}
+        <button className="btn-mini" onClick={() => writeBrief(it)} disabled={!!briefing}>{briefing === it.id ? 'Rewriting…' : '↻ Rewrite'}</button>
+        <button className="btn-mini danger" onClick={() => persist(items.map((i) => i.id === it.id ? { ...i, brief: undefined } : i))}>Discard</button>
+        {autoApprove && it.brief.status !== 'approved' && <span className="muted" style={{ fontSize: 11.5 }}>Auto-approve is on — this will be used as-is.</span>}
+      </div>
+    </div>
+  ))
+
+  const briefBadge = (it: Item) => it.brief ? (
+    <button className="btn-mini" onClick={() => setOpenBrief(openBrief === it.id ? null : it.id)} title={it.brief.angle}>
+      {openBrief === it.id ? '▾' : '▸'} {it.brief.status === 'approved' || autoApprove ? '✓ brief' : 'draft brief'}
+    </button>
+  ) : (
+    <button className="btn-mini" onClick={() => writeBrief(it)} disabled={!!briefing}
+      title="Plan the article before writing it — angle, outline, what it must cover, which pages it links to.">
+      {briefing === it.id ? 'Planning…' : '✦ Brief'}
+    </button>
+  )
+
+  return (
+    <AppShell title="Article Plan" currentSlug={slug} active="Article Plan">
+      {/* Stat strip — visible on every tab, so a tab never hides the whole picture. */}
+      <div className="ctl-group card" style={{ marginBottom: 12, display: 'flex', gap: 20, flexWrap: 'wrap', padding: '12px 16px', alignItems: 'center' }}>
+        <div><b style={{ fontSize: 18 }}>{items.length}</b> <span className="muted" style={{ fontSize: 12 }}>keywords</span></div>
+        <div><b style={{ fontSize: 18 }}>{pillars.length}</b> <span className="muted" style={{ fontSize: 12 }}>pillars</span></div>
+        <div><b style={{ fontSize: 18 }}>{briefedCount}</b> <span className="muted" style={{ fontSize: 12 }}>briefed</span></div>
+        <div><b style={{ fontSize: 18 }}>{approvedCount}</b> <span className="muted" style={{ fontSize: 12 }}>approved</span></div>
+        <div style={{ marginLeft: 'auto' }}><span className={`status-pill ${auto ? 'live' : 'draft'}`}>{auto ? '⏱ Weekly auto-write on' : 'Auto-write off'}</span></div>
+      </div>
+
+      {/* Tabs follow the pipeline: shape topics → groom the queue → approve briefs. */}
+      <div className="pv-tabs" style={{ marginBottom: 14 }}>
+        <div className="group">
+          <button className={tab === 'map' ? 'on' : ''} onClick={() => goTab('map')}>① Map</button>
+          <button className={tab === 'keywords' ? 'on' : ''} onClick={() => goTab('keywords')}>② Keywords</button>
+          <button className={tab === 'briefs' ? 'on' : ''} onClick={() => goTab('briefs')}>③ Briefs</button>
+        </div>
+      </div>
 
       {note && <div className="banner-ok" style={{ marginBottom: 12 }}>{note}</div>}
       {err && <div className="err" style={{ marginBottom: 12 }}>{err}</div>}
+
+      {/* ── ① MAP — shape what this site should own. ─────────────────────── */}
+      {tab === 'map' && (<>
+      <div className="dash-sub" style={{ marginBottom: 14 }}>
+        The topics this site should own, and how they link. Build the map from your existing keywords, or from the business itself.
+      </div>
+      <div className="ctl-group card" style={{ marginBottom: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button className="btn btn-secondary" onClick={buildClusters} disabled={clustering || items.length < 3}
+          title={items.length < 3 ? 'Add at least 3 keywords first (Keywords tab)' : 'Let the AI organise these keywords into pillars — the topics this site should own'}>
+          {clustering ? 'Organising…' : '✦ Build topic map from keywords'}
+        </button>
+        <button className={`btn ${items.length < 3 ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setWizard(prefill)} disabled={!briefLoaded || !!wizard}
+          title="No keyword list yet? Build the map from what the business actually sells.">
+          ✦ Start from the business
+        </button>
+      </div>
 
       {/* Entry mode A: the interview. Prefilled from the Business Brief — every
           field left blank here is a field the AI has to guess, so the answers
@@ -410,7 +460,42 @@ export default function ArticlePlanPage() {
       )}
 
       {/* The saved map. Hover a pillar to isolate its cluster. */}
-      {graphPillars.length > 0 && <ClusterGraph pillars={graphPillars} siteName={slug} />}
+      {graphPillars.length > 0
+        ? <ClusterGraph pillars={graphPillars} siteName={slug} />
+        : <div className="aside-block" style={{ textAlign: 'center', padding: 30 }}><p className="muted">No topic map yet. Add keywords on the <b>Keywords</b> tab then “Build topic map”, or “Start from the business” above.</p></div>}
+      </>)}
+
+      {/* ── ② KEYWORDS — the working queue. ─────────────────────────────── */}
+      {tab === 'keywords' && (<>
+      <div className="ctl-group card" style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 260px' }}><label className="muted" style={{ fontSize: 12 }}>Add a keyword</label><input className="inp" value={kw} onChange={(e) => setKw(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addOne()} placeholder="e.g. tabere de vara pentru copii" /></div>
+          <button className="btn btn-primary" onClick={addOne} disabled={!kw.trim()}>＋ Add</button>
+          <button className="btn btn-secondary" onClick={pullSC} disabled={!scLinked || busy === 'sc'} title={scLinked ? 'Pull near-ranking queries from Search Console' : 'Link a Search Console property first (Tracking)'}>{busy === 'sc' ? 'Pulling…' : '↧ Pull from Search Console'}</button>
+        </div>
+        <details style={{ marginTop: 10 }}>
+          <summary className="muted" style={{ fontSize: 12, cursor: 'pointer' }}>Paste a list (one keyword per line)</summary>
+          <textarea className="inp" rows={4} style={{ marginTop: 8 }} value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder={'keyword one\nkeyword two\nkeyword three'} />
+          <button className="btn-mini" style={{ marginTop: 6 }} onClick={addBulk} disabled={!bulk.trim()}>Add all</button>
+        </details>
+      </div>
+
+      {opps && (
+        <div className="ctl-group card" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <b style={{ fontSize: 14 }}>Ideas from Search Console <span className="muted" style={{ fontWeight: 400 }}>(near-ranking queries — position 4–20)</span></b>
+            <button className="btn-mini" onClick={() => setOpps(null)}>Close</button>
+          </div>
+          {!opps.length ? <p className="muted" style={{ fontSize: 13 }}>No strong opportunities right now.</p> : (
+            <div className="tblwrap"><table className="tbl">
+              <thead><tr><th>Query</th><th style={{ width: 90 }}>Impr.</th><th style={{ width: 70 }}>Pos.</th><th style={{ width: 80 }}></th></tr></thead>
+              <tbody>{opps.map((o) => (
+                <tr key={o.query}><td>{o.query}</td><td>{o.impressions}</td><td>{o.position.toFixed(1)}</td><td>{has(o.query) ? <span className="muted" style={{ fontSize: 12 }}>added</span> : <button className="btn-mini" onClick={() => addOpp(o)}>＋ Add</button>}</td></tr>
+              ))}</tbody>
+            </table></div>
+          )}
+        </div>
+      )}
 
       {items.length === 0 ? (
         <div className="aside-block" style={{ textAlign: 'center', padding: 34 }}><p className="muted">No keywords yet. Add one above or pull ideas from Search Console.</p></div>
@@ -444,19 +529,7 @@ export default function ArticlePlanPage() {
                 <td className="muted" style={{ fontSize: 12 }}>{it.source === 'search-console' ? 'Search Console' : it.source}</td>
                 <td><span className={`status-pill ${it.status === 'published' ? 'live' : it.status === 'drafted' ? 'live' : 'draft'}`}>{it.status}</span></td>
                 <td className="muted" style={{ fontSize: 12 }}>{it.impressions != null ? `${it.impressions} impr · #${it.position}` : '—'}</td>
-                <td>
-                  {it.brief ? (
-                    <button className="btn-mini" onClick={() => setOpenBrief(openBrief === it.id ? null : it.id)}
-                      title={it.brief.angle}>
-                      {openBrief === it.id ? '▾' : '▸'} {it.brief.status === 'approved' || autoApprove ? '✓ brief' : 'draft brief'}
-                    </button>
-                  ) : (
-                    <button className="btn-mini" onClick={() => writeBrief(it)} disabled={!!briefing}
-                      title="Plan the article before writing it — angle, outline, what it must cover, which pages it links to.">
-                      {briefing === it.id ? 'Planning…' : '✦ Brief'}
-                    </button>
-                  )}
-                </td>
+                <td>{briefBadge(it)}</td>
                 <td>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                     <button className="btn-mini" onClick={() => draftNow(it)} disabled={busy === it.id || it.status === 'drafted'}>{busy === it.id ? 'Writing…' : it.status === 'drafted' ? 'Drafted' : '✍ Draft now'}</button>
@@ -466,64 +539,59 @@ export default function ArticlePlanPage() {
                 </td>
               </tr>
               {openBrief === it.id && it.brief && (
-                <tr><td colSpan={7} style={{ background: 'var(--bg-soft, rgba(127,127,127,.05))', padding: '14px 12px' }}>
-                  <div style={{ display: 'grid', gap: 10, maxWidth: 780 }}>
-                    <div>
-                      <label className="muted" style={{ fontSize: 11.5 }}>Working title</label>
-                      <input className="inp" defaultValue={it.brief.title} style={{ fontSize: 13 }}
-                        onBlur={(e) => e.target.value !== it.brief!.title && patchBrief(it.id, { title: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className="muted" style={{ fontSize: 11.5 }}>The angle — what makes this different from its siblings</label>
-                      <textarea className="inp" rows={2} defaultValue={it.brief.angle} style={{ fontSize: 13 }}
-                        onBlur={(e) => e.target.value !== it.brief!.angle && patchBrief(it.id, { angle: e.target.value })} />
-                    </div>
-                    {!!it.brief.outline?.length && (
-                      <div>
-                        <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Outline · target ~{it.brief.wordTarget} words{it.brief.serpUsed ? ' · grounded in live search results' : ''}</div>
-                        <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
-                          {it.brief.outline.map((sec, si) => (
-                            <li key={si} style={{ marginBottom: 4 }}>
-                              <b>{sec.h2}</b>
-                              {!!sec.points?.length && <ul className="muted" style={{ margin: '2px 0 0', paddingLeft: 16, fontSize: 12 }}>{sec.points.map((pt, pi) => <li key={pi}>{pt}</li>)}</ul>}
-                            </li>
-                          ))}
-                        </ol>
-                      </div>
-                    )}
-                    {!!it.brief.mustCover?.length && (
-                      <div><div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Must cover</div>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {it.brief.mustCover.map((m, mi) => <span key={mi} className="status-pill" style={{ fontSize: 11 }}>{m}</span>)}
-                        </div></div>
-                    )}
-                    {!!it.brief.internalLinks?.length && (
-                      <div><div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Internal links (verified against real pages)</div>
-                        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>
-                          {it.brief.internalLinks.map((l, li) => <li key={li}>{l.anchor} → <span className="muted">{l.url}</span></li>)}
-                        </ul></div>
-                    )}
-                    {it.brief.cta && <div style={{ fontSize: 12.5 }}><span className="muted">Leads to: </span>{it.brief.cta}</div>}
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                      {it.brief.status === 'approved'
-                        ? <span className="muted" style={{ fontSize: 12 }}>✓ Approved — the writer will follow this.</span>
-                        : <button className="btn btn-primary" onClick={() => patchBrief(it.id, { status: 'approved' })}>Approve brief</button>}
-                      <button className="btn-mini" onClick={() => writeBrief(it)} disabled={!!briefing}>{briefing === it.id ? 'Rewriting…' : '↻ Rewrite'}</button>
-                      <button className="btn-mini danger" onClick={() => persist(items.map((i) => i.id === it.id ? { ...i, brief: undefined } : i))}>Discard</button>
-                      {autoApprove && it.brief.status !== 'approved' && <span className="muted" style={{ fontSize: 11.5 }}>Auto-approve is on — this will be used as-is.</span>}
-                    </div>
-                  </div>
-                </td></tr>
+                <tr><td colSpan={7} style={{ background: 'var(--bg-soft, rgba(127,127,127,.05))', padding: '14px 12px' }}>{briefPanel(it)}</td></tr>
               )}
               </Fragment>
             ))}
           </tbody>
         </table></div>
       )}
-      <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
-        <b>Weekly auto-write</b> (when enabled) will draft the highest-priority queued keyword each week. Drafts land in <a href={`/w/${slug}/articles`}>Articles</a> for review before publishing.
-        {' '}A keyword with an <b>approved brief</b> is written to that plan rather than improvised, and the quality gate grades it on whether it followed the brief.
-      </p>
+      </>)}
+
+      {/* ── ③ BRIEFS — plan each article before it's written, review & approve. */}
+      {tab === 'briefs' && (<>
+      <div className="ctl-group card" style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" onClick={writeBriefsBulk} disabled={!!briefing || !items.some((i) => !i.brief && i.status !== 'published')}
+            title="Plan the next 5 unbriefed articles: angle, outline, must-cover points, internal links.">
+            {briefing === 'bulk' ? 'Planning…' : '✦ Brief next 5'}
+          </button>
+          <label className="muted" style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', marginLeft: 'auto' }}>
+            <input type="checkbox" checked={auto} onChange={(e) => persist(items, e.target.checked)} style={{ width: 'auto' }} /> Weekly auto-write
+          </label>
+          <label className="muted" style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}
+            title="Briefs are still written and still enforced by the quality gate — they just don't wait for your approval before the weekly writer runs.">
+            <input type="checkbox" checked={autoApprove} onChange={(e) => persist(items, auto, e.target.checked)} style={{ width: 'auto' }} /> Auto-approve briefs
+          </label>
+        </div>
+        <p className="muted" style={{ fontSize: 12, margin: '10px 0 0' }}>
+          A keyword with an <b>approved brief</b> is written to that plan rather than improvised, and the quality gate grades the draft on whether it followed the brief. Drafts land in <a href={`/w/${slug}/articles`}>Library</a>.
+        </p>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="aside-block" style={{ textAlign: 'center', padding: 34 }}><p className="muted">No keywords yet. Add some on the <b>Keywords</b> tab first.</p></div>
+      ) : (
+        <div className="tblwrap"><table className="tbl">
+          <thead><tr><th>Keyword</th><th style={{ width: 160 }}>Cluster</th><th style={{ width: 130 }}>Brief</th><th style={{ width: 130 }}></th></tr></thead>
+          <tbody>
+            {sorted.map((it) => (
+              <Fragment key={it.id}>
+              <tr>
+                <td><b>{it.keyword}</b></td>
+                <td className="muted" style={{ fontSize: 12 }}>{it.cluster || '—'}</td>
+                <td>{briefBadge(it)}</td>
+                <td><button className="btn-mini" onClick={() => draftNow(it)} disabled={busy === it.id || it.status === 'drafted'}>{busy === it.id ? 'Writing…' : it.status === 'drafted' ? 'Drafted' : '✍ Draft now'}</button></td>
+              </tr>
+              {openBrief === it.id && it.brief && (
+                <tr><td colSpan={4} style={{ background: 'var(--bg-soft, rgba(127,127,127,.05))', padding: '14px 12px' }}>{briefPanel(it)}</td></tr>
+              )}
+              </Fragment>
+            ))}
+          </tbody>
+        </table></div>
+      )}
+      </>)}
     </AppShell>
   )
 }
