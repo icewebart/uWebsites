@@ -67,6 +67,7 @@ export default function ArticlePlanPage() {
   const [proposing, setProposing] = useState(false)
   const [openBrief, setOpenBrief] = useState<string | null>(null)
   const [briefing, setBriefing] = useState('')
+  const [briefSaved, setBriefSaved] = useState('')
   const [autoApprove, setAutoApprove] = useState(false)
   // The page does four jobs; tabs keep each one calm. Remembered across visits.
   const [tab, setTab] = useState<'map' | 'keywords' | 'briefs'>('keywords')
@@ -199,6 +200,7 @@ export default function ArticlePlanPage() {
   }
   function patchBrief(id: string, patch: Partial<Brief>) {
     persist(items.map((i) => i.id === id && i.brief ? { ...i, brief: { ...i.brief, ...patch } } : i))
+    setBriefSaved(id); setTimeout(() => setBriefSaved((c) => c === id ? '' : c), 1800)
   }
   async function writeBriefsBulk() {
     // The next few unbriefed keywords, highest priority first — one click for a
@@ -231,6 +233,24 @@ export default function ArticlePlanPage() {
   // Live counts, shown above every tab so switching lens never loses the big picture.
   const briefedCount = items.filter((i) => i.brief).length
   const approvedCount = items.filter((i) => i.brief && (i.brief.status === 'approved' || autoApprove)).length
+
+  // Does this keyword already have an article (ours, or a matched existing page)?
+  const articleOf = (it: Item): { pageId: string; kind: 'article' | 'draft' } | null => {
+    const pageId = it.coveredBy?.pageId || it.pageId
+    if (!pageId) return null
+    return { pageId, kind: (it.coveredBy || it.status === 'published') ? 'article' : 'draft' }
+  }
+  const writtenCount = items.filter((i) => articleOf(i)).length
+  // The write step requires a plan: a brief must exist, and be approved (or the
+  // workspace auto-approves). This is the "brief, then write" flow.
+  const readyToDraft = (it: Item) => !!it.brief && (it.brief.status === 'approved' || autoApprove)
+  const draftTip = (it: Item) => !it.brief ? 'Plan a brief first — click ✦ Brief, review it, approve.'
+    : (it.brief.status !== 'approved' && !autoApprove) ? 'Approve the brief first (open it → Approve brief).'
+    : 'Write the article to the approved brief'
+  // A link to our own draft/article for this keyword (only when WE wrote one).
+  const seeArticle = (it: Item) => it.pageId
+    ? <a className={`kw-has${it.status === 'published' ? '' : ' draft'}`} href={`/w/${slug}/p/${it.pageId}`}>{it.status === 'published' ? '✓ See article' : '✎ See draft'}</a>
+    : null
 
   // The expandable brief editor, shared by the Keywords and Briefs tabs.
   const briefPanel = (it: Item) => (!it.brief ? null : (
@@ -275,7 +295,9 @@ export default function ArticlePlanPage() {
           : <button className="btn btn-primary" onClick={() => patchBrief(it.id, { status: 'approved' })}>Approve brief</button>}
         <button className="btn-mini" onClick={() => writeBrief(it)} disabled={!!briefing}>{briefing === it.id ? 'Rewriting…' : '↻ Rewrite'}</button>
         <button className="btn-mini danger" onClick={() => persist(items.map((i) => i.id === it.id ? { ...i, brief: undefined } : i))}>Discard</button>
-        {autoApprove && it.brief.status !== 'approved' && <span className="muted" style={{ fontSize: 11.5 }}>Auto-approve is on — this will be used as-is.</span>}
+        <span className="muted" style={{ fontSize: 11.5, marginLeft: 'auto', color: briefSaved === it.id ? 'var(--forest)' : undefined }}>
+          {briefSaved === it.id ? '✓ Saved' : 'Edits save automatically'}
+        </span>
       </div>
     </div>
   ))
@@ -294,21 +316,20 @@ export default function ArticlePlanPage() {
   return (
     <AppShell title="Article Plan" currentSlug={slug} active="Article Plan">
       {/* Stat strip — visible on every tab, so a tab never hides the whole picture. */}
-      <div className="ctl-group card" style={{ marginBottom: 12, display: 'flex', gap: 20, flexWrap: 'wrap', padding: '12px 16px', alignItems: 'center' }}>
-        <div><b style={{ fontSize: 18 }}>{items.length}</b> <span className="muted" style={{ fontSize: 12 }}>keywords</span></div>
-        <div><b style={{ fontSize: 18 }}>{pillars.length}</b> <span className="muted" style={{ fontSize: 12 }}>pillars</span></div>
-        <div><b style={{ fontSize: 18 }}>{briefedCount}</b> <span className="muted" style={{ fontSize: 12 }}>briefed</span></div>
-        <div><b style={{ fontSize: 18 }}>{approvedCount}</b> <span className="muted" style={{ fontSize: 12 }}>approved</span></div>
+      <div className="uw-stats">
+        <div className="st"><b>{items.length}</b><span>Keywords</span></div>
+        <div className="st"><b>{pillars.length}</b><span>Pillars</span></div>
+        <div className="st"><b>{writtenCount}</b><span>Written</span></div>
+        <div className="st"><b>{briefedCount}</b><span>Briefed</span></div>
+        <div className="st"><b>{approvedCount}</b><span>Approved</span></div>
         <div style={{ marginLeft: 'auto' }}><span className={`status-pill ${auto ? 'live' : 'draft'}`}>{auto ? '⏱ Weekly auto-write on' : 'Auto-write off'}</span></div>
       </div>
 
       {/* Tabs follow the pipeline: shape topics → groom the queue → approve briefs. */}
-      <div className="pv-tabs" style={{ marginBottom: 14 }}>
-        <div className="group">
-          <button className={tab === 'map' ? 'on' : ''} onClick={() => goTab('map')}>① Map</button>
-          <button className={tab === 'keywords' ? 'on' : ''} onClick={() => goTab('keywords')}>② Keywords</button>
-          <button className={tab === 'briefs' ? 'on' : ''} onClick={() => goTab('briefs')}>③ Briefs</button>
-        </div>
+      <div className="uw-tabs" style={{ marginBottom: 16 }}>
+        <button className={tab === 'map' ? 'on' : ''} onClick={() => goTab('map')}>Map <span className="tc">{pillars.length}</span></button>
+        <button className={tab === 'keywords' ? 'on' : ''} onClick={() => goTab('keywords')}>Keywords <span className="tc">{items.length}</span></button>
+        <button className={tab === 'briefs' ? 'on' : ''} onClick={() => goTab('briefs')}>Briefs <span className="tc">{briefedCount}</span></button>
       </div>
 
       {note && <div className="banner-ok" style={{ marginBottom: 12 }}>{note}</div>}
@@ -526,7 +547,7 @@ export default function ArticlePlanPage() {
               <Fragment key={it.id}>
               <tr>
                 <td>
-                  <b>{it.keyword}</b>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><b>{it.keyword}</b>{seeArticle(it)}</div>
                   {it.coveredBy && (
                     <div className="muted" style={{ fontSize: 11.5, marginTop: 2, color: 'var(--warn, #a15c00)' }}
                       title="Two articles chasing the same query compete with each other and both rank worse. Consider refreshing the existing one instead.">
@@ -546,7 +567,9 @@ export default function ArticlePlanPage() {
                 <td>{briefBadge(it)}</td>
                 <td>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button className="btn-mini" onClick={() => draftNow(it)} disabled={busy === it.id || it.status === 'drafted'}>{busy === it.id ? 'Writing…' : it.status === 'drafted' ? 'Drafted' : '✍ Draft now'}</button>
+                    {it.pageId
+                      ? <a className="btn-mini" href={`/w/${slug}/p/${it.pageId}`}>{it.status === 'published' ? 'See article ↗' : 'See draft ↗'}</a>
+                      : <button className="btn-mini" onClick={() => draftNow(it)} disabled={busy === it.id || !readyToDraft(it)} title={draftTip(it)}>{busy === it.id ? 'Writing…' : '✍ Draft now'}</button>}
                     <button className="btn-mini" title="Raise priority" onClick={() => bump(it.id, 1)}>▲</button>
                     <button className="btn-mini danger" onClick={() => remove(it.id)}>✕</button>
                   </div>
@@ -592,10 +615,12 @@ export default function ArticlePlanPage() {
             {sorted.map((it) => (
               <Fragment key={it.id}>
               <tr>
-                <td><b>{it.keyword}</b></td>
+                <td><div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><b>{it.keyword}</b>{seeArticle(it)}</div></td>
                 <td className="muted" style={{ fontSize: 12 }}>{it.cluster || '—'}</td>
                 <td>{briefBadge(it)}</td>
-                <td><button className="btn-mini" onClick={() => draftNow(it)} disabled={busy === it.id || it.status === 'drafted'}>{busy === it.id ? 'Writing…' : it.status === 'drafted' ? 'Drafted' : '✍ Draft now'}</button></td>
+                <td>{it.pageId
+                  ? <a className="btn-mini" href={`/w/${slug}/p/${it.pageId}`}>{it.status === 'published' ? 'See article ↗' : 'See draft ↗'}</a>
+                  : <button className="btn-mini" onClick={() => draftNow(it)} disabled={busy === it.id || !readyToDraft(it)} title={draftTip(it)}>{busy === it.id ? 'Writing…' : '✍ Draft now'}</button>}</td>
               </tr>
               {openBrief === it.id && it.brief && (
                 <tr><td colSpan={4} style={{ background: 'var(--bg-soft, rgba(127,127,127,.05))', padding: '14px 12px' }}>{briefPanel(it)}</td></tr>

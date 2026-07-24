@@ -888,3 +888,22 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .cg-key.v-low{background:color-mix(in srgb,var(--forest) 32%,#fff);border:1px solid var(--border)}
 .cg-key.covered{background:#c98a00}
 .cg-key.published{background:var(--forest)}
+
+/* ============ Segmented tabs (Plan, and reusable) ============ */
+.uw-tabs{display:inline-flex;gap:3px;padding:4px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--r-md)}
+.uw-tabs button{font-family:inherit;font-size:13.5px;font-weight:500;border:0;background:transparent;color:var(--text-muted);padding:8px 16px;border-radius:var(--r-sm);cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .14s,color .14s,box-shadow .14s;white-space:nowrap}
+.uw-tabs button:hover:not(.on){color:var(--text)}
+.uw-tabs button.on{background:var(--surface);color:var(--forest);box-shadow:var(--shadow-sm)}
+.uw-tabs .tc{font-size:11px;font-weight:700;background:rgba(22,36,46,.06);color:var(--text-faint);border-radius:999px;padding:1px 7px;min-width:20px;text-align:center;line-height:1.5}
+.uw-tabs button.on .tc{background:var(--lime-light);color:var(--forest)}
+
+/* Stat strip above the tabs */
+.uw-stats{display:flex;gap:26px;flex-wrap:wrap;align-items:center;padding:14px 18px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);margin-bottom:14px}
+.uw-stats .st{display:flex;flex-direction:column;gap:1px}
+.uw-stats .st b{font-size:20px;font-weight:600;line-height:1;color:var(--text)}
+.uw-stats .st span{font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em}
+
+/* "Already written" chip on a keyword */
+.kw-has{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--forest);background:var(--lime-light);border-radius:999px;padding:2px 9px;text-decoration:none;transition:filter .12s}
+.kw-has:hover{filter:brightness(.96)}
+.kw-has.draft{color:#8a5a00;background:#FDF0D5}
