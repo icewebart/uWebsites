@@ -24,6 +24,22 @@ const DEFAULT_TOKENS: any = {
 }
 const esc = escSh
 
+// Complete a stored tokens blob with defaults. Saving the article plan, business
+// brief or voice rules creates a brandingTokens row that has NONE of the design
+// keys — so `tokens ?? DEFAULT_TOKENS` isn't enough (the row is non-null but
+// half-empty) and siteCss would crash on t.color.text. Merge per sub-object so a
+// content-first workspace still publishes with sensible defaults.
+function withTokenDefaults(raw: any): any {
+  const t = raw && typeof raw === 'object' ? raw : {}
+  return {
+    ...t,
+    color: { ...DEFAULT_TOKENS.color, ...(t.color || {}) },
+    font: { ...DEFAULT_TOKENS.font, ...(t.font || {}) },
+    shape: { ...DEFAULT_TOKENS.shape, ...(t.shape || {}) },
+    space: { ...DEFAULT_TOKENS.space, ...(t.space || {}) },
+  }
+}
+
 // Web-safe / system fonts + CSS keywords that must NEVER be requested from
 // Google Fonts (they'd 400) — everything else plausible is loaded optimistically.
 const SYSTEM_FONTS = new Set(['inherit', 'initial', 'unset', 'sans-serif', 'serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-sans-serif', 'ui-serif', 'ui-monospace', '-apple-system', 'blinkmacsystemfont', 'arial', 'helvetica', 'helvetica neue', 'times', 'times new roman', 'georgia', 'courier', 'courier new', 'verdana', 'tahoma', 'trebuchet ms', 'segoe ui', 'lucida grande', 'impact', 'palatino', 'garamond'])
@@ -433,7 +449,7 @@ type MenuItem = { label: string; href: string; children?: MenuItem[] }
 type MenuTree = { items: MenuItem[]; cta?: { label: string; href: string } | null }
 
 // Exposed so menus.ts can use the same render for the visual preview tab.
-export { fontsHead, siteCss, DEFAULT_TOKENS }
+export { fontsHead, siteCss, DEFAULT_TOKENS, withTokenDefaults }
 
 // Render one top-level nav entry. Items with children become a hover/focus
 // dropdown; a wide child list (>6) renders as a 2-column mega-menu panel.
@@ -736,7 +752,7 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
     .where(eq(pages.id, id)).limit(1)
   if (!row || row.accId !== accountId) return null
   const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, row.wsId)).limit(1)
-  const t = (tok?.tokens as any) ?? DEFAULT_TOKENS
+  const t = withTokenDefaults(tok?.tokens)
   const rawBlocks = Array.isArray(row.blocks) ? (row.blocks as any[]) : []
   let blocks = resolveAuthors(resolveCtaRefs(rawBlocks, (t as any).ctas || [], { slug: row.slug, title: row.title, type: row.type }), t)
   // Blog index preview: pull sibling articles.
@@ -775,7 +791,7 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
 // AND the auto-write engine (so an auto-published article actually goes live).
 export async function buildSite(ws: { id: string; slug: string; name: string; accountId: string }): Promise<{ url: string; pages: number }> {
   const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
-  const t = (tok?.tokens as any) ?? DEFAULT_TOKENS
+  const t = withTokenDefaults(tok?.tokens)
   const pageRows = await db.select().from(pages).where(eq(pages.workspaceId, ws.id))
   const publishable = pageRows.filter((p) => p.status === 'published' || true) // v1: publish all
   if (!publishable.length) throw new Error('no pages to publish')

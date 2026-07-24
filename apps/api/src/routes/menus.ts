@@ -4,7 +4,7 @@ import { db, workspaces, menus, pages, brandingTokens } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { analyzeBranding, richBranding, articleBlocksFromImport, structuredPageBlocks, decodeEntities, structureFromSource } from './import.js'
 import { saveImageBytes } from '../lib/image-host.js'
-import { renderHeader, renderFooter, fontsHead, siteCss, DEFAULT_TOKENS, HEADER_SCRIPT, FOOTER_STYLES } from './publish.js'
+import { renderHeader, renderFooter, fontsHead, siteCss, DEFAULT_TOKENS, withTokenDefaults, HEADER_SCRIPT, FOOTER_STYLES } from './publish.js'
 
 // Workspace-level menus — header + footer — applied to every published page.
 // The data shape kept flat for v1: tree = { items: [{label, href}], cta? }.
@@ -71,7 +71,7 @@ menusRouter.get('/:slug/menus/preview', requireAuth, async (req: AuthRequest, re
   if (q.nl === '0' || q.nl === '1') (footer as any).newsletter = q.nl === '1'
   if (typeof q.cta_label === 'string') (footer as any).cta = { label: q.cta_label, href: String(q.cta_href || '') }
   const [tokRow] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
-  const t: any = tokRow?.tokens ?? DEFAULT_TOKENS
+  const t: any = withTokenDefaults(tokRow?.tokens)
   const logo = t?.brand_assets?.logo?.url || null
   const base = `https://${ws.slug}.uwebsites.net`
   const placeholder = `<section style="padding:60px 0;text-align:center"><div class="container"><div style="color:var(--text);opacity:.45;font-size:13px;letter-spacing:.04em;text-transform:uppercase">Your page content</div><div style="height:200px;margin-top:14px;border:2px dashed rgba(0,0,0,.08);border-radius:12px;background:rgba(0,0,0,.015);display:flex;align-items:center;justify-content:center;color:rgba(0,0,0,.25);font-size:12px">— page body lives here —</div></div></section>`
