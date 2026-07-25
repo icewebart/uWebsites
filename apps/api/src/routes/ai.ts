@@ -3014,9 +3014,28 @@ aiRouter.post('/suggest-voice', requireAuth, async (req: AuthRequest, res) => {
     bb.avoid && `Avoid: ${bb.avoid}`,
     tk.tagline && `Current tagline: ${tk.tagline}`,
   ].filter(Boolean).join('\n')
-  const grounding = [bizBrief, await siteBrief(ws.id, ws.name)].filter(Boolean).join('\n\n')
+  // Ground from the site's ACTUAL articles — how the brand already writes is the
+  // strongest signal for its voice, better than any brief. This is what "Suggest
+  // from my site" should mean, so a workspace with content (even WordPress posts
+  // pulled in) works without anyone filling a brief first.
+  const contentRows = await db.select({ title: pages.title, blocks: pages.blocks, type: pages.type })
+    .from(pages).where(eq(pages.workspaceId, ws.id)).limit(20)
+  const samples: string[] = []
+  for (const p of contentRows) {
+    if (!String(p.type).includes('article') && p.type !== 'collection_item') continue
+    const blocks: any[] = Array.isArray(p.blocks) ? (p.blocks as any[]) : []
+    const html = blocks.find((b) => b?.type === 'article-body')?.props?.html
+      || blocks.filter((b) => typeof b?.props?.html === 'string').map((b) => b.props.html).join(' ')
+    const text = String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    if (text.length > 120) samples.push(`— "${p.title}": ${text.slice(0, 700)}`)
+    if (samples.length >= 5) break
+  }
+  const contentBrief = samples.length
+    ? `EXISTING ARTICLES ON THIS SITE — infer the real voice, tone, sentence style and LANGUAGE from how these are actually written:\n${samples.join('\n')}`
+    : ''
+  const grounding = [bizBrief, contentBrief, await siteBrief(ws.id, ws.name)].filter(Boolean).join('\n\n')
   if (!grounding) {
-    return res.status(400).json({ ok: false, error: 'Nothing to infer a voice from yet — fill in the Business Brief (or import the site) first.' })
+    return res.status(400).json({ ok: false, error: 'Nothing to infer a voice from yet — write or pull in an article, or fill the Business Brief first.' })
   }
 
   try {
