@@ -21,7 +21,7 @@ function Onboarding() {
   // topbar dropdown — they already have workspaces and want another. Skip
   // the auto-redirect-to-dashboard.
   const forceNew = searchParams.get('new') === '1'
-  const [step, setStep] = useState<1 | 2>(1)
+  const [step, setStep] = useState<1 | 2 | 3>(1)
   const [ws, setWs] = useState('')
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [choice, setChoice] = useState<'import' | 'build' | 'design' | 'articles'>('import')
@@ -61,9 +61,23 @@ function Onboarding() {
     if (!workspace) return router.push('/')
     if (choice === 'import') router.push(`/w/${workspace.slug}/import`)
     else if (choice === 'design') router.push(`/w/${workspace.slug}?start=design`)
-    // Content-only: no site to build — go straight to the keyword pipeline.
-    else if (choice === 'articles') router.push(`/w/${workspace.slug}/article-plan`)
+    // Content-only: offer to seed from an existing site before the pipeline.
+    else if (choice === 'articles') setStep(3)
     else router.push(`/w/${workspace.slug}`)
+  }
+
+  // Step 3 (articles only) — pull existing articles from the client's current
+  // site, so the workspace has content from day one. Optional: skip if none.
+  const [domain, setDomain] = useState('')
+  const [pullMsg, setPullMsg] = useState('')
+  async function pullThenGo() {
+    if (!workspace || !domain.trim()) return
+    setErr(''); setPullMsg(''); setBusy(true)
+    try {
+      const r = await api<{ imported: number; total: number; note?: string }>(`/workspaces/${workspace.slug}/wordpress/pull-public`, { method: 'POST', body: JSON.stringify({ siteUrl: domain.trim() }) })
+      if (r.total === 0) { setPullMsg(r.note || 'No articles found there — you can add keywords and write fresh ones.'); setBusy(false); return }
+      router.push(`/w/${workspace.slug}/articles`)
+    } catch (e: any) { setErr(e.message || 'Could not read that site'); setBusy(false) }
   }
 
   if (checking) return <div className="empty">Loading…</div>
@@ -83,7 +97,25 @@ function Onboarding() {
         <span className={`dot${step >= 2 ? ' on' : ''}`}>2</span>
       </div>
 
-      {step === 1 ? (
+      {step === 3 ? (
+        <>
+          <h1>Do you already have a website?</h1>
+          <p className="muted">Enter its address and we&apos;ll pull your existing articles in, so <strong>{workspace?.name}</strong> starts with your real content. No site yet? Skip this.</p>
+          <div style={{ maxWidth: 460, margin: '24px auto 0', textAlign: 'left' }}>
+            <div className="field"><label>Website address</label>
+              <input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="e.g. yoursite.com" autoFocus
+                onKeyDown={(e) => e.key === 'Enter' && pullThenGo()} />
+              <p className="muted" style={{ fontSize: 11, marginTop: 6 }}>Works with WordPress sites — we read your published posts (nothing is changed on your site).</p>
+            </div>
+            {pullMsg && <div className="banner-ok" style={{ marginBottom: 10 }}>{pullMsg} <a href={`/w/${workspace?.slug}/article-plan`}>Continue →</a></div>}
+            {err && <div className="err" style={{ textAlign: 'center' }}>{err}</div>}
+            <button className="btn btn-primary btn-lg btn-block" disabled={busy || !domain.trim()} onClick={pullThenGo}>{busy ? 'Reading your site…' : 'Pull my articles →'}</button>
+            <div style={{ textAlign: 'center', marginTop: 12 }}>
+              <button className="btn btn-ghost" onClick={() => router.push(`/w/${workspace?.slug}/article-plan`)}>I don&apos;t have a site — skip →</button>
+            </div>
+          </div>
+        </>
+      ) : step === 1 ? (
         <>
           <h1>Name your workspace</h1>
           <p className="muted">A workspace is one website or brand. You can add more later.</p>

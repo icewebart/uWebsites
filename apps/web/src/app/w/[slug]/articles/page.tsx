@@ -146,10 +146,19 @@ export default function ArticlesPage() {
   // reference copies) so Library is a complete overview, not just what we wrote.
   const [pulling, setPulling] = useState(false)
   async function pullWp() {
+    // Connected → full authenticated pull. Not connected → ask for the domain and
+    // read the public REST feed, so this works before any connection is set up.
+    let endpoint = `/workspaces/${slug}/wordpress/pull`
+    let body: any = {}
+    if (!wpConnected) {
+      const domain = window.prompt('Enter your website address to pull its published articles (e.g. yoursite.com):', '')
+      if (!domain || !domain.trim()) return
+      endpoint = `/workspaces/${slug}/wordpress/pull-public`; body = { siteUrl: domain.trim() }
+    }
     setNote(''); setErr(''); setPulling(true)
     try {
-      const r = await api<{ imported: number; updated: number; total: number }>(`/workspaces/${slug}/wordpress/pull`, { method: 'POST', body: JSON.stringify({}) })
-      setNote(r.total === 0 ? 'No published posts found on the connected site.' : `Pulled ${r.total} post${r.total === 1 ? '' : 's'} from WordPress — ${r.imported} new, ${r.updated} updated.`)
+      const r = await api<{ imported: number; updated: number; total: number; note?: string }>(endpoint, { method: 'POST', body: JSON.stringify(body) })
+      setNote(r.total === 0 ? (r.note || 'No published posts found at that address.') : `Pulled ${r.total} post${r.total === 1 ? '' : 's'} — ${r.imported} new, ${r.updated} updated.`)
       await load()
     } catch (e: any) { setErr(e.message || 'Could not pull from WordPress') } finally { setPulling(false) }
   }
@@ -180,7 +189,7 @@ export default function ArticlesPage() {
           {articles.length > 0 && <button className="btn btn-secondary" onClick={structureAll} disabled={structuring} title="Give every article the hero + sidebar layout using existing content — instant, no AI credits">{structuring ? 'Structuring…' : '⚡ Structure all (free)'}</button>}
           {articles.length > 1 && <button className="btn btn-secondary" onClick={normaliseAll} title="AI cleanup of messy body markup — costs credits, slow">✦ AI Normalise all</button>}
           {articles.length > 0 && <button className="btn btn-secondary" onClick={publishAll} disabled={publishing} title="Rebuild the site and take every article live">{publishing ? 'Publishing…' : '↗ Publish all articles'}</button>}
-          <button className="btn btn-secondary" onClick={pullWp} disabled={pulling} title="Import the existing published posts from the connected WordPress site so they show here too">{pulling ? 'Pulling…' : '↧ Pull from WordPress'}</button>
+          <button className="btn btn-secondary" onClick={pullWp} disabled={pulling} title="Import existing published posts from your WordPress site (by connection, or just the domain) so they show here too">{pulling ? 'Pulling…' : '↧ Pull from WordPress'}</button>
           <button className="btn btn-primary" onClick={newArticle}>＋ New article</button>
         </div>
       </div>

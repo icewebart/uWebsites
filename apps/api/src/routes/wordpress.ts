@@ -2,9 +2,31 @@ import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
 import { db, workspaces, wordpressConnections } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
-import { verifyConnection, publishArticle, fetchPosts, decodeConnectionCode, type WpConn } from '../lib/wordpress.js'
+import { verifyConnection, publishArticle, fetchPosts, fetchPublicPosts, normaliseSiteUrl, decodeConnectionCode, type WpConn } from '../lib/wordpress.js'
 import { pages } from '@uwebsites/db'
 import { articleBlocksFromImport } from './import.js'
+
+// Shared importer for both the connected pull and the public onboarding pull.
+// Dedupes on the native WP post id so re-running updates in place, never dupes.
+async function importPosts(workspaceId: string, posts: Array<{ id: number; title: string; link: string; html: string; excerpt: string; slug: string }>) {
+  const existing = await db.select({ id: pages.id, seo: pages.seo, slug: pages.slug }).from(pages).where(eq(pages.workspaceId, workspaceId))
+  const byWpId = new Map<number, string>()
+  for (const p of existing) { const wid = (p.seo as any)?.wp_imported?.postId; if (wid) byWpId.set(Number(wid), p.id) }
+  let imported = 0, updated = 0
+  for (const post of posts) {
+    const blocks = articleBlocksFromImport(post.title, post.html)
+    const seo: any = { description: post.excerpt.slice(0, 300), wp_imported: { postId: post.id, link: post.link, importedAt: new Date().toISOString() } }
+    const hitId = byWpId.get(post.id)
+    if (hitId) { await db.update(pages).set({ title: post.title, blocks: blocks as any, seo, updatedAt: new Date() }).where(eq(pages.id, hitId)); updated++ }
+    else {
+      const base = (post.slug || post.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')).replace(/^-+|-+$/g, '').slice(0, 60) || 'post'
+      const slug = existing.some((e) => e.slug === base) ? `${base}-wp${post.id}` : base
+      await db.insert(pages).values({ workspaceId, type: 'article' as any, slug, title: post.title, status: 'published', blocks: blocks as any, seo: seo as any })
+      imported++
+    }
+  }
+  return { imported, updated, total: posts.length }
+}
 
 // Connect a client's own WordPress site so generated articles publish into it.
 // The auth secret is stored server-side and NEVER returned — reads get a masked
@@ -130,39 +152,29 @@ wordpressRouter.post('/:slug/wordpress/pull', requireAuth, async (req: AuthReque
   if (!c) return res.status(404).json({ ok: false, error: 'not connected' })
   try {
     const posts = await fetchPosts(c as WpConn, 200)
-    if (!posts.length) return res.json({ ok: true, data: { imported: 0, updated: 0, total: 0 } })
-
-    const existing = await db.select({ id: pages.id, seo: pages.seo, slug: pages.slug }).from(pages).where(eq(pages.workspaceId, ws.id))
-    const byWpId = new Map<number, { id: string; slug: string }>()
-    for (const p of existing) {
-      const wid = (p.seo as any)?.wp_imported?.postId
-      if (wid) byWpId.set(Number(wid), { id: p.id, slug: p.slug })
-    }
-
-    let imported = 0, updated = 0
-    for (const post of posts) {
-      const blocks = articleBlocksFromImport(post.title, post.html)
-      const seo: any = {
-        description: post.excerpt.slice(0, 300),
-        // The marker that says "this came FROM WordPress" — the delivery step in
-        // ai.ts must never push these back (they already live on the client site).
-        wp_imported: { postId: post.id, link: post.link, importedAt: new Date().toISOString() },
-      }
-      const hit = byWpId.get(post.id)
-      if (hit) {
-        await db.update(pages).set({ title: post.title, blocks: blocks as any, seo, updatedAt: new Date() }).where(eq(pages.id, hit.id))
-        updated++
-      } else {
-        // Keep the WP slug where possible, but guarantee uniqueness in our table.
-        const base = (post.slug || post.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')).replace(/^-+|-+$/g, '').slice(0, 60) || 'post'
-        const slug = existing.some((e) => e.slug === base) ? `${base}-wp${post.id}` : base
-        await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug, title: post.title, status: 'published', blocks: blocks as any, seo: seo as any })
-        imported++
-      }
-    }
-    res.json({ ok: true, data: { imported, updated, total: posts.length } })
+    res.json({ ok: true, data: await importPosts(ws.id, posts) })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: `Pull failed: ${e?.message || 'unknown'}` })
+  }
+})
+
+// POST /workspaces/:slug/wordpress/pull-public — onboarding seed. Pull a client's
+// existing articles from just their domain (public REST, no credentials), so an
+// articles-only workspace has content from day one. No-op-friendly: a non-WordPress
+// site or one with REST disabled simply returns 0, and the user moves on.
+wordpressRouter.post('/:slug/wordpress/pull-public', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const origin = normaliseSiteUrl(String(req.body?.siteUrl || ''))
+  if (!origin) return res.status(400).json({ ok: false, error: 'Enter a valid website address, e.g. example.com' })
+  try {
+    const posts = await fetchPublicPosts(origin, 200)
+    if (!posts.length) {
+      return res.json({ ok: true, data: { imported: 0, updated: 0, total: 0, note: 'No published posts were found at that address (the site may not be WordPress, or its API is disabled).' } })
+    }
+    res.json({ ok: true, data: await importPosts(ws.id, posts) })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: `Couldn't read articles from that site: ${e?.message || 'unknown'}` })
   }
 })
 

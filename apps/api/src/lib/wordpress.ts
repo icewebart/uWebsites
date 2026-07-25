@@ -218,6 +218,55 @@ export async function fetchPosts(conn: WpConn, max = 100): Promise<Array<{
   return out
 }
 
+// Normalise whatever the user typed (example.com, http://example.com/) to an
+// origin we can build a REST root from.
+export function normaliseSiteUrl(input: string): string {
+  let s = String(input || '').trim()
+  if (!s) return ''
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s
+  try { return new URL(s).origin } catch { return '' }
+}
+
+// Pull published posts from a PUBLIC WordPress site by domain alone — no
+// credentials. WordPress exposes published posts over the REST API without auth,
+// so at onboarding we can seed a workspace from a client's existing site before
+// any connection is set up. Returns [] if the site isn't WordPress / blocks REST.
+export async function fetchPublicPosts(siteUrl: string, max = 100): Promise<Array<{
+  id: number; title: string; link: string; html: string; excerpt: string; date: string; slug: string
+}>> {
+  const origin = normaliseSiteUrl(siteUrl)
+  if (!origin) return []
+  const root = restRoot(origin)
+  const out: Array<{ id: number; title: string; link: string; html: string; excerpt: string; date: string; slug: string }> = []
+  const per = 50
+  for (let page = 1; out.length < max && page <= 20; page++) {
+    let rows: any[] = []
+    try {
+      const r = await fetch(`${root}/wp/v2/posts?per_page=${per}&page=${page}&status=publish&_fields=id,title,link,content,excerpt,date,slug`, {
+        headers: { 'User-Agent': UA, Accept: 'application/json' },
+        signal: AbortSignal.timeout(30_000),
+      })
+      if (!r.ok) break
+      rows = await r.json()
+    } catch { break }
+    if (!Array.isArray(rows) || !rows.length) break
+    for (const rw of rows) {
+      out.push({
+        id: Number(rw?.id) || 0,
+        title: rw?.title?.rendered?.replace(/<[^>]+>/g, '').trim() || '(untitled)',
+        link: String(rw?.link || ''),
+        html: String(rw?.content?.rendered || ''),
+        excerpt: String(rw?.excerpt?.rendered || '').replace(/<[^>]+>/g, '').trim(),
+        date: String(rw?.date || ''),
+        slug: String(rw?.slug || ''),
+      })
+      if (out.length >= max) break
+    }
+    if (rows.length < per) break
+  }
+  return out
+}
+
 export async function linkTargets(conn: WpConn, limit = 50): Promise<Array<{ title: string; url: string }>> {
   const out: Array<{ title: string; url: string }> = []
   for (const type of ['posts', 'pages']) {
