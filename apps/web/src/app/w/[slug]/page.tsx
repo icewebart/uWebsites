@@ -5,7 +5,7 @@ import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
 type Page = { id: string; type: string; slug: string; title: string; status: string; seo?: { import_source?: { url: string } } }
-type PagesResp = { workspace: { id: string; name: string; slug: string }; pages: Page[] }
+type PagesResp = { workspace: { id: string; name: string; slug: string; product?: 'content' | 'site' }; pages: Page[] }
 
 export default function WorkspaceHome() {
   const { slug } = useParams<{ slug: string }>()
@@ -135,7 +135,13 @@ export default function WorkspaceHome() {
     // dedicated design-upload screen (free-form under the hood).
     if (qs.get('start') === 'design') { setPanel('design'); setMode('freeform'); setForceStart(true) }
     api<PagesResp>(`/workspaces/${slug}/pages`)
-      .then(setData)
+      .then((d) => {
+        // Content-mode workspaces (the SEO/content engine, writing into a
+        // client's own site) have no canvas to build here — send them straight
+        // to the content cockpit instead of this site-builder dashboard.
+        if (d.workspace.product === 'content') { router.replace(`/w/${slug}/content`); return }
+        setData(d)
+      })
       .catch(() => router.push('/'))
       .finally(() => setLoading(false))
   }, [slug])

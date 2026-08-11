@@ -22,12 +22,32 @@ async function ownedWorkspace(slug: string, accountId: string) {
   return ws
 }
 
+// Workspace "product" mode — the split between the (public-facing) content
+// engine and the (still unfinished) site builder. Stored in branding tokens
+// rather than a schema column: no migration needed, and it follows the same
+// pattern as article_plan/business_brief/voice. Default is 'site' — every
+// workspace that predates this field already used the builder, so it must
+// keep seeing it; only newly-created content-only workspaces opt in.
+export type ProductMode = 'content' | 'site'
+const productModeOf = (tokens: any): ProductMode => (tokens?.product === 'content' ? 'content' : 'site')
+
+// Fetch product mode for a set of workspace ids in one query, so list/pages
+// endpoints can attach it without an N+1.
+async function productModesFor(workspaceIds: string[]): Promise<Map<string, ProductMode>> {
+  const out = new Map<string, ProductMode>()
+  if (!workspaceIds.length) return out
+  const rows = await db.select({ workspaceId: brandingTokens.workspaceId, tokens: brandingTokens.tokens }).from(brandingTokens).where(inArray(brandingTokens.workspaceId, workspaceIds))
+  for (const r of rows) out.set(r.workspaceId, productModeOf(r.tokens))
+  return out
+}
+
 // GET /workspaces — workspaces in the caller's account.
 // NOTE: hard isolation is enforced by Postgres RLS in production (ADR-007);
 // this account scope is the app-level guard on top.
 workspacesRouter.get('/', requireAuth, async (req: AuthRequest, res) => {
   const rows = await db.select().from(workspaces).where(eq(workspaces.accountId, req.user!.accountId))
-  res.json({ ok: true, data: rows })
+  const modes = await productModesFor(rows.map((w) => w.id))
+  res.json({ ok: true, data: rows.map((w) => ({ ...w, product: modes.get(w.id) || 'site' })) })
 })
 
 // POST /workspaces — add another workspace to the account.
@@ -202,7 +222,8 @@ workspacesRouter.get('/:slug/pages', requireAuth, async (req: AuthRequest, res) 
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
   const rows = await db.select({ id: pages.id, type: pages.type, slug: pages.slug, title: pages.title, status: pages.status, seo: pages.seo })
     .from(pages).where(eq(pages.workspaceId, ws.id)).orderBy(pages.type)
-  res.json({ ok: true, data: { workspace: { id: ws.id, name: ws.name, slug: ws.slug }, pages: rows } })
+  const modes = await productModesFor([ws.id])
+  res.json({ ok: true, data: { workspace: { id: ws.id, name: ws.name, slug: ws.slug, product: modes.get(ws.id) || 'site' }, pages: rows } })
 })
 
 // GET /workspaces/:slug/branding — design tokens (defaults if unset)
@@ -223,4 +244,25 @@ workspacesRouter.put('/:slug/branding', requireAuth, async (req: AuthRequest, re
   if (existing) await db.update(brandingTokens).set({ tokens }).where(eq(brandingTokens.id, existing.id))
   else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens })
   res.json({ ok: true, data: { tokens } })
+})
+
+// GET/PUT /workspaces/:slug/product-mode — 'content' (the SEO/content engine,
+// writes into the client's own site) vs 'site' (the uWebsites builder). A
+// merge-write, unlike PUT /branding above which replaces the whole tokens
+// blob — this must never clobber article_plan/business_brief/voice/etc.
+workspacesRouter.get('/:slug/product-mode', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWorkspace(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const [row] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  res.json({ ok: true, data: { product: productModeOf(row?.tokens) } })
+})
+workspacesRouter.put('/:slug/product-mode', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWorkspace(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const product: ProductMode = req.body?.product === 'content' ? 'content' : 'site'
+  const [existing] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const tokens = { ...((existing?.tokens as any) || {}), product }
+  if (existing) await db.update(brandingTokens).set({ tokens }).where(eq(brandingTokens.id, existing.id))
+  else await db.insert(brandingTokens).values({ workspaceId: ws.id, tokens })
+  res.json({ ok: true, data: { product } })
 })

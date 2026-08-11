@@ -56,9 +56,13 @@ function Onboarding() {
     } catch (e: any) { setErr(e.message || 'Could not create workspace') } finally { setBusy(false) }
   }
 
-  // Step 2 — branch to import or build.
-  function start() {
+  // Step 2 — branch to import or build. Also stamps the workspace's product
+  // mode (content engine vs. site builder) so the nav + dashboard adapt —
+  // 'articles' is the only content-only path; everything else builds a site.
+  async function start() {
     if (!workspace) return router.push('/')
+    const product = choice === 'articles' ? 'content' : 'site'
+    try { await api(`/workspaces/${workspace.slug}/product-mode`, { method: 'PUT', body: JSON.stringify({ product }) }) } catch { /* nav falls back to 'site' — never blocks onboarding */ }
     if (choice === 'import') router.push(`/w/${workspace.slug}/import`)
     else if (choice === 'design') router.push(`/w/${workspace.slug}?start=design`)
     // Content-only: offer to seed from an existing site before the pipeline.
