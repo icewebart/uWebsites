@@ -3,6 +3,8 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { db, accounts, workspaces, domains, brandingTokens, pages } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { getGoogleConn, saveGoogleConn, hasScope, SCOPE_SEARCH, SCOPE_ANALYTICS, scListSites, scQuery, scOpportunities, gaListProperties, gaReport } from '../lib/google-data.js'
+import { fetchSerp, fetchAutocomplete, serpEnabled } from '../lib/serp.js'
+import { scoreOpportunity, estimateDifficultyFromSerp, fetchKeywordMetrics, keywordDataEnabled, type OppInput } from '../lib/opportunity.js'
 
 // Account-level settings: integrations (Cloudflare) + domains across all
 // workspaces. Secrets are stored in accounts.settings (jsonb) server-side and
@@ -259,6 +261,175 @@ accountRouter.post('/workspaces/:slug/article-plan/pull-search-console', require
     const rows = await scOpportunities(req.user!.accountId, link.scProperty, days)
     res.json({ ok: true, data: rows })
   } catch (e: any) { reauth(res, e) }
+})
+
+// The OPPORTUNITY ENGINE — score every keyword by ROI and rank them, so a
+// client always knows what to write next. Three layers, each optional:
+//   1. Search Console standing — near-ranking (pos 4–20) queries with real
+//      impressions are the highest-ROI, cheapest wins. Also doubles as a
+//      content audit for imported articles (are they earning?).
+//   2. SERP-estimated difficulty — for the shortlist, how locked-down the SERP
+//      is (authority of the ranking domains). On when SERPER_API_KEY is set.
+//   3. Real volume + difficulty — from a keyword-data provider when wired
+//      (KEYWORD_API_KEY); the maths already reads it, no code change needed.
+// Everything degrades gracefully: with nothing linked it still ranks by
+// business value + coverage, and sharpens as each data source comes online.
+accountRouter.post('/workspaces/:slug/article-plan/opportunities', requireAuth, async (req: AuthRequest, res) => {
+  const r = await ownedWsTokens(String(req.params.slug), req.user!.accountId)
+  if (!r) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  const tokens = (r.tok?.tokens as any) || {}
+  const plan = tokens.article_plan || {}
+  const items: any[] = Array.isArray(plan.items) ? plan.items : []
+  const pillars: any[] = Array.isArray(plan.pillars) ? plan.pillars : []
+  const link = tokens.analytics || {}
+  const days = Math.min(90, Math.max(28, Number(req.body?.days) || 90))
+  // How many top candidates to enrich with a live SERP look-up (bounded — each
+  // is a serper.dev call). Difficulty for the rest stays neutral.
+  const enrichN = Math.min(20, Math.max(0, Number(req.body?.enrich ?? 12) || 0))
+
+  // pillar name → business value, so an item's cluster resolves to a value.
+  const valueOf = new Map<string, 'high' | 'medium' | 'low'>()
+  for (const p of pillars) if (p?.name) valueOf.set(normKw(p.name), (['high', 'medium', 'low'].includes(p?.businessValue) ? p.businessValue : 'medium'))
+
+  // Search Console standing — position + impressions per query.
+  const sc = new Map<string, { position: number; impressions: number; clicks: number }>()
+  let scLinked = false
+  try {
+    const conn = await getGoogleConn(req.user!.accountId)
+    if (link.scProperty && conn && hasScope(conn, SCOPE_SEARCH)) {
+      scLinked = true
+      const [opps, q] = await Promise.all([
+        scOpportunities(req.user!.accountId, link.scProperty, days).catch(() => []),
+        scQuery(req.user!.accountId, link.scProperty, days).catch(() => null),
+      ])
+      for (const o of (opps as any[]) || []) sc.set(normKw(o.query), { position: o.position, impressions: o.impressions, clicks: o.clicks })
+      for (const o of (q as any)?.topQueries || []) if (!sc.has(normKw(o.query))) sc.set(normKw(o.query), { position: o.position, impressions: o.impressions, clicks: o.clicks })
+    }
+  } catch { /* performance data is a bonus, never blocks scoring */ }
+
+  // Coverage (cannibalisation guard). coverageMap keys results by normalised
+  // keyword, so one call over both plan keywords and discovered SC queries.
+  const planKeys = items.map((i) => String(i?.keyword || '')).filter(Boolean)
+  const discovered = [...sc.keys()].filter((k) => !planKeys.some((pk) => normKw(pk) === k))
+  const covered = await coverageMap(r.ws.id, [...planKeys, ...sc.keys()])
+  const coveredDisc = covered
+
+  // Candidate = every plan item, plus SC queries we rank for but haven't planned.
+  type Cand = OppInput & { source: 'plan' | 'search-console'; cluster?: string; coveredBy?: { pageId: string; title: string } | null; id?: string; intentSource?: 'plan' | 'serp' }
+  const cands: Cand[] = []
+  for (const it of items) {
+    const key = normKw(String(it?.keyword || ''))
+    if (!key) continue
+    const s = sc.get(key)
+    cands.push({
+      id: it.id, keyword: String(it.keyword), source: 'plan', cluster: it.cluster || undefined,
+      intent: it.intent || null,
+      position: s?.position ?? (it.position ?? null),
+      impressions: s?.impressions ?? (it.impressions ?? null),
+      clicks: s?.clicks ?? null,
+      businessValue: (it.cluster && valueOf.get(normKw(it.cluster))) || 'medium',
+      covered: !!covered[key],
+      coveredBy: covered[key] || null,
+    })
+  }
+  for (const key of discovered) {
+    const s = sc.get(key)!
+    cands.push({
+      keyword: key, source: 'search-console',
+      position: s.position, impressions: s.impressions, clicks: s.clicks,
+      businessValue: 'medium', intent: null,
+      covered: !!coveredDisc[key], coveredBy: coveredDisc[key] || null,
+    })
+  }
+
+  // Optional real volume/difficulty from a provider (inert until wired).
+  if (keywordDataEnabled()) {
+    try {
+      const km = await fetchKeywordMetrics(cands.map((c) => c.keyword))
+      for (const c of cands) { const m = km.get(normKw(c.keyword)); if (m) { c.volume = m.volume ?? c.volume; c.difficulty = m.difficulty ?? c.difficulty } }
+    } catch { /* provider is a bonus */ }
+  }
+
+  // Preliminary score (no SERP difficulty yet) to pick the shortlist to enrich.
+  const prelim = cands.map((c) => ({ c, s: scoreOpportunity(c) })).sort((a, b) => b.s.score - a.s.score)
+
+  // Enrich the top N with a live SERP difficulty estimate, in parallel.
+  let serpUsed = false
+  if (serpEnabled() && enrichN > 0) {
+    serpUsed = true
+    const shortlist = prelim.slice(0, enrichN).filter(({ c }) => c.difficulty == null)
+    await Promise.all(shortlist.map(async ({ c }) => {
+      try {
+        const d = await fetchSerp(c.keyword)
+        if (!d) return
+        c.difficulty = estimateDifficultyFromSerp(d.results)
+        // The live SERP is ground truth for intent — let it override a guessed
+        // (or missing) intent when it's confident, so value weighting is right.
+        if (d.intent && d.intent.confidence !== 'low') { c.intent = d.intent.kind; c.intentSource = 'serp' }
+      } catch { /* skip */ }
+    }))
+  }
+
+  // Final score (with whatever difficulty we now have) and rank.
+  const ranked = cands.map((c) => {
+    const s = scoreOpportunity(c)
+    return {
+      id: c.id || null,
+      keyword: c.keyword,
+      source: c.source,
+      score: s.score,
+      tier: s.tier,
+      reason: s.reason,
+      position: c.position ?? null,
+      impressions: c.impressions ?? null,
+      clicks: c.clicks ?? null,
+      volume: c.volume ?? null,
+      difficulty: c.difficulty ?? null,
+      businessValue: c.businessValue || 'medium',
+      cluster: c.cluster || null,
+      intent: c.intent || null,
+      intentSource: c.intentSource || null,
+      inPlan: c.source === 'plan',
+      coveredBy: c.coveredBy || null,
+    }
+  }).sort((a, b) => b.score - a.score)
+
+  res.json({
+    ok: true,
+    data: {
+      opportunities: ranked,
+      signals: {
+        searchConsole: scLinked,
+        serpDifficulty: serpUsed,
+        keywordProvider: keywordDataEnabled(),
+        days,
+      },
+      counts: {
+        total: ranked.length,
+        quickWins: ranked.filter((o) => o.tier === 'quick-win').length,
+        discovered: discovered.length,
+      },
+    },
+  })
+})
+
+// Keyword DISCOVERY via Google Autocomplete (serper) — a free way to surface
+// real phrases people type around a seed, including ones the site doesn't rank
+// for yet (which Search Console can't show). Returns suggestions minus the ones
+// already in the plan, so every row is a one-click add.
+accountRouter.post('/workspaces/:slug/article-plan/expand', requireAuth, async (req: AuthRequest, res) => {
+  const r = await ownedWsTokens(String(req.params.slug), req.user!.accountId)
+  if (!r) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  if (!serpEnabled()) return res.status(400).json({ ok: false, error: 'Connect a SERP tool (SERPER_API_KEY) to expand keywords.' })
+  const seed = String(req.body?.seed || '').trim()
+  if (!seed) return res.status(400).json({ ok: false, error: 'Enter a seed keyword to expand.' })
+  const gl = String(req.body?.gl || '').trim().slice(0, 2) || undefined
+  const hl = String(req.body?.hl || '').trim().slice(0, 5) || undefined
+  const suggestions = await fetchAutocomplete(seed, { gl, hl })
+  const tokens = (r.tok?.tokens as any) || {}
+  const items: any[] = Array.isArray(tokens.article_plan?.items) ? tokens.article_plan.items : []
+  const have = new Set(items.map((i) => normKw(String(i?.keyword || ''))))
+  res.json({ ok: true, data: { seed, suggestions: suggestions.filter((s) => !have.has(normKw(s))) } })
 })
 
 // ---------------- Domains ----------------

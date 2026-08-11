@@ -21,6 +21,20 @@ type Plan = { items: Item[]; auto: boolean; scLinked: boolean; pillars?: Pillar[
 // A proposed map from /ai/plan/cluster — reviewed before anything is saved.
 type Proposed = { pillars: { name: string; description: string; businessValue: string; keywords: { keyword: string; role: string; intent: string; funnel: string; contentType: string; alreadyCovered: boolean }[] }[]; unassigned: string[] }
 type Opp = { query: string; impressions: number; position: number; clicks: number }
+// The opportunity engine's output — one ranked row per keyword.
+type Ranked = {
+  id: string | null; keyword: string; source: 'plan' | 'search-console'
+  score: number; tier: 'quick-win' | 'high' | 'medium' | 'low'; reason: string
+  position: number | null; impressions: number | null; clicks: number | null
+  volume: number | null; difficulty: number | null
+  businessValue: 'high' | 'medium' | 'low'; cluster: string | null; intent: string | null; intentSource: 'plan' | 'serp' | null
+  inPlan: boolean; coveredBy: { pageId: string; title: string } | null
+}
+type OppEngine = {
+  opportunities: Ranked[]
+  signals: { searchConsole: boolean; serpDifficulty: boolean; keywordProvider: boolean; days: number }
+  counts: { total: number; quickWins: number; discovered: number }
+}
 // Gap analysis for one pillar — proposed, never auto-added.
 type Gap = { keyword: string; intent: string; funnel: string; contentType: string; reason: string }
 type Expansion = { pillar: string; hub: string; missing: Gap[]; serpUsed: boolean }
@@ -29,6 +43,10 @@ type Answers = { about: string; offers: string; audience: string; priorityServic
 const EMPTY_ANSWERS: Answers = { about: '', offers: '', audience: '', priorityServices: '', market: '', language: '' }
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()))
+
+// Opportunity tier → colour + label for the ranked table.
+const scoreColor = (t: Ranked['tier']) => t === 'quick-win' ? '#128a4b' : t === 'high' ? '#2563eb' : t === 'medium' ? '#a15c00' : '#6b7280'
+const tierLabel = (t: Ranked['tier']) => t === 'quick-win' ? 'Quick win' : t === 'high' ? 'High' : t === 'medium' ? 'Medium' : 'Low'
 
 // The brief outline is structured (H2 + points) but edits best as plain text:
 // one H2 per line, its points indented with "- ". These round-trip it.
@@ -55,6 +73,7 @@ export default function ArticlePlanPage() {
   const [kw, setKw] = useState('')
   const [bulk, setBulk] = useState('')
   const [opps, setOpps] = useState<Opp[] | null>(null)
+  const [sugg, setSugg] = useState<{ seed: string; suggestions: string[] } | null>(null)
   const [busy, setBusy] = useState('')
   const [note, setNote] = useState(''); const [err, setErr] = useState('')
   const [pillars, setPillars] = useState<Pillar[]>([])
@@ -70,9 +89,11 @@ export default function ArticlePlanPage() {
   const [briefSaved, setBriefSaved] = useState('')
   const [autoApprove, setAutoApprove] = useState(false)
   // The page does four jobs; tabs keep each one calm. Remembered across visits.
-  const [tab, setTab] = useState<'map' | 'keywords' | 'briefs'>('keywords')
+  const [tab, setTab] = useState<'map' | 'keywords' | 'opportunities' | 'briefs'>('keywords')
+  const [engine, setEngine] = useState<OppEngine | null>(null)
+  const [scoring, setScoring] = useState(false)
   useEffect(() => { try { const t = localStorage.getItem('uw-plan-tab') as any; if (t) setTab(t) } catch {} }, [])
-  function goTab(t: 'map' | 'keywords' | 'briefs') { setTab(t); try { localStorage.setItem('uw-plan-tab', t) } catch {} }
+  function goTab(t: 'map' | 'keywords' | 'opportunities' | 'briefs') { setTab(t); try { localStorage.setItem('uw-plan-tab', t) } catch {} }
 
   useEffect(() => {
     api<Plan>(`/account/workspaces/${slug}/article-plan`).then((d) => { setItems(d.items); setAuto(d.auto); setScLinked(d.scLinked); setPillars(d.pillars || []); setAutoApprove(!!d.autoApproveBriefs) }).catch(() => router.push(`/w/${slug}`))
@@ -107,6 +128,40 @@ export default function ArticlePlanPage() {
     catch (e: any) { setErr(e.message || 'Could not pull from Search Console') } finally { setBusy('') }
   }
   function addOpp(o: Opp) { if (has(o.query)) return; persist([mk(o.query, 'search-console', { impressions: o.impressions, position: Math.round(o.position * 10) / 10 }), ...items]) }
+
+  // Keyword discovery — Google Autocomplete around the seed in the add box.
+  async function expandKeywords() {
+    const seed = kw.trim(); if (!seed) return
+    setBusy('expand'); setErr(''); setSugg(null)
+    try { setSugg(await api<{ seed: string; suggestions: string[] }>(`/account/workspaces/${slug}/article-plan/expand`, { method: 'POST', body: JSON.stringify({ seed }) })) }
+    catch (e: any) { setErr(e.message || 'Could not expand that keyword') } finally { setBusy('') }
+  }
+  function addSuggestion(k: string) {
+    if (has(k)) return
+    persist([mk(k, 'autocomplete'), ...items])
+    setSugg((cur) => cur ? { ...cur, suggestions: cur.suggestions.filter((s) => s !== k) } : cur)
+  }
+
+  // The opportunity engine — score & rank every keyword by ROI. Uses Search
+  // Console standing + SERP-estimated difficulty + business value on the server.
+  async function runEngine() {
+    setScoring(true); setErr(''); setNote('')
+    try { setEngine(await api<OppEngine>(`/account/workspaces/${slug}/article-plan/opportunities`, { method: 'POST', body: JSON.stringify({}) })) }
+    catch (e: any) { setErr(e.message || 'Could not score opportunities') } finally { setScoring(false) }
+  }
+  // Pull a discovered (Search-Console-only) opportunity into the plan, carrying
+  // its standing so the row shows the same numbers.
+  function addRanked(r: Ranked) {
+    if (has(r.keyword)) return
+    persist([mk(r.keyword, 'search-console', { impressions: r.impressions ?? undefined, position: r.position != null ? Math.round(r.position * 10) / 10 : undefined, cluster: r.cluster || undefined, intent: r.intent || undefined }), ...items])
+    setEngine((cur) => cur ? { ...cur, opportunities: cur.opportunities.map((o) => o.keyword === r.keyword ? { ...o, inPlan: true, id: 'pending' } : o) } : cur)
+  }
+  // Draft straight from the engine — find or create the plan item, then write.
+  async function draftRanked(r: Ranked) {
+    let it = items.find((i) => i.id === r.id || i.keyword.toLowerCase().trim() === r.keyword.toLowerCase().trim())
+    if (!it) { it = mk(r.keyword, 'search-console', { impressions: r.impressions ?? undefined, position: r.position != null ? Math.round(r.position * 10) / 10 : undefined, cluster: r.cluster || undefined }); await persist([it, ...items]) }
+    await draftNow(it)
+  }
   function remove(id: string) { persist(items.filter((i) => i.id !== id)) }
   // Topic cluster: articles sharing one interlink as a group, which is how a
   // topic ranks as a unit rather than as scattered posts.
@@ -329,6 +384,7 @@ export default function ArticlePlanPage() {
       <div className="uw-tabs" style={{ marginBottom: 16 }}>
         <button className={tab === 'map' ? 'on' : ''} onClick={() => goTab('map')}>Map <span className="tc">{pillars.length}</span></button>
         <button className={tab === 'keywords' ? 'on' : ''} onClick={() => goTab('keywords')}>Keywords <span className="tc">{items.length}</span></button>
+        <button className={tab === 'opportunities' ? 'on' : ''} onClick={() => goTab('opportunities')}>Opportunities{engine ? <span className="tc">{engine.counts.total}</span> : null}</button>
         <button className={tab === 'briefs' ? 'on' : ''} onClick={() => goTab('briefs')}>Briefs <span className="tc">{briefedCount}</span></button>
       </div>
 
@@ -506,6 +562,7 @@ export default function ArticlePlanPage() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 260px' }}><label className="muted" style={{ fontSize: 12 }}>Add a keyword</label><input className="inp" value={kw} onChange={(e) => setKw(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addOne()} placeholder="e.g. tabere de vara pentru copii" /></div>
           <button className="btn btn-primary" onClick={addOne} disabled={!kw.trim()}>＋ Add</button>
+          <button className="btn btn-secondary" onClick={expandKeywords} disabled={!kw.trim() || busy === 'expand'} title="Find related keywords people actually search (Google Autocomplete)">{busy === 'expand' ? 'Expanding…' : '✨ Expand'}</button>
           <button className="btn btn-secondary" onClick={pullSC} disabled={!scLinked || busy === 'sc'} title={scLinked ? 'Pull near-ranking queries from Search Console' : 'Link a Search Console property first (Tracking)'}>{busy === 'sc' ? 'Pulling…' : '↧ Pull from Search Console'}</button>
         </div>
         <details style={{ marginTop: 10 }}>
@@ -514,6 +571,22 @@ export default function ArticlePlanPage() {
           <button className="btn-mini" style={{ marginTop: 6 }} onClick={addBulk} disabled={!bulk.trim()}>Add all</button>
         </details>
       </div>
+
+      {sugg && (
+        <div className="ctl-group card" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <b style={{ fontSize: 14 }}>Related keywords <span className="muted" style={{ fontWeight: 400 }}>(Google Autocomplete for “{sugg.seed}”)</span></b>
+            <button className="btn-mini" onClick={() => setSugg(null)}>Close</button>
+          </div>
+          {!sugg.suggestions.length ? <p className="muted" style={{ fontSize: 13 }}>No new suggestions — you may already have these, or the seed is too specific.</p> : (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {sugg.suggestions.map((s) => (
+                <button key={s} className="btn-mini" onClick={() => addSuggestion(s)} title="Add to plan">＋ {s}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {opps && (
         <div className="ctl-group card" style={{ marginBottom: 14 }}>
@@ -585,7 +658,90 @@ export default function ArticlePlanPage() {
       )}
       </>)}
 
-      {/* ── ③ BRIEFS — plan each article before it's written, review & approve. */}
+      {/* ── ③ OPPORTUNITIES — the engine: every keyword ranked by ROI. */}
+      {tab === 'opportunities' && (<>
+      <div className="ctl-group card" style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 320px' }}>
+            <b style={{ fontSize: 14 }}>Opportunity engine</b>
+            <p className="muted" style={{ fontSize: 12.5, margin: '4px 0 0' }}>
+              Ranks every keyword by ROI — real demand, how close you are to page 1, how hard the SERP is, and how much the topic is worth to the business. Quick wins float to the top.
+            </p>
+          </div>
+          <button className="btn btn-primary" onClick={runEngine} disabled={scoring || items.length === 0}>
+            {scoring ? 'Scoring…' : engine ? '↻ Rescore' : '⚡ Score opportunities'}
+          </button>
+        </div>
+        {engine && (
+          <div className="muted" style={{ fontSize: 11.5, marginTop: 10, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            <span>{engine.counts.quickWins} quick win{engine.counts.quickWins === 1 ? '' : 's'}</span>
+            <span>·</span>
+            <span title="Ranked using: Search Console standing, live-SERP difficulty, and business value.">
+              Signals: {engine.signals.searchConsole ? '✓ Search Console' : '○ Search Console'} · {engine.signals.serpDifficulty ? '✓ SERP difficulty' : '○ SERP difficulty'} · {engine.signals.keywordProvider ? '✓ volume' : '○ volume (add a keyword tool)'}
+            </span>
+            {engine.counts.discovered > 0 && <><span>·</span><span>{engine.counts.discovered} discovered in Search Console (not yet planned)</span></>}
+          </div>
+        )}
+      </div>
+
+      {!engine ? (
+        <div className="aside-block" style={{ textAlign: 'center', padding: 34 }}>
+          <p className="muted">{items.length === 0 ? 'Add keywords first, then score them.' : 'Score your keywords to see what to write next, ranked by opportunity.'}</p>
+        </div>
+      ) : !engine.opportunities.length ? (
+        <div className="aside-block" style={{ textAlign: 'center', padding: 34 }}><p className="muted">Nothing to rank yet.</p></div>
+      ) : (
+        <div className="tblwrap"><table className="tbl">
+          <thead><tr>
+            <th style={{ width: 64 }}>Score</th><th>Keyword</th>
+            <th style={{ width: 104 }}>Standing</th><th style={{ width: 88 }}>Difficulty</th>
+            <th style={{ width: 74 }}>Value</th><th style={{ width: 150 }}>Actions</th>
+          </tr></thead>
+          <tbody>
+            {engine.opportunities.map((o) => (
+              <tr key={(o.id || o.keyword) + o.source}>
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 15, width: 22 }}>{o.score}</span>
+                    <span style={{ display: 'inline-block', height: 6, borderRadius: 3, flex: 1, minWidth: 20, background: 'var(--bg-soft, rgba(127,127,127,.15))' }}>
+                      <span style={{ display: 'block', height: '100%', borderRadius: 3, width: `${o.score}%`, background: scoreColor(o.tier) }} />
+                    </span>
+                  </div>
+                </td>
+                <td>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <b>{o.keyword}</b>
+                    <span className="status-pill" style={{ background: `${scoreColor(o.tier)}22`, color: scoreColor(o.tier), fontSize: 10.5, fontWeight: 700 }}>{tierLabel(o.tier)}</span>
+                    {o.intent && <span className="muted" style={{ fontSize: 10.5, textTransform: 'capitalize' }} title={o.intentSource === 'serp' ? 'Intent detected from the live SERP' : 'Intent from the topic map'}>{o.intent}{o.intentSource === 'serp' ? ' ·SERP' : ''}</span>}
+                    {!o.inPlan && <span className="muted" style={{ fontSize: 10.5 }}>discovered</span>}
+                  </div>
+                  <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{o.reason}</div>
+                  {o.coveredBy && (
+                    <div style={{ fontSize: 11, marginTop: 2, color: 'var(--warn, #a15c00)' }}>
+                      ⚠ Covered by <a href={`/w/${slug}/p/${o.coveredBy.pageId}`}>{o.coveredBy.title || 'an existing article'}</a> — refresh instead
+                    </div>
+                  )}
+                </td>
+                <td className="muted" style={{ fontSize: 12 }}>{o.position != null ? `#${o.position.toFixed(1)}${o.impressions != null ? ` · ${o.impressions} impr` : ''}` : '—'}</td>
+                <td className="muted" style={{ fontSize: 12 }}>{o.difficulty != null ? `${o.difficulty}/100` : '—'}</td>
+                <td><span className="muted" style={{ fontSize: 12, textTransform: 'capitalize' }}>{o.businessValue}</span></td>
+                <td>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {o.coveredBy
+                      ? <a className="btn-mini" href={`/w/${slug}/p/${o.coveredBy.pageId}`}>Refresh ↗</a>
+                      : o.inPlan
+                        ? <button className="btn-mini" onClick={() => draftRanked(o)} disabled={busy === o.id}>{busy === o.id ? 'Writing…' : '✍ Draft'}</button>
+                        : <button className="btn-mini" onClick={() => addRanked(o)}>＋ Add to plan</button>}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      )}
+      </>)}
+
+      {/* ── ④ BRIEFS — plan each article before it's written, review & approve. */}
       {tab === 'briefs' && (<>
       <div className="ctl-group card" style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
