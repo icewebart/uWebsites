@@ -8,7 +8,10 @@
 // Provider: serper.dev (simple JSON, cheap). Inert without SERPER_API_KEY —
 // fetchSerp() returns null and the writer carries on exactly as before.
 
-export type SerpResult = { title: string; link: string; snippet?: string }
+export type SerpResult = { title: string; link: string; snippet?: string; ageDays?: number | null }
+// How fresh the top results are — a decaying article competing against a SERP
+// of recently-updated pages is a strong signal it needs a refresh.
+export type SerpFreshness = { datedCount: number; recentCount: number; medianAgeDays: number | null; rewardsFreshness: boolean }
 // The featured-snippet Google shows for a query, and its FORMAT — so the writer
 // can shape its direct answer to win it (paragraph / list / table).
 export type SerpAnswerBox = { format: 'paragraph' | 'list' | 'table'; snippet?: string; source?: string }
@@ -22,6 +25,7 @@ export type SerpData = {
   related: string[]
   answerBox: SerpAnswerBox | null
   intent: SerpIntent
+  freshness: SerpFreshness
 }
 
 const ENDPOINT = 'https://google.serper.dev/search'
@@ -37,6 +41,40 @@ function readAnswerBox(ab: any): SerpAnswerBox | null {
     : (ab.table || /<table/i.test(String(ab.snippet || ''))) ? 'table' : 'paragraph'
   const snippet = String(ab.snippet || ab.answer || (Array.isArray(ab.list) ? ab.list.join(' · ') : '') || '').trim().slice(0, 400)
   return { format, snippet: snippet || undefined, source: String(ab.source || ab.link || '').trim() || undefined }
+}
+
+// Turn a serper result `date` ("3 days ago", "Jan 5, 2024", "2024-01-05") into
+// an age in days. Returns null when it can't be parsed — better no signal than
+// a wrong one.
+function parseAgeDays(raw: any): number | null {
+  const s = String(raw || '').trim().toLowerCase()
+  if (!s) return null
+  if (s === 'today') return 0
+  if (s === 'yesterday') return 1
+  const rel = s.match(/(\d+)\s*(hour|day|week|month|year)s?\s*ago/)
+  if (rel) {
+    const n = Number(rel[1])
+    const mult: Record<string, number> = { hour: 1 / 24, day: 1, week: 7, month: 30, year: 365 }
+    return Math.round(n * (mult[rel[2]] || 1))
+  }
+  const t = Date.parse(String(raw || ''))
+  if (!Number.isNaN(t)) { const d = Math.round((Date.now() - t) / 86400000); return d >= 0 ? d : null }
+  return null
+}
+
+// Summarise how fresh the ranking pages are. "rewardsFreshness" = a real share
+// of the results are dated AND most of those are recent (< ~18 months) — i.e.
+// Google is favouring up-to-date content for this query.
+function readFreshness(results: SerpResult[]): SerpFreshness {
+  const ages = results.map((r) => r.ageDays).filter((a): a is number => a != null)
+  const datedCount = ages.length
+  const RECENT = 548 // ~18 months
+  const recentCount = ages.filter((a) => a <= RECENT).length
+  const sorted = ages.slice().sort((a, b) => a - b)
+  const medianAgeDays = sorted.length ? sorted[Math.floor(sorted.length / 2)] : null
+  // Need at least 3 dated results, and a majority of them recent, to trust it.
+  const rewardsFreshness = datedCount >= 3 && recentCount / datedCount >= 0.6
+  return { datedCount, recentCount, medianAgeDays, rewardsFreshness }
 }
 
 // Classify search intent from which SERP features Google chose to surface.
@@ -86,7 +124,7 @@ export async function fetchSerp(keyword: string, opts: { gl?: string; hl?: strin
     const j: any = await res.json()
     const results: SerpResult[] = (Array.isArray(j?.organic) ? j.organic : [])
       .slice(0, opts.num ?? 10)
-      .map((o: any) => ({ title: String(o?.title || '').trim(), link: String(o?.link || ''), snippet: String(o?.snippet || '').trim() }))
+      .map((o: any) => ({ title: String(o?.title || '').trim(), link: String(o?.link || ''), snippet: String(o?.snippet || '').trim(), ageDays: parseAgeDays(o?.date) }))
       .filter((r: SerpResult) => r.title)
     const questions: string[] = (Array.isArray(j?.peopleAlsoAsk) ? j.peopleAlsoAsk : [])
       .map((q: any) => String(q?.question || '').trim()).filter(Boolean).slice(0, 8)
@@ -94,8 +132,9 @@ export async function fetchSerp(keyword: string, opts: { gl?: string; hl?: strin
       .map((r: any) => String(r?.query || '').trim()).filter(Boolean).slice(0, 8)
     const answerBox = readAnswerBox(j?.answerBox)
     const intent = classifyIntent(j)
+    const freshness = readFreshness(results)
     if (!results.length && !questions.length) return null
-    return { results, questions, related, answerBox, intent }
+    return { results, questions, related, answerBox, intent, freshness }
   } catch (e: any) {
     console.warn('[serp] failed for', keyword, e?.message || e)
     return null // grounding is a bonus, never a blocker

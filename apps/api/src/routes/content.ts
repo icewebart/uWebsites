@@ -5,7 +5,10 @@ import { db, workspaces, accounts, pages, brandingTokens, aiJobs, wordpressConne
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { limitsForPlan } from '@uwebsites/shared'
 import { articlesThisWeek } from '../lib/entitlements.js'
-import { getGoogleConn, hasScope, SCOPE_SEARCH, scQuery } from '../lib/google-data.js'
+import { getGoogleConn, hasScope, SCOPE_SEARCH, scQuery, scPageTrends } from '../lib/google-data.js'
+import { fetchSerp, serpEnabled } from '../lib/serp.js'
+import { scoreOpportunity } from '../lib/opportunity.js'
+import { classifyDecay, buildSchedule, type CalTask, type DecaySeverity } from '../lib/decay.js'
 
 // The Website Content cockpit — one endpoint that answers "how is my content
 // doing and what should I do next", so the Overview page is a single request.
@@ -83,6 +86,101 @@ contentRouter.get('/:slug/content/overview', requireAuth, async (req: AuthReques
   const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
   res.json({ ok: true, data: await buildOverview(ws, req.user!.accountId) })
+})
+
+// The last path segment of a URL, matched against an article's slug — how we
+// tie a Search Console page (a live URL) back to a platform article.
+function lastSeg(url: string): string {
+  try { return new URL(url).pathname.replace(/\/+$/, '').split('/').filter(Boolean).pop() || '' } catch { return '' }
+}
+
+// CONTENT DECAY + the publishing calendar. Reads which articles are slipping
+// (Search Console, window-over-window), optionally confirms with a live-SERP
+// freshness check, and schedules refreshes alongside the top new opportunities
+// across the plan's weekly cadence.
+async function buildCalendar(ws: any, accountId: string) {
+  const [tokRow] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
+  const tokens: any = tokRow?.tokens || {}
+  const plan = tokens.article_plan || {}
+  const items: any[] = Array.isArray(plan.items) ? plan.items : []
+  const pillars: any[] = Array.isArray(plan.pillars) ? plan.pillars : []
+  const valueOf = new Map<string, 'high' | 'medium' | 'low'>()
+  for (const p of pillars) if (p?.name) valueOf.set(String(p.name).toLowerCase().trim(), (['high', 'medium', 'low'].includes(p?.businessValue) ? p.businessValue : 'medium'))
+
+  const pageRows = await db.select({ id: pages.id, title: pages.title, slug: pages.slug, type: pages.type, seo: pages.seo })
+    .from(pages).where(eq(pages.workspaceId, ws.id))
+  const articles = pageRows.filter((p) => ARTICLE_TYPES.has(String(p.type)))
+  const bySlug = new Map<string, any>()
+  for (const a of articles) if (a.slug) bySlug.set(String(a.slug), a)
+
+  const [acc] = await db.select({ plan: accounts.plan }).from(accounts).where(eq(accounts.id, ws.accountId)).limit(1)
+  const perWeek = Math.max(1, limitsForPlan(acc?.plan).articlesPerWeek || 1)
+
+  // ── Decay from Search Console (window-over-window). Bonus, never blocks.
+  let scLinked = false
+  const decay: Array<{ pageId: string; title: string; slug: string; url: string; severity: DecaySeverity; reason: string; lostClicks: number; positionNow: number; positionPrev: number; clicksNow: number; clicksPrev: number; keyword: string | null; freshnessNote: string | null }> = []
+  try {
+    const scProperty = tokens?.analytics?.scProperty
+    const conn = await getGoogleConn(accountId)
+    if (scProperty && conn && hasScope(conn, SCOPE_SEARCH)) {
+      scLinked = true
+      const trends = await scPageTrends(accountId, scProperty, 28)
+      for (const t of trends) {
+        const art = bySlug.get(lastSeg(t.page))
+        if (!art) continue // only score pages that map to a platform article
+        const v = classifyDecay(t)
+        if (v.severity !== 'dropped' && v.severity !== 'slipping') continue
+        decay.push({
+          pageId: art.id, title: art.title || '(untitled)', slug: String(art.slug), url: t.page,
+          severity: v.severity, reason: v.reason, lostClicks: v.lostClicks,
+          positionNow: Math.round(t.positionNow * 10) / 10, positionPrev: Math.round(t.positionPrev * 10) / 10,
+          clicksNow: t.clicksNow, clicksPrev: t.clicksPrev,
+          keyword: (art.seo as any)?.keyword || null, freshnessNote: null,
+        })
+      }
+      // Worst first, then confirm the top few against the live SERP's freshness.
+      decay.sort((a, b) => (b.severity === 'dropped' ? 1 : 0) - (a.severity === 'dropped' ? 1 : 0) || b.lostClicks - a.lostClicks)
+      if (serpEnabled()) {
+        await Promise.all(decay.slice(0, 6).map(async (d) => {
+          const kw = d.keyword || d.title
+          try { const s = await fetchSerp(kw); if (s?.freshness?.rewardsFreshness) d.freshnessNote = `Top results average ~${s.freshness.medianAgeDays != null ? Math.round(s.freshness.medianAgeDays / 30) : '?'} months old — Google favours fresh content here` } catch { /* skip */ }
+        }))
+      }
+    }
+  } catch { /* decay is a bonus */ }
+
+  // ── Tasks: refresh decaying articles + write the top queued opportunities.
+  const refreshTasks: CalTask[] = decay.map((d) => ({
+    kind: 'refresh', title: d.title, keyword: d.keyword, pageId: d.pageId, severity: d.severity,
+    reason: d.freshnessNote ? `${d.reason}. ${d.freshnessNote}` : d.reason,
+    priority: (d.severity === 'dropped' ? 120 : 40) + Math.min(Math.max(d.lostClicks, 0), 100) + (d.freshnessNote ? 15 : 0),
+  }))
+  const newTasks: CalTask[] = items
+    .filter((i) => i.status === 'idea' || i.status === 'queued')
+    .map((i) => {
+      const s = scoreOpportunity({
+        keyword: String(i.keyword || ''), position: i.position ?? null, impressions: i.impressions ?? null,
+        businessValue: (i.cluster && valueOf.get(String(i.cluster).toLowerCase().trim())) || 'medium', intent: i.intent || null,
+      })
+      return { kind: 'new' as const, title: String(i.keyword || ''), keyword: String(i.keyword || ''), id: i.id, reason: s.reason, priority: s.score }
+    })
+
+  const schedule = buildSchedule([...refreshTasks, ...newTasks], perWeek, 4)
+
+  return {
+    decay: decay.slice(0, 30),
+    schedule,
+    cadence: { perWeek, plan: acc?.plan || 'trial' },
+    signals: { searchConsole: scLinked, serpFreshness: scLinked && serpEnabled() },
+    counts: { decaying: decay.length, dropped: decay.filter((d) => d.severity === 'dropped').length, queued: newTasks.length },
+  }
+}
+
+contentRouter.get('/:slug/content/calendar', requireAuth, async (req: AuthRequest, res) => {
+  const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
+  if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
+  try { res.json({ ok: true, data: await buildCalendar(ws, req.user!.accountId) }) }
+  catch (e: any) { res.status(500).json({ ok: false, error: e?.message || 'calendar failed' }) }
 })
 
 // The cockpit agent. Advisory for now: it sees the live snapshot (stats, plan,
