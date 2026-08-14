@@ -637,11 +637,18 @@ function renderPage(page: any, body: string, t: any, ws: any, base: string, opts
     `<meta property="og:type" content="website"><meta property="og:site_name" content="${esc(ws.name)}">`,
     `<meta name="twitter:card" content="${ogImg ? 'summary_large_image' : 'summary'}">`,
   ].filter(Boolean).join('')
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(page.title)} — ${esc(ws.name)}</title>${metaHead}<link rel="icon" href="/favicon.svg" type="image/svg+xml">${fontsHead(t)}<style>${siteCss(t)}${motionOn ? MOTION_CSS : ''}</style></head><body>
+  // A page can opt out of the workspace's own header/footer entirely
+  // (seo.noChrome) — for a design that already carries its own complete nav
+  // and footer (e.g. a faithful 1:1 import), wrapping it with uWebsites'
+  // generic header/footer would duplicate that chrome. The page's raw-html
+  // content is expected to be fully self-contained in that case (it can
+  // include its own <style>/<script> — a late <style> tag is valid HTML).
+  const noChrome = !!seo.noChrome
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(page.title)} — ${esc(ws.name)}</title>${metaHead}<link rel="icon" href="/favicon.svg" type="image/svg+xml">${noChrome ? '' : fontsHead(t)}<style>${noChrome ? '' : siteCss(t)}${motionOn ? MOTION_CSS : ''}</style></head><body>
 ${gtmBody}
-${renderHeader(ws, base, opts?.header, logo)}
+${noChrome ? '' : renderHeader(ws, base, opts?.header, logo)}
 <main>${body || ''}</main>
-${renderFooter(ws, opts?.footer, ba.tagline, footerLogo, { invert: !whiteLogo && !!logo })}
+${noChrome ? '' : renderFooter(ws, opts?.footer, ba.tagline, footerLogo, { invert: !whiteLogo && !!logo })}
 <script>window.__UW_WS=${JSON.stringify(String(ws.slug || ''))};</script>
 ${PREVIEW_LINK_SCRIPT}
 ${HEADER_SCRIPT}
@@ -747,7 +754,7 @@ const EDIT_SCRIPT = `<style>
 export const renderPreview = async (id: string, accountId: string, opts?: { edit?: boolean; selectedIndex?: number | null }) => {
   const [row] = await db.select({
     title: pages.title, slug: pages.slug, type: pages.type, blocks: pages.blocks, wsId: pages.workspaceId,
-    wsName: workspaces.name, accId: workspaces.accountId,
+    wsName: workspaces.name, accId: workspaces.accountId, seo: pages.seo,
   }).from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id))
     .where(eq(pages.id, id)).limit(1)
   if (!row || row.accId !== accountId) return null
@@ -784,7 +791,7 @@ export const renderPreview = async (id: string, accountId: string, opts?: { edit
   const slugMap: Record<string, string> = {}
   for (const p of navPages) slugMap[String(p.slug || '').replace(/^\/+|\/+$/g, '')] = p.id
   const previewNav = `<script>(function(){var M=${JSON.stringify(slugMap).replace(/</g, '\\u003c')};if(!/^\\/pages\\/[^\\/]+\\/preview/.test(location.pathname))return;[].forEach.call(document.querySelectorAll('a[href^="/"]'),function(a){var h=a.getAttribute('href');if(!h||h.charAt(1)==='/'||h.indexOf('/pages/')===0||h.indexOf('/p/')===0)return;var s=h.replace(/^\\/+/,'').replace(/[?#].*$/,'').replace(/\\/+$/,'');var id=M[s];if(id){a.setAttribute('href','/pages/'+id+'/preview');}else{a.setAttribute('href','#');a.setAttribute('title','Not a page in this workspace');a.style.cursor='not-allowed';}});})();</script>`
-  return renderPage({ title: row.title }, body + previewNav, t, { name: row.wsName }, '#', menus)
+  return renderPage({ title: row.title, seo: row.seo }, body + previewNav, t, { name: row.wsName }, '#', menus)
 }
 
 // Compile a workspace to static files on disk. Shared by the publish endpoint
