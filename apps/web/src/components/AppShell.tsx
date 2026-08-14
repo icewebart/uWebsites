@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { IconDashboard, IconWebsite, IconArticles, IconBranding, IconStats, IconTracking, IconAi, IconMenu, IconFooter } from './icons'
 import { ChatPanel } from './ChatPanel'
 
-type Workspace = { id: string; name: string; slug: string }
+type Workspace = { id: string; name: string; slug: string; product?: 'content' | 'site' }
 type Me = { user: { id: string; name?: string; email: string } }
 
 // `group` = a collapsible header (toggles, never navigates). `parent` = a child
@@ -78,6 +78,12 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
     || workspaces.find((w) => w.slug === lastSlug)
     || workspaces[0] || null
   const others = workspaces.filter((w) => w.id !== current?.id)
+  // Content-mode workspaces are the SEO/content engine writing into a client's
+  // OWN site — there's nothing here for us to build or host, so the whole
+  // "Website" group (canvas, menu, footer, CTAs) is noise. Hidden, not just
+  // disabled, until the builder is ready to show a client.
+  const isContentOnly = current?.product === 'content'
+  const visibleNav = isContentOnly ? NAV.filter((n) => n.label !== 'Website' && n.parent !== 'Website') : NAV
   const displayName = me?.user?.name?.trim() || (me?.user?.email ? me.user.email.split('@')[0] : 'You')
 
   async function logout() {
@@ -109,7 +115,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
       <aside className="sidebar">
         <div className="sidebar-brand"><img className="logo-full" src="/uwebsites.svg" alt="uWebsites" /></div>
         <nav className="sidebar-nav">
-          {NAV.map(({ label, Icon, sub, group, parent, divider }) => {
+          {visibleNav.map(({ label, Icon, sub, group, parent, divider }) => {
             // A group header toggles; it never navigates.
             if (group) {
               const isOpen = !!openGroups[label]

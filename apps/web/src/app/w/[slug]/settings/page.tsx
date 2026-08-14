@@ -6,6 +6,7 @@ import { AppShell } from '@/components/AppShell'
 
 type Workspace = { id: string; name: string; slug: string }
 type Me = { user: { id: string; name: string; email: string } }
+type ProductMode = 'content' | 'site'
 
 export default function WorkspaceSettings() {
   const { slug } = useParams<{ slug: string }>()
@@ -23,17 +24,31 @@ export default function WorkspaceSettings() {
   const [wsErr, setWsErr] = useState('')
   const [accErr, setAccErr] = useState('')
 
+  const [product, setProduct] = useState<ProductMode>('site')
+  const [productBusy, setProductBusy] = useState(false)
+
   useEffect(() => {
     Promise.all([
       api<Workspace[]>('/workspaces'),
       api<Me>('/auth/me'),
-    ]).then(([list, me]) => {
+      api<{ product: ProductMode }>(`/workspaces/${slug}/product-mode`).catch(() => ({ product: 'site' as ProductMode })),
+    ]).then(([list, me, pm]) => {
       const found = list.find((w) => w.slug === slug)
       if (!found) { router.push('/'); return }
       setWs(found); setWsName(found.name)
       setAccountName(me.user.name || ''); setAccountEmail(me.user.email || '')
+      setProduct(pm.product)
     }).catch(() => router.push('/login')).finally(() => setLoading(false))
   }, [slug])
+
+  // Switch between the content engine (writes into your OWN site) and the
+  // uWebsites site builder — the "sides still work together" upgrade path.
+  async function setProductMode(next: ProductMode) {
+    if (next === product) return
+    setProductBusy(true)
+    try { await api(`/workspaces/${slug}/product-mode`, { method: 'PUT', body: JSON.stringify({ product: next }) }); setProduct(next) }
+    catch { /* leave as-is on failure */ } finally { setProductBusy(false) }
+  }
 
   const [delConfirm, setDelConfirm] = useState('')
   const [deleting, setDeleting] = useState(false)
@@ -98,6 +113,19 @@ export default function WorkspaceSettings() {
           <div className="save-row">
             <button className="btn btn-primary" onClick={saveWs} disabled={savingWs || !wsName.trim()}>{savingWs ? 'Saving…' : 'Save workspace'}</button>
             {wsSavedAt && <span className="saved-tag">Saved {wsSavedAt}</span>}
+          </div>
+        </div>
+
+        <div className="ctl-group" style={{ marginTop: 32 }}>
+          <h3>Workspace type</h3>
+          <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
+            {product === 'content'
+              ? 'Content mode — this workspace plans and writes articles into your own WordPress site. No canvas, menu or footer here.'
+              : 'Site mode — this workspace builds and hosts a site with uWebsites (design canvas, menu, footer).'}
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className={`btn ${product === 'content' ? 'btn-primary' : 'btn-secondary'}`} disabled={productBusy} onClick={() => setProductMode('content')}>📝 Content only</button>
+            <button className={`btn ${product === 'site' ? 'btn-primary' : 'btn-secondary'}`} disabled={productBusy} onClick={() => setProductMode('site')}>🎨 Full site builder</button>
           </div>
         </div>
 
