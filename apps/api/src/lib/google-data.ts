@@ -114,6 +114,38 @@ export async function scOpportunities(accountId: string, siteUrl: string, days: 
     .slice(0, 40)
 }
 
+// Content DECAY signal: each page's clicks/impressions/position in the recent
+// window vs the window before it, so we can spot articles that are slipping
+// (losing clicks or drifting down the rankings) before they fall off entirely.
+// `positionNow > positionPrev` means the page got WORSE (position is a rank).
+export type PageTrend = { page: string; clicksNow: number; clicksPrev: number; imprNow: number; imprPrev: number; positionNow: number; positionPrev: number }
+export async function scPageTrends(accountId: string, siteUrl: string, days = 28): Promise<PageTrend[]> {
+  const at = await freshAccessToken(accountId)
+  const base = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`
+  const end = new Date(Date.now() - 2 * 86400000)                       // SC lags ~2 days
+  const curStart = new Date(end.getTime() - (days - 1) * 86400000)
+  const prevEnd = new Date(curStart.getTime() - 86400000)
+  const prevStart = new Date(prevEnd.getTime() - (days - 1) * 86400000)
+  const pull = (startDate: string, endDate: string) =>
+    gapi(base, at, { method: 'POST', body: JSON.stringify({ startDate, endDate, dimensions: ['page'], rowLimit: 250 }) })
+  const [cur, prev] = await Promise.all([pull(ymd(curStart), ymd(end)), pull(ymd(prevStart), ymd(prevEnd))])
+  const prevMap = new Map<string, any>()
+  for (const r of (prev.rows || [])) prevMap.set(r.keys[0], r)
+  const out: PageTrend[] = []
+  const seen = new Set<string>()
+  for (const r of (cur.rows || [])) {
+    const page = r.keys[0]; seen.add(page)
+    const p = prevMap.get(page)
+    out.push({ page, clicksNow: r.clicks || 0, clicksPrev: p?.clicks || 0, imprNow: r.impressions || 0, imprPrev: p?.impressions || 0, positionNow: r.position || 0, positionPrev: p?.position || 0 })
+  }
+  // Pages that earned before but vanished from the current window — the worst decay.
+  for (const [page, p] of prevMap) {
+    if (seen.has(page)) continue
+    out.push({ page, clicksNow: 0, clicksPrev: p.clicks || 0, imprNow: 0, imprPrev: p.impressions || 0, positionNow: 0, positionPrev: p.position || 0 })
+  }
+  return out
+}
+
 // ---- Google Analytics 4 ----
 export async function gaListProperties(accountId: string): Promise<Array<{ property: string; displayName: string; account: string }>> {
   const at = await freshAccessToken(accountId)
