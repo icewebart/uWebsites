@@ -179,6 +179,33 @@ export const wordpressConnections = pgTable('wordpress_connections', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 
+// ---- Custom API delivery ----
+// A generic alternative to wordpressConnections, for a site that speaks its
+// OWN small content contract instead of WordPress's REST API — first built
+// for kids.ro, reusable by any future site with the same two-endpoint shape:
+//   GET  {baseUrl}/internal/content-demand   (demandKey)  -> topics to write about
+//   POST {baseUrl}/internal/articles         (articleKey) -> a finished article, arrives as a draft
+// Two SEPARATE keys, one per direction, same reasoning as kids.ro's own
+// design (ARTICOLE.md): a single key used both ways means a compromise on
+// either side opens both. Both are server-side only — never returned to the
+// client (masked hint only), same rule as wordpressConnections.authSecret.
+export const customConnections = pgTable('custom_connections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id),
+  name: text('name').notNull(),                            // e.g. "kids.ro" — shown in the UI
+  baseUrl: text('base_url').notNull(),                      // e.g. https://kids.ro (no trailing slash)
+  demandKey: text('demand_key'),                            // GET .../internal/content-demand — optional, delivery-only connections skip this
+  articleKey: text('article_key'),                          // POST .../internal/articles
+  defaultKind: text('default_kind').notNull().default('informative'), // 'educational' | 'informative' — the article's declared kind on delivery
+  postsCreated: integer('posts_created').notNull().default(0),
+  lastPostAt: timestamp('last_post_at'),
+  lastPullAt: timestamp('last_pull_at'),
+  lastPullCount: integer('last_pull_count'),
+  lastError: text('last_error'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
 // ---- billing ----
 // One row per account's Stripe subscription (latest wins; we upsert by
 // stripeSubscriptionId on webhook). accounts.plan mirrors `plan` here for quick

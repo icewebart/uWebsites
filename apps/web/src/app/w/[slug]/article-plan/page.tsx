@@ -21,6 +21,10 @@ type Plan = { items: Item[]; auto: boolean; scLinked: boolean; pillars?: Pillar[
 // A proposed map from /ai/plan/cluster — reviewed before anything is saved.
 type Proposed = { pillars: { name: string; description: string; businessValue: string; keywords: { keyword: string; role: string; intent: string; funnel: string; contentType: string; alreadyCovered: boolean }[] }[]; unassigned: string[] }
 type Opp = { query: string; impressions: number; position: number; clicks: number }
+// A custom-API connection (e.g. kids.ro) — content demand pulled straight
+// from the connected site's own visitors, not a keyword tool guess.
+type DemandTopic = { topic: string; kind: 'no_results' | 'thin_coverage' | 'empty_city_category'; citySlug: string | null; category?: string; count: number; lastSeen: string | null }
+type DemandResponse = { generatedAt: string; windowDays: number; note?: string; topics: DemandTopic[] }
 // The opportunity engine's output — one ranked row per keyword.
 type Ranked = {
   id: string | null; keyword: string; source: 'plan' | 'search-console'
@@ -107,6 +111,8 @@ export default function ArticlePlanPage() {
   const [calBusy, setCalBusy] = useState(false)
   const [refreshing, setRefreshing] = useState('')
   const [refreshed, setRefreshed] = useState<Record<string, { changes: string[]; wpUpdated: boolean }>>({})
+  const [customConn, setCustomConn] = useState<{ name: string } | null>(null)
+  const [demand, setDemand] = useState<DemandResponse | null>(null)
   useEffect(() => { try { const t = localStorage.getItem('uw-plan-tab') as any; if (t) setTab(t) } catch {} }, [])
   function goTab(t: 'map' | 'keywords' | 'opportunities' | 'calendar' | 'briefs') { setTab(t); try { localStorage.setItem('uw-plan-tab', t) } catch {} }
   // Load the calendar the first time the tab is opened (a couple of SC calls).
@@ -121,6 +127,7 @@ export default function ArticlePlanPage() {
       setPrefill({ ...EMPTY_ANSWERS, about: bb.about || '', offers: bb.offers || '', audience: bb.audience || '' })
       setBriefLoaded(true)
     }).catch(() => setBriefLoaded(true))
+    api<{ name: string } | null>(`/workspaces/${slug}/custom-connection`).then(setCustomConn).catch(() => setCustomConn(null))
   }, [slug])
   const [prefill, setPrefill] = useState<Answers>(EMPTY_ANSWERS)
 
@@ -145,6 +152,19 @@ export default function ArticlePlanPage() {
     catch (e: any) { setErr(e.message || 'Could not pull from Search Console') } finally { setBusy('') }
   }
   function addOpp(o: Opp) { if (has(o.query)) return; persist([mk(o.query, 'search-console', { impressions: o.impressions, position: Math.round(o.position * 10) / 10 }), ...items]) }
+  // Custom-API demand pull (e.g. kids.ro) — topics its own visitors search
+  // for and it doesn't have, straight from real behaviour, not a guess.
+  async function pullDemand() {
+    setBusy('demand'); setErr(''); setDemand(null)
+    try { setDemand(await api<DemandResponse>(`/workspaces/${slug}/custom-connection/pull-demand`, { method: 'POST' })) }
+    catch (e: any) { setErr(e.message || 'Could not pull content demand') } finally { setBusy('') }
+  }
+  const demandKindLabel: Record<DemandTopic['kind'], string> = { no_results: 'no results', thin_coverage: 'thin coverage', empty_city_category: 'no inventory here' }
+  function addDemandTopic(t: DemandTopic) {
+    if (has(t.topic)) return
+    persist([mk(t.topic, 'custom-api', { impressions: t.count || undefined }), ...items])
+    setDemand((cur) => cur ? { ...cur, topics: cur.topics.filter((x) => x.topic !== t.topic) } : cur)
+  }
 
   // Keyword discovery — Google Autocomplete around the seed in the add box.
   async function expandKeywords() {
@@ -598,6 +618,9 @@ export default function ArticlePlanPage() {
           <button className="btn btn-primary" onClick={addOne} disabled={!kw.trim()}>＋ Add</button>
           <button className="btn btn-secondary" onClick={expandKeywords} disabled={!kw.trim() || busy === 'expand'} title="Find related keywords people actually search (Google Autocomplete)">{busy === 'expand' ? 'Expanding…' : '✨ Expand'}</button>
           <button className="btn btn-secondary" onClick={pullSC} disabled={!scLinked || busy === 'sc'} title={scLinked ? 'Pull near-ranking queries from Search Console' : 'Link a Search Console property first (Tracking)'}>{busy === 'sc' ? 'Pulling…' : '↧ Pull from Search Console'}</button>
+          {customConn && (
+            <button className="btn btn-secondary" onClick={pullDemand} disabled={busy === 'demand'} title={`Pull real search demand from ${customConn.name}'s own visitors`}>{busy === 'demand' ? 'Pulling…' : `↧ Pull demand from ${customConn.name}`}</button>
+          )}
         </div>
         <details style={{ marginTop: 10 }}>
           <summary className="muted" style={{ fontSize: 12, cursor: 'pointer' }}>Paste a list (one keyword per line)</summary>
@@ -618,6 +641,23 @@ export default function ArticlePlanPage() {
                 <button key={s} className="btn-mini" onClick={() => addSuggestion(s)} title="Add to plan">＋ {s}</button>
               ))}
             </div>
+          )}
+        </div>
+      )}
+
+      {demand && (
+        <div className="ctl-group card" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <b style={{ fontSize: 14 }}>Content demand from {customConn?.name} <span className="muted" style={{ fontWeight: 400 }}>(what its own visitors search for and don&apos;t find)</span></b>
+            <button className="btn-mini" onClick={() => setDemand(null)}>Close</button>
+          </div>
+          {!demand.topics.length ? <p className="muted" style={{ fontSize: 13 }}>No demand gaps right now — everything searched for is either covered or already an article.</p> : (
+            <div className="tblwrap"><table className="tbl">
+              <thead><tr><th>Topic</th><th style={{ width: 130 }}>Signal</th><th style={{ width: 70 }}>Count</th><th style={{ width: 80 }}></th></tr></thead>
+              <tbody>{demand.topics.map((t) => (
+                <tr key={t.topic}><td>{t.topic}{t.citySlug ? <span className="muted" style={{ fontSize: 11 }}> · {t.citySlug}</span> : null}</td><td className="muted" style={{ fontSize: 12 }}>{demandKindLabel[t.kind]}</td><td className="muted" style={{ fontSize: 12 }}>{t.count || '—'}</td><td>{has(t.topic) ? <span className="muted" style={{ fontSize: 12 }}>added</span> : <button className="btn-mini" onClick={() => addDemandTopic(t)}>＋ Add</button>}</td></tr>
+              ))}</tbody>
+            </table></div>
           )}
         </div>
       )}

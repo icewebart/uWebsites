@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
-type Page = { id: string; type: string; slug: string; title: string; status: string; updatedAt?: string; seo?: { wp_imported?: { link?: string }; wordpress?: { link?: string; status?: string } } }
+type Page = { id: string; type: string; slug: string; title: string; status: string; updatedAt?: string; seo?: { wp_imported?: { link?: string }; wordpress?: { link?: string; status?: string }; customDelivery?: { connectionName: string; remoteId: string; status: string; deliveredAt: string } } }
 type PagesResp = { workspace: { id: string; name: string; slug: string }; pages: Page[] }
 
 // Types that belong in the Articles hub (everything editorial / long-form).
@@ -20,12 +20,14 @@ export default function ArticlesPage() {
   const [err, setErr] = useState('')
 
   const [wpConnected, setWpConnected] = useState(false)
+  const [customConn, setCustomConn] = useState<{ name: string } | null>(null)
   function load() {
     return api<PagesResp>(`/workspaces/${slug}/pages`).then(setData).catch(() => router.push(`/w/${slug}`))
   }
   useEffect(() => {
     load().finally(() => setLoading(false))
     api<{ siteUrl?: string } | null>(`/workspaces/${slug}/wordpress`).then((d) => setWpConnected(!!d)).catch(() => {})
+    api<{ name: string } | null>(`/workspaces/${slug}/custom-connection`).then(setCustomConn).catch(() => setCustomConn(null))
   }, [slug])
 
   // Explicit delivery — writing never touches the client's site; this does, and
@@ -39,6 +41,19 @@ export default function ArticlesPage() {
       setNote(`“${p.title}” is live on WordPress.`); setPubUrl(r.link || '')
       await load()
     } catch (e: any) { setErr(e.message || 'Publish to WordPress failed') } finally { setBusyId(null) }
+  }
+
+  // Deliver to the connected custom API (e.g. kids.ro). Unlike WordPress this
+  // never goes live directly — it arrives as a draft in THEIR moderation
+  // queue, so no confirm-before-live prompt is needed here.
+  async function deliverToCustom(p: Page) {
+    setNote(''); setErr(''); setBusyId(p.id)
+    try {
+      const r = await api<{ status: string; updated: boolean; warnings: string[] }>(`/workspaces/${slug}/custom-connection/publish-page`, { method: 'POST', body: JSON.stringify({ pageId: p.id }) })
+      const warn = r.warnings?.length ? ` (${r.warnings.join('; ')})` : ''
+      setNote(`“${p.title}” delivered to ${customConn?.name} as a ${r.status}${warn}.`)
+      await load()
+    } catch (e: any) { setErr(e.message || 'Delivery failed') } finally { setBusyId(null) }
   }
 
   const articles = (data?.pages || []).filter((p) => ARTICLE_TYPES.has(p.type))
@@ -213,6 +228,7 @@ export default function ArticlesPage() {
                       <a href={`/w/${slug}/p/${p.id}`} style={{ fontWeight: 500, color: 'var(--text)', textDecoration: 'none' }}>{p.title || '(untitled)'}</a>
                       {p.seo?.wp_imported && <span className="status-pill" style={{ fontSize: 10 }} title="Imported from the connected WordPress site — edits here are not pushed back">↧ WordPress</span>}
                       {(p.seo?.wp_imported?.link || p.seo?.wordpress?.link) && <a href={p.seo.wp_imported?.link || p.seo.wordpress?.link} target="_blank" rel="noreferrer" className="muted" style={{ fontSize: 11.5 }}>view ↗</a>}
+                      {p.seo?.customDelivery && <span className="status-pill" style={{ fontSize: 10 }} title={`Delivered to ${p.seo.customDelivery.connectionName} — status there: ${p.seo.customDelivery.status}`}>↗ {p.seo.customDelivery.connectionName} ({p.seo.customDelivery.status})</span>}
                     </div>
                   </td>
                   <td><span className="muted" style={{ fontSize: 12 }}>{p.type}</span></td>
@@ -224,6 +240,12 @@ export default function ArticlesPage() {
                         <button className="btn-mini" disabled={busyId === p.id} onClick={() => publishToWp(p)}
                           title="Push this article to the connected WordPress site (respects your draft/publish setting)">
                           {busyId === p.id ? '…' : p.seo?.wordpress ? '↻ Update on WP' : '↗ Publish to WP'}
+                        </button>
+                      )}
+                      {customConn && !p.seo?.wp_imported && (
+                        <button className="btn-mini" disabled={busyId === p.id} onClick={() => deliverToCustom(p)}
+                          title={`Deliver this article to ${customConn.name} — it arrives as a draft in their moderation queue, never live automatically`}>
+                          {busyId === p.id ? '…' : p.seo?.customDelivery ? `↻ Update on ${customConn.name}` : `↗ Send to ${customConn.name}`}
                         </button>
                       )}
                       <button className="btn-mini" disabled={busyId === p.id} onClick={() => structureOne(p)} title="Apply the article layout using existing content — free, instant">{busyId === p.id ? '…' : '⚡ Structure'}</button>

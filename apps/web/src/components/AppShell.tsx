@@ -32,6 +32,7 @@ const NAV: NavEntry[] = [
   { label: 'Authors', Icon: IconArticles, parent: 'Website Content' },
   { label: 'Format', Icon: IconArticles, parent: 'Website Content' },
   { label: 'WordPress', Icon: IconArticles, parent: 'Website Content' },
+  { label: 'Custom API', Icon: IconArticles, parent: 'Website Content' },
   // Everything that configures the workspace rather than producing something.
   // Tracking connects the data; Insights reads it — they belong together.
   { label: 'Settings', Icon: IconTracking, group: true },
@@ -145,6 +146,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               : label === 'Authors' ? `/w/${current.slug}/authors`
               : label === 'Format' ? `/w/${current.slug}/article-template`
               : label === 'WordPress' ? `/w/${current.slug}/wordpress`
+              : label === 'Custom API' ? `/w/${current.slug}/custom-connection`
               : label === 'Branding' ? `/w/${current.slug}/branding`
               : label === 'Tracking' ? `/w/${current.slug}/tracking`
               : undefined

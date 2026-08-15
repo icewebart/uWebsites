@@ -15,6 +15,7 @@ import { newsletterRouter } from './routes/newsletter.js'
 import { billingRouter, billingWebhookHandler } from './routes/billing.js'
 import { cronRouter } from './routes/cron.js'
 import { wordpressRouter } from './routes/wordpress.js'
+import { customConnectionsRouter } from './routes/custom-connections.js'
 import { pluginRouter } from './routes/plugin.js'
 import { contentRouter } from './routes/content.js'
 
@@ -58,6 +59,7 @@ app.get('/sections', (_req, res) => res.json({ ok: true, data: __SECTIONS }))
 app.use('/workspaces', domainsRouter)
 app.use('/workspaces', menusRouter)
 app.use('/workspaces', wordpressRouter)
+app.use('/workspaces', customConnectionsRouter)
 app.use('/workspaces', contentRouter)
 app.use('/account', accountRouter)
 app.use('/billing', billingRouter)
