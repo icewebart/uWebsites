@@ -51,8 +51,8 @@ function productOf(entry: NavEntry): ProductMode | undefined {
   return undefined
 }
 const PRODUCT_INFO: Record<ProductMode, { label: string; desc: string; Icon: (p: { size?: number }) => React.JSX.Element }> = {
-  site: { label: 'Website Builder', desc: 'Design pages, menu, footer and CTAs', Icon: IconWebsite },
-  content: { label: 'SEO & Content', desc: 'Plan, write and publish articles', Icon: IconArticles },
+  site: { label: 'Website Builder', desc: 'Pages, menu, footer & CTAs', Icon: IconWebsite },
+  content: { label: 'SEO & Content', desc: 'Plan, write & publish articles', Icon: IconArticles },
 }
 // Pages still pass their old active= labels — map those onto the new nav labels
 // so nothing had to be edited page by page.
@@ -207,12 +207,10 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
         <div className="topbar">
           <h2 title={title}>{active}</h2>
           <div className="topbar-right">
-            <input className="topbar-search" placeholder="Search…" />
-
             {current && (
             <div className="mode-switch">
               <button className="mode-chip" onClick={() => setModeOpen((o) => !o)} onBlur={() => setTimeout(() => setModeOpen(false), 150)}>
-                {(() => { const I = PRODUCT_INFO[productMode].Icon; return <I size={16} /> })()}
+                <span className={`mode-chip-ico ${productMode}`}>{(() => { const I = PRODUCT_INFO[productMode].Icon; return <I size={13} /> })()}</span>
                 <span className="mode-chip-name">{PRODUCT_INFO[productMode].label}</span> <span className="chev">▾</span>
               </button>
               {modeOpen && (
@@ -221,7 +219,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
                     const info = PRODUCT_INFO[key]
                     return (
                       <button key={key} type="button" className={`mode-item${key === productMode ? ' active' : ''}`} onClick={() => switchProduct(key)}>
-                        <span className={`mode-item-ico ${key}`}><info.Icon size={16} /></span>
+                        <span className={`mode-item-ico ${key}`}><info.Icon size={13} /></span>
                         <span className="mode-item-text"><b>{info.label}</b><span>{info.desc}</span></span>
                         {key === productMode && <span className="check">✓</span>}
                       </button>
@@ -231,6 +229,8 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               )}
             </div>
             )}
+
+            <input className="topbar-search" placeholder="Search…" />
 
             {!hideWorkspaceSwitch && (
             <div className="ws-switch">
