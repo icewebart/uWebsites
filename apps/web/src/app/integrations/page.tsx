@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
+import { TabBar } from '@/components/TabBar'
 
 type CF = { connected: boolean; verified: boolean; tokenHint: string | null; verifiedAt: string | null }
 type MJ = { connected: boolean; tokenHint: string | null; listId: string | null; verifiedAt: string | null }
@@ -18,6 +19,8 @@ export default function IntegrationsPage() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [note, setNote] = useState('')
+  const [wsSlug, setWsSlug] = useState<string | null>(null)
+  useEffect(() => { try { setWsSlug(localStorage.getItem('uw-last-ws')) } catch {} }, [])
 
   function load() {
     return Promise.all([
@@ -72,6 +75,11 @@ export default function IntegrationsPage() {
 
   return (
     <AppShell title="Integrations" active="Integrations">
+      <TabBar tabs={[
+        { label: 'Tracking', href: wsSlug ? `/w/${wsSlug}/tracking` : '#', active: false },
+        { label: 'Insights', href: '/insights', active: false },
+        { label: 'Integrations', href: '/integrations', active: true },
+      ]} />
       <div className="dash-sub" style={{ marginBottom: 22 }}>Connect external services. Credentials are stored securely on the server and never shown again.</div>
 
       <div className="ctl-group card" style={{ maxWidth: 640 }}>

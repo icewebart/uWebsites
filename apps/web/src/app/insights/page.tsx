@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
+import { TabBar } from '@/components/TabBar'
 
 type GS = { connected: boolean; email: string | null; searchConsole: boolean; analytics: boolean }
 type Site = { siteUrl: string; permissionLevel: string }
@@ -35,6 +36,15 @@ export default function InsightsPage() {
   const [gs, setGs] = useState<GS | null>(null)
   const [days, setDays] = useState(28)
   const [err, setErr] = useState('')
+  // This page (and Integrations) has no slug in its own URL — same fallback
+  // AppShell itself uses, just so the Tracking tab has somewhere to point.
+  const [wsSlug, setWsSlug] = useState<string | null>(null)
+  useEffect(() => { try { setWsSlug(localStorage.getItem('uw-last-ws')) } catch {} }, [])
+  const tabs = [
+    { label: 'Tracking', href: wsSlug ? `/w/${wsSlug}/tracking` : '#', active: false },
+    { label: 'Insights', href: '/insights', active: true },
+    { label: 'Integrations', href: '/integrations', active: false },
+  ]
 
   const [sites, setSites] = useState<Site[]>([])
   const [site, setSite] = useState('')
@@ -87,6 +97,7 @@ export default function InsightsPage() {
 
   if (!gs.connected) return (
     <AppShell title="Insights" active="Insights">
+      <TabBar tabs={tabs} />
       <div className="aside-block" style={{ textAlign: 'center', padding: 40, maxWidth: 560 }}>
         <h3 style={{ marginTop: 0 }}>Connect Google to see your stats</h3>
         <p className="muted">Link Search Console &amp; Analytics on the Integrations page to pull clicks, impressions, top queries and traffic into this dashboard.</p>
@@ -97,6 +108,7 @@ export default function InsightsPage() {
 
   return (
     <AppShell title="Insights" active="Insights">
+      <TabBar tabs={tabs} />
       <div className="ev-actions-row" style={{ marginBottom: 16 }}>
         <div className="dash-sub" style={{ margin: 0 }}>Search &amp; traffic performance {gs.email ? `· ${gs.email}` : ''}</div>
         <select className="inp" style={{ maxWidth: 150 }} value={days} onChange={(e) => setDays(Number(e.target.value))}>

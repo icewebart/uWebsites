@@ -29,25 +29,23 @@ const NAV: NavEntry[] = [
   { label: 'Footer', Icon: IconFooter, parent: 'Website' },
   { label: 'CTAs', Icon: IconFooter, parent: 'Website' },
   { label: 'Branding', Icon: IconBranding, parent: 'Website' },
+  // Article layout/typography is a design decision, not a content one.
+  { label: 'Format', Icon: IconArticles, parent: 'Website' },
   // The content product — everything about planning, writing and delivering
   // articles, in one place (was scattered across Website / Articles / Branding).
   { label: 'Website Content', Icon: IconArticles, group: true, product: 'content' },
   { label: 'Overview', Icon: IconStats, parent: 'Website Content' },
   { label: 'Plan', Icon: IconArticles, parent: 'Website Content' },
   { label: 'Library', Icon: IconArticles, parent: 'Website Content' },
-  { label: 'Content setup', Icon: IconArticles, parent: 'Website Content', divider: true },
-  { label: 'Business Brief', Icon: IconArticles, parent: 'Website Content' },
-  { label: 'Voice & Rules', Icon: IconAi, parent: 'Website Content' },
-  { label: 'Authors', Icon: IconArticles, parent: 'Website Content' },
-  { label: 'Format', Icon: IconArticles, parent: 'Website Content' },
-  { label: 'WordPress', Icon: IconArticles, parent: 'Website Content' },
-  { label: 'Custom API', Icon: IconArticles, parent: 'Website Content' },
+  // These three are flat, non-collapsible buttons — each routes straight to
+  // its first tab; the tab bar (inside the page) is how you move between the
+  // rest. Not a tree to expand, just fewer top-level buttons to scan.
+  { label: 'Brand & Rules', Icon: IconAi, product: 'content' },
+  { label: 'Connect to', Icon: IconArticles, product: 'content' },
   // Traffic/search data matters to a Website-Builder-only customer just as
   // much as a content-only one (indexing, visits) — always visible, like
   // Dashboard, not locked behind either side of the switcher.
-  { label: 'Performance', Icon: IconTracking, group: true },
-  { label: 'Tracking', Icon: IconTracking, parent: 'Performance' },
-  { label: 'Insights', Icon: IconStats, parent: 'Performance' },
+  { label: 'Performance & Integrations', Icon: IconTracking },
 ]
 // A child's product tag is whichever group it's nested under.
 function productOf(entry: NavEntry): ProductMode | undefined {
@@ -66,8 +64,13 @@ const ACTIVE_ALIAS: Record<string, string> = {
   Website: 'Website overview',
   Articles: 'Library', 'Article Plan': 'Plan',
   'Article Template': 'Format',
+  'Business Brief': 'Brand & Rules', 'Brand Voice': 'Brand & Rules', 'SEO Rules': 'Brand & Rules', Authors: 'Brand & Rules',
+  WordPress: 'Connect to', 'Custom API': 'Connect to',
+  Tracking: 'Performance & Integrations', Insights: 'Performance & Integrations', Integrations: 'Performance & Integrations',
 }
-const PROFILE_ITEMS = ['Settings', 'Domains', 'Integrations', 'Email Setup', 'Billing']
+// Integrations moved under the "Performance & Integrations" nav button (its
+// own tab there now) — no longer needs a second entry point in this menu.
+const PROFILE_ITEMS = ['Settings', 'Domains', 'Email Setup', 'Billing']
 
 export function AppShell({ title, currentSlug, active = 'Dashboard', children, chatPageId, chatPageContext, onChatMutate, hideWorkspaceSwitch }: {
   title: string; currentSlug?: string; active?: string; children: React.ReactNode
@@ -179,14 +182,12 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               : label === 'Footer' ? `/w/${current.slug}/footer`
               : label === 'CTAs' ? `/w/${current.slug}/cta`
               : label === 'Plan' ? `/w/${current.slug}/article-plan`
-              : label === 'Business Brief' ? `/w/${current.slug}/business-brief`
-              : label === 'Voice & Rules' ? `/w/${current.slug}/voice-rules`
-              : label === 'Authors' ? `/w/${current.slug}/authors`
               : label === 'Format' ? `/w/${current.slug}/article-template`
-              : label === 'WordPress' ? `/w/${current.slug}/wordpress`
-              : label === 'Custom API' ? `/w/${current.slug}/custom-connection`
               : label === 'Branding' ? `/w/${current.slug}/branding`
-              : label === 'Tracking' ? `/w/${current.slug}/tracking`
+              // Flat tabbed buttons — each lands on its first tab.
+              : label === 'Brand & Rules' ? `/w/${current.slug}/business-brief`
+              : label === 'Connect to' ? `/w/${current.slug}/wordpress`
+              : label === 'Performance & Integrations' ? `/w/${current.slug}/tracking`
               : undefined
             const cls = `sidebar-link${label === activeLabel ? ' active' : ''}${(sub || parent) ? ' sidebar-sub' : ''}`
             const inner = <><Icon size={18} />{label}</>
@@ -218,7 +219,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
             {current && (
             <div className="mode-switch">
               <button className="mode-chip" onClick={() => setModeOpen((o) => !o)} onBlur={() => setTimeout(() => setModeOpen(false), 150)}>
-                <span className={`mode-chip-ico ${productMode}`}>{(() => { const I = PRODUCT_INFO[productMode].Icon; return <I size={13} /> })()}</span>
+                <span className={`mode-chip-ico ${productMode}`}>{(() => { const I = PRODUCT_INFO[productMode].Icon; return <I size={18} /> })()}</span>
                 <span className="mode-chip-name">{PRODUCT_INFO[productMode].label}</span> <span className="chev">▾</span>
               </button>
               {modeOpen && (
@@ -227,7 +228,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
                     const info = PRODUCT_INFO[key]
                     return (
                       <button key={key} type="button" className={`mode-item${key === productMode ? ' active' : ''}`} onClick={() => switchProduct(key)}>
-                        <span className={`mode-item-ico ${key}`}><info.Icon size={13} /></span>
+                        <span className={`mode-item-ico ${key}`}><info.Icon size={18} /></span>
                         <span className="mode-item-text"><b>{info.label}</b><span>{info.desc}</span></span>
                         {key === productMode && <span className="check">✓</span>}
                       </button>

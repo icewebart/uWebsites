@@ -121,7 +121,9 @@ export async function uploadMedia(conn: WpConn, imageUrl: string, filename: stri
   } catch { return null }
 }
 
-/** Create a post. Returns the remote id + permalink (stored for idempotency). */
+/** Create OR update a post. Pass `existingId` (the remote WP post id we stored
+ * from a prior publish) to PATCH that post instead of creating a duplicate —
+ * core REST has no external_id field to dedupe on, so the caller has to know. */
 export async function createPost(conn: WpConn, post: {
   title: string
   content: string
@@ -129,6 +131,7 @@ export async function createPost(conn: WpConn, post: {
   slug?: string
   status?: 'draft' | 'publish'
   featuredMedia?: number | null
+  existingId?: number | null
 }): Promise<{ id: number; link: string; status: string }> {
   const body: any = {
     title: post.title,
@@ -138,10 +141,23 @@ export async function createPost(conn: WpConn, post: {
   if (post.excerpt) body.excerpt = post.excerpt
   if (post.slug) body.slug = post.slug
   if (post.featuredMedia) body.featured_media = post.featuredMedia
-  const created = await wpJson<any>(conn, '/wp/v2/posts', {
-    method: 'POST',
+  const path = post.existingId ? `/wp/v2/posts/${post.existingId}` : '/wp/v2/posts'
+  const created = await wpJson<any>(conn, path, {
+    method: 'POST', // WP's REST API takes updates as POST too (no separate PATCH verb needed)
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  })
+  return { id: created.id, link: created.link, status: created.status }
+}
+
+/** Update ONLY the content field of an already-published post — e.g. rewriting
+ * its internal links once the pages they point to go live, without touching
+ * title/slug/status/image. */
+export async function updatePostContent(conn: WpConn, postId: number, content: string): Promise<{ id: number; link: string; status: string }> {
+  const created = await wpJson<any>(conn, `/wp/v2/posts/${postId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
   })
   return { id: created.id, link: created.link, status: created.status }
 }
@@ -166,6 +182,11 @@ export async function publishArticle(conn: WpConn, a: {
   metaDescription?: string
   imageUrl?: string
   imageAlt?: string
+  // The remote WP post id from a PRIOR publish of this same article. App-
+  // password mode has no external_id field to dedupe on server-side, so the
+  // caller passes this back to PATCH the existing post instead of creating
+  // a second one. Plugin mode ignores it — it already dedupes on external_id.
+  existingRemoteId?: number | null
 }): Promise<{ id: number; link: string; status: string }> {
   const status = a.status || 'draft'
   if (isPluginMode(conn)) {
@@ -187,6 +208,7 @@ export async function publishArticle(conn: WpConn, a: {
   }
   return createPost(conn, {
     title: a.title, content: a.content, excerpt: a.excerpt, slug: a.slug, status, featuredMedia,
+    existingId: a.existingRemoteId,
   })
 }
 

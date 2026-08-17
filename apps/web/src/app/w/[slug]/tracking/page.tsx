@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
+import { TabBar } from '@/components/TabBar'
 
 type Seo = { description?: string; gscVerification?: string; bingVerification?: string; ga4Id?: string; gtmId?: string }
 type Tokens = { seo?: Seo } & Record<string, any>
@@ -55,6 +56,11 @@ export default function TrackingPage() {
 
   return (
     <AppShell title="Tracking" currentSlug={slug} active="Tracking">
+      <TabBar tabs={[
+        { label: 'Tracking', href: `/w/${slug}/tracking`, active: true },
+        { label: 'Insights', href: '/insights', active: false },
+        { label: 'Integrations', href: '/integrations', active: false },
+      ]} />
       <div className="dash-sub" style={{ marginBottom: 18 }}>
         Analytics, tag managers &amp; search-engine verification for this site. Values here are emitted into every published page's <code>&lt;head&gt;</code> — <b>Publish</b> after changing them.
       </div>

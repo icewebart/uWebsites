@@ -180,8 +180,10 @@ wordpressRouter.post('/:slug/wordpress/pull-public', requireAuth, async (req: Au
 
 // POST /workspaces/:slug/wordpress/publish-page — the explicit "Publish to
 // WordPress" action. Writing an article never touches the client's site; this
-// is the human-gated step that does. Idempotent: externalId dedupes, so
-// re-running updates the same post instead of creating a second one.
+// is the human-gated step that does. Idempotent: re-running it PATCHes the
+// same remote post (tracked via seo.wordpress.postId) instead of creating a
+// second one — e.g. once sibling articles go live and their internal links
+// need updating, just publish again.
 wordpressRouter.post('/:slug/wordpress/publish-page', requireAuth, async (req: AuthRequest, res) => {
   const ws = await ownedWs(String(req.params.slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
@@ -205,16 +207,20 @@ wordpressRouter.post('/:slug/wordpress/publish-page', requireAuth, async (req: A
   // default. A caller can still ask for a WP draft with status:'draft'.
   const status = req.body?.status === 'draft' ? 'draft' : 'publish'
 
+  const existingRemoteId: number | null = seo.wordpress?.postId || null
   try {
     const remote = await publishArticle(c as WpConn, {
-      externalId: page.id,                 // dedupes on re-publish
+      externalId: page.id,
       title: page.title, content: html, excerpt: metaDescription, slug: page.slug,
       status,
       metaTitle: page.title, metaDescription,
       imageUrl: heroImg, imageAlt: page.title,
+      existingRemoteId,                    // PATCHes that post instead of creating a duplicate
     })
     await db.update(pages).set({ seo: { ...seo, wordpress: { postId: remote.id, link: remote.link, status: remote.status } }, updatedAt: new Date() }).where(eq(pages.id, page.id))
-    await db.update(wordpressConnections).set({ postsCreated: (c.postsCreated || 0) + 1, lastPostAt: new Date(), lastError: null, updatedAt: new Date() }).where(eq(wordpressConnections.id, c.id))
+    // Only a genuine new post counts toward the delivered-count stat.
+    const inc = existingRemoteId ? {} : { postsCreated: (c.postsCreated || 0) + 1 }
+    await db.update(wordpressConnections).set({ ...inc, lastPostAt: new Date(), lastError: null, updatedAt: new Date() }).where(eq(wordpressConnections.id, c.id))
     res.json({ ok: true, data: { link: remote.link, status: remote.status, live: remote.status === 'publish' } })
   } catch (e: any) {
     await db.update(wordpressConnections).set({ lastError: String(e?.message || 'unknown'), updatedAt: new Date() }).where(eq(wordpressConnections.id, c.id))

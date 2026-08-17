@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
+import { TabBar } from '@/components/TabBar'
 
 type Conn = {
   name: string; baseUrl: string
@@ -71,6 +72,10 @@ export default function CustomConnectionPage() {
 
   return (
     <AppShell title="Custom API" currentSlug={slug} active="Custom API">
+      <TabBar tabs={[
+        { label: 'WordPress', href: `/w/${slug}/wordpress`, active: false },
+        { label: 'Custom API', href: `/w/${slug}/custom-connection`, active: true },
+      ]} />
       <div className="dash-h">Custom API connection</div>
       <p className="muted" style={{ fontSize: 13, maxWidth: 720 }}>
         For a site with its own content API instead of WordPress — two endpoints, two separate keys: one that reads what

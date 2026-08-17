@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
+import { TabBar } from '@/components/TabBar'
 
 type Conn = {
   siteUrl: string; mode: string; username: string | null; secretHint: string
@@ -77,6 +78,10 @@ export default function WordPressPage() {
 
   return (
     <AppShell title="WordPress" currentSlug={slug} active="WordPress">
+      <TabBar tabs={[
+        { label: 'WordPress', href: `/w/${slug}/wordpress`, active: true },
+        { label: 'Custom API', href: `/w/${slug}/custom-connection`, active: false },
+      ]} />
       <div className="dash-h">Publish to WordPress</div>
       <p className="muted" style={{ fontSize: 13, maxWidth: 720 }}>
         Connect an existing WordPress site and every article this workspace writes is published straight into it —

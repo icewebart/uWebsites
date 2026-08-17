@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 import { ImageField } from '@/components/ImageField'
+import { TabBar } from '@/components/TabBar'
 
 type Author = { id: string; name: string; title?: string; bio?: string; avatar?: string; url?: string }
 type Tokens = { authors?: Author[]; default_author_id?: string } & Record<string, any>
@@ -43,6 +44,12 @@ export default function AuthorsPage() {
 
   return (
     <AppShell title="Authors" currentSlug={slug} active="Authors">
+      <TabBar tabs={[
+        { label: 'Business Brief', href: `/w/${slug}/business-brief`, active: false },
+        { label: 'Brand Voice', href: `/w/${slug}/brand-voice`, active: false },
+        { label: 'SEO Rules', href: `/w/${slug}/seo-rules`, active: false },
+        { label: 'Authors', href: `/w/${slug}/authors`, active: true },
+      ]} />
       <div className="dash-sub" style={{ marginBottom: 18 }}>
         Article bylines &amp; author schema (SEO / E-E-A-T). The <b>default</b> author is used on every article automatically; pick a different one per article from the author dropdown in the article editor. Up to three.
       </div>

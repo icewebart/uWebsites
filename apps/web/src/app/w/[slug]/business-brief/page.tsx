@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
+import { TabBar } from '@/components/TabBar'
 
 // The business grounding the writer was missing. For a content-only (WordPress)
 // workspace there's no site to infer context from, so every article was written
@@ -38,6 +39,12 @@ export default function BusinessBriefPage() {
 
   return (
     <AppShell title="Business Brief" currentSlug={slug} active="Business Brief">
+      <TabBar tabs={[
+        { label: 'Business Brief', href: `/w/${slug}/business-brief`, active: true },
+        { label: 'Brand Voice', href: `/w/${slug}/brand-voice`, active: false },
+        { label: 'SEO Rules', href: `/w/${slug}/seo-rules`, active: false },
+        { label: 'Authors', href: `/w/${slug}/authors`, active: false },
+      ]} />
       <div className="dash-sub" style={{ marginBottom: 18 }}>
         What your business actually is. The AI reads this on <b>every article</b> so it writes about <em>your</em> offer and audience — not a generic version of the topic. Especially important when you only publish content (no site is built here to infer it from).
       </div>
