@@ -40,7 +40,7 @@ const NAV: NavEntry[] = [
   // its first tab; the tab bar (inside the page) is how you move between the
   // rest. Not a tree to expand, just fewer top-level buttons to scan.
   { label: 'Brand & Rules', Icon: IconAi, product: 'content' },
-  { label: 'Connect to', Icon: IconArticles, product: 'content' },
+  { label: 'Publish to', Icon: IconArticles, product: 'content' },
   // Traffic/search data matters to a Website-Builder-only customer just as
   // much as a content-only one (indexing, visits) — always visible, like
   // Dashboard, not locked behind either side of the switcher.
@@ -64,7 +64,7 @@ const ACTIVE_ALIAS: Record<string, string> = {
   Overview: 'Plan & Content', Articles: 'Plan & Content', 'Article Plan': 'Plan & Content',
   'Article Template': 'Format',
   'Business Brief': 'Brand & Rules', 'Brand Voice': 'Brand & Rules', 'SEO Rules': 'Brand & Rules', Authors: 'Brand & Rules',
-  WordPress: 'Connect to', 'Custom API': 'Connect to',
+  WordPress: 'Publish to', 'Custom API': 'Publish to',
   Tracking: 'Performance & Integrations', Insights: 'Performance & Integrations', Integrations: 'Performance & Integrations',
 }
 // Integrations moved under the "Performance & Integrations" nav button (its
@@ -183,7 +183,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               // Flat tabbed buttons — each lands on its first tab.
               : label === 'Plan & Content' ? `/w/${current.slug}/content`
               : label === 'Brand & Rules' ? `/w/${current.slug}/business-brief`
-              : label === 'Connect to' ? `/w/${current.slug}/wordpress`
+              : label === 'Publish to' ? `/w/${current.slug}/wordpress`
               : label === 'Performance & Integrations' ? `/w/${current.slug}/tracking`
               : undefined
             const cls = `sidebar-link${label === activeLabel ? ' active' : ''}${(sub || parent) ? ' sidebar-sub' : ''}`

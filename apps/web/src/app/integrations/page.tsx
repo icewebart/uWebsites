@@ -76,9 +76,9 @@ export default function IntegrationsPage() {
   return (
     <AppShell title="Integrations" active="Integrations">
       <TabBar tabs={[
+        { label: 'Integrations', href: '/integrations', active: true },
         { label: 'Tracking', href: wsSlug ? `/w/${wsSlug}/tracking` : '#', active: false },
         { label: 'Insights', href: '/insights', active: false },
-        { label: 'Integrations', href: '/integrations', active: true },
       ]} />
       <div className="dash-sub" style={{ marginBottom: 22 }}>Connect external services. Credentials are stored securely on the server and never shown again.</div>
 

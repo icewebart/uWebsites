@@ -41,9 +41,9 @@ export default function InsightsPage() {
   const [wsSlug, setWsSlug] = useState<string | null>(null)
   useEffect(() => { try { setWsSlug(localStorage.getItem('uw-last-ws')) } catch {} }, [])
   const tabs = [
+    { label: 'Integrations', href: '/integrations', active: false },
     { label: 'Tracking', href: wsSlug ? `/w/${wsSlug}/tracking` : '#', active: false },
     { label: 'Insights', href: '/insights', active: true },
-    { label: 'Integrations', href: '/integrations', active: false },
   ]
 
   const [sites, setSites] = useState<Site[]>([])
