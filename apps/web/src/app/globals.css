@@ -74,23 +74,26 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
    Each mode gets its own solid two-tone badge (never grey-on-grey) so it stays
    legible even on its own active/selected row. */
 .mode-switch{position:relative}
-.mode-chip{display:inline-flex;align-items:center;gap:7px;height:36px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:0 10px 0 6px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;white-space:nowrap}
+.mode-chip{display:inline-flex;align-items:center;gap:8px;height:36px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:0 10px 0 5px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;white-space:nowrap}
 .mode-chip:hover{border-color:var(--border-strong)}
 .mode-chip .chev{color:var(--text-faint);font-size:10px}
-.mode-chip-ico{flex:0 0 auto;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center}
+/* Badges sized to match the icon's own known-good size (18px, same as every
+   sidebar nav icon) — at the smaller size these were rendered at before, a
+   multi-line icon's stroke drops under 1px and the detail just disappears. */
+.mode-chip-ico{flex:0 0 auto;width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center}
 .mode-chip-ico.site{background:var(--lime);color:var(--forest)}
-.mode-chip-ico.content{background:var(--forest);color:var(--lime)}
+.mode-chip-ico.content{background:var(--forest);color:#fff}
 /* "Both" gets an outline instead of a third fill color (palette only has two)
    — legible on any background, and reads as visually distinct from either
    solid badge rather than a muddy blend of them. */
 .mode-chip-ico.both{background:var(--surface);border:1.5px solid var(--forest);color:var(--forest)}
-.mode-menu{position:absolute;top:calc(100% + 8px);left:0;width:248px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow-md);padding:6px;z-index:100}
-.mode-item{display:flex;align-items:center;gap:10px;width:100%;padding:8px;border-radius:var(--r-sm);text-align:left;background:transparent;border:0;cursor:pointer;font-family:inherit}
+.mode-menu{position:absolute;top:calc(100% + 8px);left:0;width:264px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow-md);padding:6px;z-index:100}
+.mode-item{display:flex;align-items:center;gap:10px;width:100%;padding:7px 8px;border-radius:var(--r-sm);text-align:left;background:transparent;border:0;cursor:pointer;font-family:inherit}
 .mode-item:hover{background:var(--bg-subtle)}
 .mode-item.active{background:var(--lime-light)}
-.mode-item-ico{flex:0 0 auto;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center}
+.mode-item-ico{flex:0 0 auto;width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center}
 .mode-item-ico.site{background:var(--lime);color:var(--forest)}
-.mode-item-ico.content{background:var(--forest);color:var(--lime)}
+.mode-item-ico.content{background:var(--forest);color:#fff}
 .mode-item-ico.both{background:var(--surface);border:1.5px solid var(--forest);color:var(--forest)}
 .mode-item-text{display:flex;flex-direction:column;gap:1px;min-width:0}
 .mode-item-text b{font-size:13px;color:var(--text)}

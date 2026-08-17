@@ -6,6 +6,8 @@
 //
 // Everything here is server-side; the auth secret never reaches the browser.
 
+import { readLocalImage } from './image-host.js'
+
 export type WpConn = {
   siteUrl: string
   mode?: string | null
@@ -94,10 +96,17 @@ export async function verifyConnection(conn: WpConn): Promise<{ name: string; ca
 /** Upload an image into the client's media library and return its attachment id. */
 export async function uploadMedia(conn: WpConn, imageUrl: string, filename: string, alt = ''): Promise<{ id: number; url: string } | null> {
   try {
-    const img = await fetch(imageUrl, { signal: AbortSignal.timeout(20_000) })
-    if (!img.ok) return null
-    const type = img.headers.get('content-type') || 'image/jpeg'
-    const buf = Buffer.from(await img.arrayBuffer())
+    // Our own generated/mirrored images live on local disk — read them
+    // straight off it instead of self-fetching over HTTPS (see readLocalImage).
+    const local = await readLocalImage(imageUrl)
+    let buf: Buffer, type: string
+    if (local) { buf = local.buf; type = local.contentType }
+    else {
+      const img = await fetch(imageUrl, { signal: AbortSignal.timeout(20_000) })
+      if (!img.ok) return null
+      type = img.headers.get('content-type') || 'image/jpeg'
+      buf = Buffer.from(await img.arrayBuffer())
+    }
     const safe = filename.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 80) || 'image.jpg'
     const created = await wpJson<any>(conn, '/wp/v2/media', {
       method: 'POST',

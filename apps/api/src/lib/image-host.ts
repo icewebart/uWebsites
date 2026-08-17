@@ -1,4 +1,4 @@
-import { mkdir, writeFile, access } from 'node:fs/promises'
+import { mkdir, writeFile, access, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
 
@@ -49,6 +49,30 @@ export async function localImageMissing(url: string, expectSlug?: string): Promi
   if (!m) return false
   if (expectSlug && m[1] !== expectSlug) return false
   return !(await fileExists(path.join(SITES_DIR, m[1], 'img', m[2])))
+}
+
+const TYPE_BY_EXT: Record<string, string> = Object.fromEntries(Object.entries(EXT_BY_TYPE).map(([t, e]) => [e, t]))
+
+// Read one of OUR OWN hosted image URLs straight off local disk instead of
+// self-fetching it over HTTPS. Callers that need to re-upload a generated
+// image elsewhere (e.g. WordPress delivery) were doing a network round-trip
+// back to our own domain for a file already sitting right here — and on a
+// host whose cert chain a strict (non-browser) client can't validate, that
+// fetch fails silently and the image just gets dropped. Returns null for
+// anything that isn't one of ours (external URLs still need a real fetch).
+export async function readLocalImage(url: string): Promise<{ buf: Buffer; contentType: string } | null> {
+  if (!url || typeof url !== 'string') return null
+  const prefix = SITES_URL.replace(/\/+$/, '') + '/'
+  if (!url.startsWith(prefix)) return null
+  const rest = url.slice(prefix.length)
+  const m = rest.match(/^([^/]+)\/img\/([^/?#]+)/)
+  if (!m) return null
+  const p = path.join(SITES_DIR, m[1], 'img', m[2])
+  try {
+    const buf = await readFile(p)
+    const ext = path.extname(m[2]).toLowerCase()
+    return { buf, contentType: TYPE_BY_EXT[ext] || 'application/octet-stream' }
+  } catch { return null }
 }
 
 // Save raw image bytes (e.g. an AI-generated image) into the workspace's img
