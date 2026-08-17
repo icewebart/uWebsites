@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
+import { TabBar } from '@/components/TabBar'
 
 type Page = { id: string; type: string; slug: string; title: string; status: string; updatedAt?: string; seo?: { wp_imported?: { link?: string }; wordpress?: { link?: string; status?: string }; customDelivery?: { connectionName: string; remoteId: string; status: string; deliveredAt: string } } }
 type PagesResp = { workspace: { id: string; name: string; slug: string }; pages: Page[] }
@@ -196,6 +197,11 @@ export default function ArticlesPage() {
 
   return (
     <AppShell title="Articles" currentSlug={slug} active="Articles">
+      <TabBar tabs={[
+        { label: 'Overview', href: `/w/${slug}/content`, active: false },
+        { label: 'Plan', href: `/w/${slug}/article-plan`, active: false },
+        { label: 'Library', href: `/w/${slug}/articles`, active: true },
+      ]} />
       <div className="ev-actions-row" style={{ marginBottom: 18 }}>
         <div className="dash-sub" style={{ margin: 0 }}>
           Long-form pages. <b>⚡ Structure</b> applies the article layout (hero + sidebar) from existing content — free &amp; instant. <b>✦ AI clean</b> tidies messy imported markup — costs credits, use only when needed.

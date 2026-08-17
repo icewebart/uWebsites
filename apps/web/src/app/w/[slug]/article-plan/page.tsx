@@ -3,6 +3,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
+import { TabBar } from '@/components/TabBar'
 import { ClusterGraph, type GraphPillar } from '@/components/ClusterGraph'
 
 // The approved plan for one article — a cheap review surface, since rejecting a
@@ -423,6 +424,11 @@ export default function ArticlePlanPage() {
 
   return (
     <AppShell title="Article Plan" currentSlug={slug} active="Article Plan">
+      <TabBar tabs={[
+        { label: 'Overview', href: `/w/${slug}/content`, active: false },
+        { label: 'Plan', href: `/w/${slug}/article-plan`, active: true },
+        { label: 'Library', href: `/w/${slug}/articles`, active: false },
+      ]} />
       {/* Stat strip — visible on every tab, so a tab never hides the whole picture. */}
       <div className="uw-stats">
         <div className="st"><b>{items.length}</b><span>Keywords</span></div>

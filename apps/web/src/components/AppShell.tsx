@@ -33,10 +33,9 @@ const NAV: NavEntry[] = [
   { label: 'Format', Icon: IconArticles, parent: 'Website' },
   // The content product — everything about planning, writing and delivering
   // articles, in one place (was scattered across Website / Articles / Branding).
-  { label: 'Website Content', Icon: IconArticles, group: true, product: 'content' },
-  { label: 'Overview', Icon: IconStats, parent: 'Website Content' },
-  { label: 'Plan', Icon: IconArticles, parent: 'Website Content' },
-  { label: 'Library', Icon: IconArticles, parent: 'Website Content' },
+  // Flat like the three below it — Overview / Plan / Library live as tabs on
+  // the page, not as an expandable sidebar tree.
+  { label: 'Plan & Content', Icon: IconArticles, product: 'content' },
   // These three are flat, non-collapsible buttons — each routes straight to
   // its first tab; the tab bar (inside the page) is how you move between the
   // rest. Not a tree to expand, just fewer top-level buttons to scan.
@@ -62,7 +61,7 @@ const PRODUCT_INFO: Record<ProductMode, { label: string; desc: string; Icon: (p:
 // so nothing had to be edited page by page.
 const ACTIVE_ALIAS: Record<string, string> = {
   Website: 'Website overview',
-  Articles: 'Library', 'Article Plan': 'Plan',
+  Overview: 'Plan & Content', Articles: 'Plan & Content', 'Article Plan': 'Plan & Content',
   'Article Template': 'Format',
   'Business Brief': 'Brand & Rules', 'Brand Voice': 'Brand & Rules', 'SEO Rules': 'Brand & Rules', Authors: 'Brand & Rules',
   WordPress: 'Connect to', 'Custom API': 'Connect to',
@@ -176,15 +175,13 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               : label === 'Insights' ? '/insights'
               : !current ? undefined
               : label === 'Website overview' ? `/w/${current.slug}`
-              : label === 'Overview' ? `/w/${current.slug}/content`
-              : label === 'Library' ? `/w/${current.slug}/articles`
               : label === 'Menu' ? `/w/${current.slug}/menu`
               : label === 'Footer' ? `/w/${current.slug}/footer`
               : label === 'CTAs' ? `/w/${current.slug}/cta`
-              : label === 'Plan' ? `/w/${current.slug}/article-plan`
               : label === 'Format' ? `/w/${current.slug}/article-template`
               : label === 'Branding' ? `/w/${current.slug}/branding`
               // Flat tabbed buttons — each lands on its first tab.
+              : label === 'Plan & Content' ? `/w/${current.slug}/content`
               : label === 'Brand & Rules' ? `/w/${current.slug}/business-brief`
               : label === 'Connect to' ? `/w/${current.slug}/wordpress`
               : label === 'Performance & Integrations' ? `/w/${current.slug}/tracking`
@@ -219,7 +216,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
             {current && (
             <div className="mode-switch">
               <button className="mode-chip" onClick={() => setModeOpen((o) => !o)} onBlur={() => setTimeout(() => setModeOpen(false), 150)}>
-                <span className={`mode-chip-ico ${productMode}`}>{(() => { const I = PRODUCT_INFO[productMode].Icon; return <I size={18} /> })()}</span>
+                <span className={`mode-chip-ico ${productMode}`}>{PRODUCT_INFO[productMode].label[0]}</span>
                 <span className="mode-chip-name">{PRODUCT_INFO[productMode].label}</span> <span className="chev">▾</span>
               </button>
               {modeOpen && (
@@ -228,7 +225,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
                     const info = PRODUCT_INFO[key]
                     return (
                       <button key={key} type="button" className={`mode-item${key === productMode ? ' active' : ''}`} onClick={() => switchProduct(key)}>
-                        <span className={`mode-item-ico ${key}`}><info.Icon size={18} /></span>
+                        <span className={`mode-item-ico ${key}`}>{info.label[0]}</span>
                         <span className="mode-item-text"><b>{info.label}</b><span>{info.desc}</span></span>
                         {key === productMode && <span className="check">✓</span>}
                       </button>

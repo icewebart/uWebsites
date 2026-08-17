@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
+import { TabBar } from '@/components/TabBar'
 
 type Overview = {
   articles: { total: number; published: number; drafts: number; needsReview: number }
@@ -68,6 +69,11 @@ export default function ContentOverviewPage() {
 
   return (
     <AppShell title="Content Overview" currentSlug={slug} active="Overview">
+      <TabBar tabs={[
+        { label: 'Overview', href: `/w/${slug}/content`, active: true },
+        { label: 'Plan', href: `/w/${slug}/article-plan`, active: false },
+        { label: 'Library', href: `/w/${slug}/articles`, active: false },
+      ]} />
       {/* Stats — one line across the top */}
       <div className="cx-stats">
         {stats.map((s) => (

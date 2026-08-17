@@ -72,15 +72,15 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 
 /* product switcher — Website Builder vs SEO & Content, mutually exclusive views.
    Each mode gets its own solid two-tone badge (never grey-on-grey) so it stays
-   legible even on its own active/selected row. */
+   legible even on its own active/selected row. A stroked SVG icon at this size
+   kept coming out either invisible or a blurry blob (thin strokes on a small
+   badge don't survive anti-aliasing) — a single bold letter can't have that
+   problem, same trick the workspace/profile avatar chips already use. */
 .mode-switch{position:relative}
 .mode-chip{display:inline-flex;align-items:center;gap:8px;height:36px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:0 10px 0 5px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;white-space:nowrap}
 .mode-chip:hover{border-color:var(--border-strong)}
 .mode-chip .chev{color:var(--text-faint);font-size:10px}
-/* Badges sized to match the icon's own known-good size (18px, same as every
-   sidebar nav icon) — at the smaller size these were rendered at before, a
-   multi-line icon's stroke drops under 1px and the detail just disappears. */
-.mode-chip-ico{flex:0 0 auto;width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center}
+.mode-chip-ico{flex:0 0 auto;width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:12px;line-height:1}
 .mode-chip-ico.site{background:var(--lime);color:var(--forest)}
 .mode-chip-ico.content{background:var(--forest);color:#fff}
 /* "Both" gets an outline instead of a third fill color (palette only has two)
@@ -91,7 +91,7 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 .mode-item{display:flex;align-items:center;gap:10px;width:100%;padding:7px 8px;border-radius:var(--r-sm);text-align:left;background:transparent;border:0;cursor:pointer;font-family:inherit}
 .mode-item:hover{background:var(--bg-subtle)}
 .mode-item.active{background:var(--lime-light)}
-.mode-item-ico{flex:0 0 auto;width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center}
+.mode-item-ico{flex:0 0 auto;width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:12.5px;line-height:1}
 .mode-item-ico.site{background:var(--lime);color:var(--forest)}
 .mode-item-ico.content{background:var(--forest);color:#fff}
 .mode-item-ico.both{background:var(--surface);border:1.5px solid var(--forest);color:var(--forest)}
