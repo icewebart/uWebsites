@@ -50,6 +50,22 @@ export async function runAutoWrite(): Promise<{ checked: number; written: Array<
       }
       if (!eligible) continue
 
+      // Per-workspace cadence override (on top of, never instead of, the
+      // account-level cap above) — the account cap is shared across every
+      // workspace on it, so it can't slow down just one. cadenceDays = the
+      // minimum gap since this WORKSPACE's own last auto-write.
+      const cadenceDays = Number(ap.cadenceDays) || 0
+      if (cadenceDays > 0) {
+        const [lastJob] = await db.select({ createdAt: aiJobs.createdAt, input: aiJobs.input }).from(aiJobs)
+          .where(and(eq(aiJobs.workspaceId, ws.id), eq(aiJobs.kind, 'article')))
+          .orderBy(desc(aiJobs.createdAt)).limit(20)
+          .then((rows) => rows.filter((j) => (j.input as any)?.source === 'auto-write'))
+        if (lastJob) {
+          const daysSince = (Date.now() - new Date(lastJob.createdAt).getTime()) / 86_400_000
+          if (daysSince < cadenceDays) continue
+        }
+      }
+
       // Next keyword: highest priority among idea/queued items.
       const next = items
         .filter((i) => i.keyword && (i.status === 'idea' || i.status === 'queued'))

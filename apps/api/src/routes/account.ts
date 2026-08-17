@@ -235,7 +235,7 @@ accountRouter.get('/workspaces/:slug/article-plan', requireAuth, async (req: Aut
   const items = plan.items || []
   const covered = await coverageMap(r.ws.id, items.map((i: any) => i?.keyword || ''))
   const annotated = items.map((i: any) => ({ ...i, coveredBy: covered[normKw(i?.keyword || '')] || null }))
-  res.json({ ok: true, data: { items: annotated, auto: !!plan.auto, pillars: plan.pillars || [], autoApproveBriefs: !!plan.autoApproveBriefs, scLinked: !!link.scProperty } })
+  res.json({ ok: true, data: { items: annotated, auto: !!plan.auto, pillars: plan.pillars || [], autoApproveBriefs: !!plan.autoApproveBriefs, cadenceDays: plan.cadenceDays || null, scLinked: !!link.scProperty } })
 })
 
 accountRouter.put('/workspaces/:slug/article-plan', requireAuth, async (req: AuthRequest, res) => {
@@ -260,10 +260,18 @@ accountRouter.put('/workspaces/:slug/article-plan', requireAuth, async (req: Aut
   // weekly cron. Hands-on clients approve each one; set-and-forget clients don't.
   const autoApproveBriefs = req.body?.autoApproveBriefs === undefined
     ? !!prevPlan.autoApproveBriefs : !!req.body.autoApproveBriefs
-  const tokens = { ...((r.tok?.tokens as any) || {}), article_plan: { items, auto, pillars, autoApproveBriefs } }
+  // Minimum days between auto-written articles for THIS workspace, on top of
+  // (never instead of) the account's plan-tier cadence — the account cap is
+  // shared across every workspace on it; this is the one dial that slows a
+  // single workspace down without touching the others. null/0 = no override,
+  // just the account cadence as before.
+  const cadenceDays = req.body?.cadenceDays === undefined
+    ? (prevPlan.cadenceDays ?? null)
+    : (Number(req.body.cadenceDays) > 0 ? Math.min(30, Math.round(Number(req.body.cadenceDays))) : null)
+  const tokens = { ...((r.tok?.tokens as any) || {}), article_plan: { items, auto, pillars, autoApproveBriefs, cadenceDays } }
   if (r.tok) await db.update(brandingTokens).set({ tokens }).where(eq(brandingTokens.id, r.tok.id))
   else await db.insert(brandingTokens).values({ workspaceId: r.ws.id, tokens })
-  res.json({ ok: true, data: { items, auto, pillars, autoApproveBriefs } })
+  res.json({ ok: true, data: { items, auto, pillars, autoApproveBriefs, cadenceDays } })
 })
 
 // Pull keyword ideas from the workspace's LINKED Search Console property.

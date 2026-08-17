@@ -18,7 +18,7 @@ type Brief = {
 }
 type Item = { id: string; keyword: string; brief?: Brief; status: 'idea' | 'queued' | 'drafted' | 'published'; priority: number; source: string; impressions?: number; position?: number; pageId?: string; createdAt: string; coveredBy?: { pageId: string; title: string } | null; cluster?: string; role?: string; intent?: string; funnel?: string; contentType?: string }
 type Pillar = { name: string; description?: string; businessValue?: string }
-type Plan = { items: Item[]; auto: boolean; scLinked: boolean; pillars?: Pillar[]; autoApproveBriefs?: boolean }
+type Plan = { items: Item[]; auto: boolean; scLinked: boolean; pillars?: Pillar[]; autoApproveBriefs?: boolean; cadenceDays?: number | null }
 // A proposed map from /ai/plan/cluster — reviewed before anything is saved.
 type Proposed = { pillars: { name: string; description: string; businessValue: string; keywords: { keyword: string; role: string; intent: string; funnel: string; contentType: string; alreadyCovered: boolean }[] }[]; unassigned: string[] }
 type Opp = { query: string; impressions: number; position: number; clicks: number }
@@ -104,6 +104,8 @@ export default function ArticlePlanPage() {
   const [briefing, setBriefing] = useState('')
   const [briefSaved, setBriefSaved] = useState('')
   const [autoApprove, setAutoApprove] = useState(false)
+  // null = no override, just the account plan's cadence (e.g. Unlimited = daily).
+  const [cadenceDays, setCadenceDays] = useState<number | null>(null)
   // The page does four jobs; tabs keep each one calm. Remembered across visits.
   const [tab, setTab] = useState<'map' | 'keywords' | 'opportunities' | 'calendar' | 'briefs'>('keywords')
   const [engine, setEngine] = useState<OppEngine | null>(null)
@@ -120,7 +122,7 @@ export default function ArticlePlanPage() {
   useEffect(() => { if (tab === 'calendar' && !cal && !calBusy) loadCalendar() }, [tab])
 
   useEffect(() => {
-    api<Plan>(`/account/workspaces/${slug}/article-plan`).then((d) => { setItems(d.items); setAuto(d.auto); setScLinked(d.scLinked); setPillars(d.pillars || []); setAutoApprove(!!d.autoApproveBriefs) }).catch(() => router.push(`/w/${slug}`))
+    api<Plan>(`/account/workspaces/${slug}/article-plan`).then((d) => { setItems(d.items); setAuto(d.auto); setScLinked(d.scLinked); setPillars(d.pillars || []); setAutoApprove(!!d.autoApproveBriefs); setCadenceDays(d.cadenceDays ?? null) }).catch(() => router.push(`/w/${slug}`))
     // Step 0 of the interview is to NOT ask what we already know — prefill from
     // the Business Brief so the wizard is a confirmation, not a form.
     api<{ tokens: any }>(`/workspaces/${slug}/branding`).then((d) => {
@@ -133,9 +135,9 @@ export default function ArticlePlanPage() {
   const [prefill, setPrefill] = useState<Answers>(EMPTY_ANSWERS)
 
   // Autosave whenever the list/auto changes (debounced-ish via a stable save).
-  async function persist(next: Item[], nextAuto = auto, nextApprove = autoApprove) {
-    setItems(next); setAuto(nextAuto); setAutoApprove(nextApprove)
-    try { await api(`/account/workspaces/${slug}/article-plan`, { method: 'PUT', body: JSON.stringify({ items: next, auto: nextAuto, pillars, autoApproveBriefs: nextApprove }) }) }
+  async function persist(next: Item[], nextAuto = auto, nextApprove = autoApprove, nextCadence = cadenceDays) {
+    setItems(next); setAuto(nextAuto); setAutoApprove(nextApprove); setCadenceDays(nextCadence)
+    try { await api(`/account/workspaces/${slug}/article-plan`, { method: 'PUT', body: JSON.stringify({ items: next, auto: nextAuto, pillars, autoApproveBriefs: nextApprove, cadenceDays: nextCadence }) }) }
     catch (e: any) { setErr(e.message || 'Save failed') }
   }
   const has = (k: string) => items.some((i) => i.keyword.toLowerCase().trim() === k.toLowerCase().trim())
@@ -925,6 +927,16 @@ export default function ArticlePlanPage() {
           <label className="muted" style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', marginLeft: 'auto' }}>
             <input type="checkbox" checked={auto} onChange={(e) => persist(items, e.target.checked)} style={{ width: 'auto' }} /> Weekly auto-write
           </label>
+          {auto && (
+            <label className="muted" style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'center' }}
+              title="Slows down JUST this workspace, without touching your account's plan cadence or any other workspace on it.">
+              Write every
+              <input type="number" min={0} max={30} className="num" style={{ width: 52 }}
+                placeholder="plan default" value={cadenceDays ?? ''}
+                onChange={(e) => persist(items, auto, autoApprove, e.target.value ? Number(e.target.value) : null)} />
+              days
+            </label>
+          )}
           <label className="muted" style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}
             title="Briefs are still written and still enforced by the quality gate — they just don't wait for your approval before the weekly writer runs.">
             <input type="checkbox" checked={autoApprove} onChange={(e) => persist(items, auto, e.target.checked)} style={{ width: 'auto' }} /> Auto-approve briefs
@@ -932,6 +944,7 @@ export default function ArticlePlanPage() {
         </div>
         <p className="muted" style={{ fontSize: 12, margin: '10px 0 0' }}>
           A keyword with an <b>approved brief</b> is written to that plan rather than improvised, and the quality gate grades the draft on whether it followed the brief. Drafts land in <a href={`/w/${slug}/articles`}>Library</a>.
+          {auto && !cadenceDays && ' Currently writing as often as your plan allows — set a day count above to slow just this workspace down.'}
         </p>
       </div>
 
