@@ -12,17 +12,22 @@ type Me = { user: { id: string; name?: string; email: string } }
 // shown only while its group is open. The group's own destination lives as a
 // normal child ("Website overview" / "All articles") so the header is purely a
 // toggle and the general page is still one click away.
-type NavEntry = { label: string; Icon: (p: { size?: number }) => React.JSX.Element; sub?: boolean; group?: boolean; parent?: string; divider?: boolean }
+type ProductMode = 'site' | 'content'
+// `product` on a group tags which side of the Website Builder / SEO & Content
+// switcher it belongs to; its children inherit that tag (see productOf below).
+// Entries with no tag at all (Dashboard) are account-level and always show.
+type NavEntry = { label: string; Icon: (p: { size?: number }) => React.JSX.Element; sub?: boolean; group?: boolean; parent?: string; divider?: boolean; product?: ProductMode }
 const NAV: NavEntry[] = [
   { label: 'Dashboard', Icon: IconDashboard },
-  { label: 'Website', Icon: IconWebsite, group: true },
+  { label: 'Website', Icon: IconWebsite, group: true, product: 'site' },
   { label: 'Website overview', Icon: IconWebsite, parent: 'Website' },
   { label: 'Menu', Icon: IconMenu, parent: 'Website' },
   { label: 'Footer', Icon: IconFooter, parent: 'Website' },
   { label: 'CTAs', Icon: IconFooter, parent: 'Website' },
+  { label: 'Branding', Icon: IconBranding, parent: 'Website' },
   // The content product — everything about planning, writing and delivering
   // articles, in one place (was scattered across Website / Articles / Branding).
-  { label: 'Website Content', Icon: IconArticles, group: true },
+  { label: 'Website Content', Icon: IconArticles, group: true, product: 'content' },
   { label: 'Overview', Icon: IconStats, parent: 'Website Content' },
   { label: 'Plan', Icon: IconArticles, parent: 'Website Content' },
   { label: 'Library', Icon: IconArticles, parent: 'Website Content' },
@@ -33,13 +38,22 @@ const NAV: NavEntry[] = [
   { label: 'Format', Icon: IconArticles, parent: 'Website Content' },
   { label: 'WordPress', Icon: IconArticles, parent: 'Website Content' },
   { label: 'Custom API', Icon: IconArticles, parent: 'Website Content' },
-  // Everything that configures the workspace rather than producing something.
-  // Tracking connects the data; Insights reads it — they belong together.
-  { label: 'Settings', Icon: IconTracking, group: true },
-  { label: 'Branding', Icon: IconBranding, parent: 'Settings' },
-  { label: 'Tracking', Icon: IconTracking, parent: 'Settings' },
-  { label: 'Insights', Icon: IconStats, parent: 'Settings' },
+  // Tracking connects the data (Search Console/GA); Insights reads it — both
+  // feed the opportunity/decay engine, so they live with content, not design.
+  { label: 'Performance', Icon: IconTracking, parent: 'Website Content', divider: true },
+  { label: 'Tracking', Icon: IconTracking, parent: 'Website Content' },
+  { label: 'Insights', Icon: IconStats, parent: 'Website Content' },
 ]
+// A child's product tag is whichever group it's nested under.
+function productOf(entry: NavEntry): ProductMode | undefined {
+  if (entry.product) return entry.product
+  if (entry.parent) return NAV.find((n) => n.label === entry.parent)?.product
+  return undefined
+}
+const PRODUCT_INFO: Record<ProductMode, { label: string; desc: string; Icon: (p: { size?: number }) => React.JSX.Element }> = {
+  site: { label: 'Website Builder', desc: 'Design pages, menu, footer and CTAs', Icon: IconWebsite },
+  content: { label: 'SEO & Content', desc: 'Plan, write and publish articles', Icon: IconArticles },
+}
 // Pages still pass their old active= labels — map those onto the new nav labels
 // so nothing had to be edited page by page.
 const ACTIVE_ALIAS: Record<string, string> = {
@@ -61,6 +75,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [wsOpen, setWsOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [modeOpen, setModeOpen] = useState(false)
 
   const [lastSlug, setLastSlug] = useState<string | null>(null)
   useEffect(() => {
@@ -79,17 +94,32 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
     || workspaces.find((w) => w.slug === lastSlug)
     || workspaces[0] || null
   const others = workspaces.filter((w) => w.id !== current?.id)
-  // Content-mode workspaces are the SEO/content engine writing into a client's
-  // OWN site — there's nothing here for us to build or host, so the whole
-  // "Website" group (canvas, menu, footer, CTAs) is noise. Hidden, not just
-  // disabled, until the builder is ready to show a client.
-  const isContentOnly = current?.product === 'content'
-  const visibleNav = isContentOnly ? NAV.filter((n) => n.label !== 'Website' && n.parent !== 'Website') : NAV
+  // Website Builder and SEO & Content are two different products sharing one
+  // nav — the switcher (topbar, right after search) decides which half shows.
+  // Unlabelled entries (Dashboard) are account-level and always visible.
+  const productMode: ProductMode = current?.product === 'content' ? 'content' : 'site'
+  const visibleNav = NAV.filter((n) => {
+    const p = productOf(n)
+    return !p || p === productMode
+  })
   const displayName = me?.user?.name?.trim() || (me?.user?.email ? me.user.email.split('@')[0] : 'You')
 
   async function logout() {
     try { await api('/auth/logout', { method: 'POST' }) } catch {}
     router.push('/login')
+  }
+
+  // Optimistic: flip the chip and navigate immediately, persist in the
+  // background. It's a per-workspace preference, not a destructive action —
+  // worst case a slow save just re-syncs on the next page load.
+  function switchProduct(next: ProductMode) {
+    if (!current) return
+    setModeOpen(false)
+    if (current.product === next) return
+    const slug = current.slug
+    setWorkspaces((ws) => ws.map((w) => (w.id === current.id ? { ...w, product: next } : w)))
+    api(`/workspaces/${slug}/product-mode`, { method: 'PUT', body: JSON.stringify({ product: next }) }).catch(() => {})
+    router.push(next === 'content' ? `/w/${slug}/content` : `/w/${slug}`)
   }
 
   // Collapsible nav groups. Remembered across pages, and the group holding the
@@ -178,6 +208,29 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
           <h2 title={title}>{active}</h2>
           <div className="topbar-right">
             <input className="topbar-search" placeholder="Search…" />
+
+            {current && (
+            <div className="mode-switch">
+              <button className="mode-chip" onClick={() => setModeOpen((o) => !o)} onBlur={() => setTimeout(() => setModeOpen(false), 150)}>
+                {(() => { const I = PRODUCT_INFO[productMode].Icon; return <I size={16} /> })()}
+                <span className="mode-chip-name">{PRODUCT_INFO[productMode].label}</span> <span className="chev">▾</span>
+              </button>
+              {modeOpen && (
+                <div className="mode-menu">
+                  {(Object.keys(PRODUCT_INFO) as ProductMode[]).map((key) => {
+                    const info = PRODUCT_INFO[key]
+                    return (
+                      <button key={key} type="button" className={`mode-item${key === productMode ? ' active' : ''}`} onClick={() => switchProduct(key)}>
+                        <span className={`mode-item-ico ${key}`}><info.Icon size={16} /></span>
+                        <span className="mode-item-text"><b>{info.label}</b><span>{info.desc}</span></span>
+                        {key === productMode && <span className="check">✓</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+            )}
 
             {!hideWorkspaceSwitch && (
             <div className="ws-switch">
