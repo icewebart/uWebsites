@@ -149,11 +149,14 @@ pagesRouter.put('/:id', requireAuth, async (req: AuthRequest, res) => {
   const owned = await loadOwned(id, req.user!.accountId)
   if (!owned) return res.status(404).json({ ok: false, error: 'page not found' })
 
-  const { title, blocks, status } = req.body ?? {}
+  const { title, blocks, status, seo } = req.body ?? {}
   const upd: Record<string, any> = { updatedAt: new Date() }
   if (typeof title === 'string' && title.trim()) upd.title = title.trim()
   if (Array.isArray(blocks)) upd.blocks = blocks
   if (status === 'draft' || status === 'published') upd.status = status
+  // Merge, never replace — seo also carries wp_imported/wordpress/customDelivery/
+  // review tags written by other routes that this call knows nothing about.
+  if (seo && typeof seo === 'object') upd.seo = { ...((owned as any).seo || {}), ...seo }
 
   const [updated] = await db.update(pages).set(upd).where(eq(pages.id, id)).returning()
   res.json({ ok: true, data: updated })

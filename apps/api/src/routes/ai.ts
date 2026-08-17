@@ -11,11 +11,28 @@ import { upsertMenu, articleTemplateOf } from './menus.js'
 import { articleBlocksFromImport, structureFromSource } from './import.js'
 import { extractBrandFromDom, headlessRender } from '../lib/headless.js'
 import { fpFromHtml, fitSection, looksStructured } from '../lib/section-classifier.js'
-import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities, scQuery } from '../lib/google-data.js'
+import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities, scQuery, scQueriesForPage } from '../lib/google-data.js'
 import { guardWriteArticle } from '../lib/entitlements.js'
 import { fetchSerp, serpPromptBlock } from '../lib/serp.js'
 import { publishArticle as wpPublishArticle, linkTargets as wpLinkTargets, type WpConn } from '../lib/wordpress.js'
 import { getSettings } from './account.js'
+
+// Clean slug by default — a random suffix on EVERY article (even ones with
+// no collision risk at all) was ugly and pointless for both readers and SEO.
+// Only append a differentiator when the clean slug is actually already taken
+// in this workspace (the auto-write engine does generate near-duplicate
+// titles day to day, so that case is real) — and then a small incrementing
+// number, matching how every other CMS handles it, not a random string.
+async function uniqueSlug(workspaceId: string, base: string, fallback = 'page'): Promise<string> {
+  const clean = String(base || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || fallback
+  const existing = await db.select({ slug: pages.slug }).from(pages).where(eq(pages.workspaceId, workspaceId))
+  const taken = new Set(existing.map((e) => e.slug))
+  if (!taken.has(clean)) return clean
+  for (let n = 2; n < 1000; n++) {
+    if (!taken.has(`${clean}-${n}`)) return `${clean}-${n}`
+  }
+  return `${clean}-${Date.now()}` // pathological case, essentially unreachable
+}
 
 // Default rules the AI follows when writing an article (the Rules page can
 // override these per workspace via tokens.article_rules).
@@ -58,13 +75,13 @@ function stripPageChrome(html: string): string {
 // starts even without a key — the routes return 503 in that case.
 export const aiRouter = Router()
 let client: Anthropic | null = null
-function ai(): Anthropic | null {
+export function ai(): Anthropic | null {
   if (client) return client
   if (!process.env.ANTHROPIC_API_KEY) return null
   client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   return client
 }
-const MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8'
+export const MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8'
 const SECTION_KINDS = SECTIONS.map((s) => s.kind)
 const SECTION_KINDS_LIST = [...SECTION_KINDS]
 
@@ -524,7 +541,7 @@ ${brief ? '\n\nSITE CONTEXT (anchor industry, audience, voice; reflect it in the
       : await db.insert(pages).values({ workspaceId: ws.id, type: 'home' as any, slug: 'home', title, status: 'draft', blocks: blocks as any }).returning()
     created = rows[0]
   } else {
-    const pageSlug = (title || 'page').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) + '-' + Math.random().toString(36).slice(2, 6)
+    const pageSlug = await uniqueSlug(ws.id, title, 'page')
     const rows = await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug: pageSlug, title, status: 'draft', blocks: blocks as any }).returning()
     created = rows[0]
   }
@@ -730,7 +747,7 @@ aiRouter.post('/build-from-design', requireAuth, async (req: AuthRequest, res) =
         : await db.insert(pages).values({ workspaceId: ws.id, type: 'home' as any, slug: 'home', title, status: 'draft', blocks: out.blocks as any }).returning()
       created = rows[0]
     } else {
-      const pageSlug = (title || 'page').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) + '-' + Math.random().toString(36).slice(2, 6)
+      const pageSlug = await uniqueSlug(ws.id, title, 'page')
       const rows = await db.insert(pages).values({ workspaceId: ws.id, type: 'article' as any, slug: pageSlug, title, status: 'draft', blocks: out.blocks as any }).returning()
       created = rows[0]
     }
@@ -1403,7 +1420,7 @@ richtext sections use semantic HTML only (p, h2, h3, ul, li, strong, em, a — n
         ;[created] = await db.insert(pages).values({ workspaceId: ws.id, type: 'home' as any, slug: 'home', title, status: 'draft', blocks: blocks as any }).returning()
       }
     } else {
-      const pageSlug = (title || 'untitled').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) + '-' + Math.random().toString(36).slice(2, 6)
+      const pageSlug = await uniqueSlug(ws.id, title, 'untitled')
       ;[created] = await db.insert(pages).values({ workspaceId: ws.id, type: pageType as any, slug: pageSlug, title, status: 'draft', blocks: blocks as any }).returning()
     }
     await logAiJob(ws.id, 'article', 'done', { source: 'generate', pageType, prompt: String(prompt).slice(0, 500), title: created.title }, 1, created.id)
@@ -1562,7 +1579,7 @@ export async function writeArticleForKeyword(
     if (!tu) throw new Error('Model returned no article')
     const { title, metaDescription, deck, bodyHtml } = tu.input as { title: string; metaDescription: string; deck?: string; bodyHtml: string }
     const html = deck ? `<p><strong>${deck}</strong></p>\n${bodyHtml}` : bodyHtml
-    const pslug = String(keyword).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) + '-' + Math.random().toString(36).slice(2, 5)
+    const pslug = await uniqueSlug(ws.id, String(keyword), 'article')
 
     // QUALITY GATE (gap #5) — a second, deliberately strict pass grades the
     // draft. It never blocks the article; it only downgrades an auto-PUBLISH to
@@ -2498,6 +2515,74 @@ HOW TO IMPROVE IT:
     res.json({ ok: true, data: { id: row.id, title, keyword, changes: Array.isArray(changes) ? changes.slice(0, 10) : [], performance: perf, wpUpdated } })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'Refresh failed: ' + (e?.message || 'unknown') })
+  }
+})
+
+// POST /ai/suggest-keyword — for an article with NO target keyword (mainly
+// imported/legacy content that was never assigned one). Ground truth beats
+// guessing: if this article already has a real indexed URL and the workspace
+// has Search Console linked, pull the queries that ACTUALLY drive clicks to
+// it first. AI only fills the gap when there's no query data (or none linked).
+// Suggests only — never writes seo.keyword itself; save via PUT /pages/:id.
+aiRouter.post('/suggest-keyword', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
+  const { pageId } = req.body ?? {}
+  if (!pageId) return res.status(400).json({ ok: false, error: 'pageId required' })
+
+  const [row] = await db.select({
+    id: pages.id, title: pages.title, blocks: pages.blocks, seo: pages.seo, wsId: pages.workspaceId, accId: workspaces.accountId,
+  }).from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id)).where(eq(pages.id, String(pageId))).limit(1)
+  if (!row || row.accId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'page not found' })
+
+  const blocks = (Array.isArray(row.blocks) ? row.blocks : []) as any[]
+  const html = blocks.find((b) => b?.type === 'article-body')?.props?.html
+    || blocks.filter((b) => typeof b?.props?.html === 'string').map((b) => b.props.html).join('\n')
+  const text = String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!text) return res.status(400).json({ ok: false, error: 'This article has no body text to analyse.' })
+
+  // Real indexed URL, if this article has one — an imported/delivered post,
+  // not a local-only draft (those aren't indexed anywhere, so there's no
+  // query data to fetch regardless of whether Search Console is linked).
+  const seo: any = row.seo || {}
+  const liveUrl: string | null = seo.wp_imported?.link || seo.wordpress?.link || null
+
+  let scQueries: Array<{ query: string; clicks: number; impressions: number; position: number }> = []
+  if (liveUrl) {
+    try {
+      const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, row.wsId)).limit(1)
+      const scProperty = (tok?.tokens as any)?.analytics?.scProperty
+      const conn = await getGoogleConn(req.user!.accountId)
+      if (scProperty && conn && hasScope(conn, SCOPE_SEARCH)) {
+        scQueries = await scQueriesForPage(req.user!.accountId, scProperty, liveUrl, 90)
+      }
+    } catch { /* SC data is a bonus, never blocks the suggestion */ }
+  }
+
+  try {
+    const r = await a.messages.create({
+      model: MODEL, max_tokens: 300,
+      system: 'You assign ONE target SEO keyword to an existing article — the single phrase it should be optimised for. '
+        + (scQueries.length
+          ? 'REAL Search Console data for this exact URL is provided below — this is ground truth for what it already ranks for. Prefer the highest-value query from that list unless the article clearly targets something else; only fall back to your own read of the content if none of the queries fit.'
+          : 'No Search Console data is available for this article, so infer the keyword purely from what the title and body are actually about.'),
+      tools: [{ name: 'suggest', description: 'The suggested keyword.', input_schema: {
+        type: 'object',
+        properties: {
+          keyword: { type: 'string', description: 'The single target keyword/phrase, in the article\'s own language.' },
+          reason: { type: 'string', description: 'One short sentence: why this keyword, citing the query data if used.' },
+        }, required: ['keyword', 'reason'],
+      } as any }],
+      tool_choice: { type: 'tool', name: 'suggest' },
+      messages: [{ role: 'user', content: `Title: ${row.title}\n\nBody (excerpt):\n${text.slice(0, 3000)}`
+        + (scQueries.length ? `\n\nSearch Console queries for this URL (last 90 days):\n${scQueries.slice(0, 10).map((q) => `- "${q.query}" — ${q.clicks} clicks, ${q.impressions} impressions, avg position ${q.position.toFixed(1)}`).join('\n')}` : '') }],
+    })
+    const tu = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!tu) return res.status(502).json({ ok: false, error: 'No suggestion returned — try again.' })
+    const { keyword, reason } = tu.input as { keyword: string; reason: string }
+    res.json({ ok: true, data: { keyword, reason, source: scQueries.length ? 'search-console' : 'ai', queries: scQueries.slice(0, 10) } })
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: 'Suggestion failed: ' + (e?.message || 'unknown') })
   }
 })
 

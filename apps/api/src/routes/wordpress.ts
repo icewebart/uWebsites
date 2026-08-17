@@ -2,9 +2,41 @@ import { Router } from 'express'
 import { and, eq } from 'drizzle-orm'
 import { db, workspaces, wordpressConnections } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
-import { verifyConnection, publishArticle, fetchPosts, fetchPublicPosts, normaliseSiteUrl, decodeConnectionCode, type WpConn } from '../lib/wordpress.js'
+import { verifyConnection, publishArticle, fetchPosts, fetchPublicPosts, normaliseSiteUrl, decodeConnectionCode, listCategories, resolveTagIds, type WpConn } from '../lib/wordpress.js'
 import { pages } from '@uwebsites/db'
 import { articleBlocksFromImport } from './import.js'
+import { ai, MODEL } from './ai.js'
+
+// Pick ONE existing category (never invents a new one — categories are a
+// curated, fixed set on most sites) + a few tags (reused when they fit,
+// created otherwise — tags are meant to grow). Best-effort: any failure here
+// just means the post publishes uncategorised, never blocks the publish.
+async function classify(conn: WpConn, title: string, excerpt: string): Promise<{ categoryId: number | null; tagIds: number[] }> {
+  try {
+    const cats = await listCategories(conn)
+    const a = ai()
+    if (!cats.length || !a) return { categoryId: null, tagIds: [] }
+    const r = await a.messages.create({
+      model: MODEL, max_tokens: 200,
+      system: 'Pick the ONE best-fit category for this article from the exact list given (return its exact name, verbatim), plus 2-5 relevant tags in the article\'s own language. Tags can reuse an obvious existing idea or be a short new one — whichever fits.',
+      tools: [{ name: 'classify', description: 'Category + tags for this article.', input_schema: {
+        type: 'object',
+        properties: {
+          category: { type: 'string', description: 'The exact name of one category from the provided list.' },
+          tags: { type: 'array', items: { type: 'string' }, description: '2-5 short tag names.' },
+        }, required: ['category', 'tags'],
+      } as any }],
+      tool_choice: { type: 'tool', name: 'classify' },
+      messages: [{ role: 'user', content: `Categories available: ${cats.map((c) => c.name).join(', ')}\n\nArticle title: ${title}\n\nExcerpt: ${excerpt}` }],
+    })
+    const tu = r.content.find((b: any) => b.type === 'tool_use') as any
+    if (!tu) return { categoryId: null, tagIds: [] }
+    const { category, tags } = tu.input as { category: string; tags: string[] }
+    const match = cats.find((c) => c.name.toLowerCase() === String(category || '').toLowerCase())
+    const tagIds = await resolveTagIds(conn, Array.isArray(tags) ? tags.slice(0, 5) : [])
+    return { categoryId: match?.id ?? null, tagIds }
+  } catch { return { categoryId: null, tagIds: [] } }
+}
 
 // Shared importer for both the connected pull and the public onboarding pull.
 // Dedupes on the native WP post id so re-running updates in place, never dupes.
@@ -208,6 +240,16 @@ wordpressRouter.post('/:slug/wordpress/publish-page', requireAuth, async (req: A
   const status = req.body?.status === 'draft' ? 'draft' : 'publish'
 
   const existingRemoteId: number | null = seo.wordpress?.postId || null
+  // Classify once per article and reuse on re-publish — re-running this on
+  // every "publish again" (e.g. after sibling links go live) would burn an
+  // AI call for no reason once the category/tags are already settled.
+  let categoryId: number | null = seo.wordpress?.categoryId ?? null
+  let tagIds: number[] = Array.isArray(seo.wordpress?.tagIds) ? seo.wordpress.tagIds : []
+  if (!existingRemoteId && c.mode !== 'plugin') {
+    const picked = await classify(c as WpConn, page.title, metaDescription)
+    categoryId = picked.categoryId
+    tagIds = picked.tagIds
+  }
   try {
     const remote = await publishArticle(c as WpConn, {
       externalId: page.id,
@@ -216,8 +258,9 @@ wordpressRouter.post('/:slug/wordpress/publish-page', requireAuth, async (req: A
       metaTitle: page.title, metaDescription,
       imageUrl: heroImg, imageAlt: page.title,
       existingRemoteId,                    // PATCHes that post instead of creating a duplicate
+      categoryId, tagIds,
     })
-    await db.update(pages).set({ seo: { ...seo, wordpress: { postId: remote.id, link: remote.link, status: remote.status } }, updatedAt: new Date() }).where(eq(pages.id, page.id))
+    await db.update(pages).set({ seo: { ...seo, wordpress: { postId: remote.id, link: remote.link, status: remote.status, categoryId, tagIds } }, updatedAt: new Date() }).where(eq(pages.id, page.id))
     // Only a genuine new post counts toward the delivered-count stat.
     const inc = existingRemoteId ? {} : { postsCreated: (c.postsCreated || 0) + 1 }
     await db.update(wordpressConnections).set({ ...inc, lastPostAt: new Date(), lastError: null, updatedAt: new Date() }).where(eq(wordpressConnections.id, c.id))

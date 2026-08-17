@@ -98,6 +98,26 @@ export async function scQuery(accountId: string, siteUrl: string, days: number) 
   }
 }
 
+// Queries that drive traffic to ONE specific URL — ground truth for "what
+// keyword does this article actually rank for", used to suggest/confirm a
+// target keyword for articles that don't have one (imported content, mainly).
+// scQuery()'s topQueries is site-wide and unrelated to any one page; this is
+// the real per-page breakdown GSC's dimensionFilterGroups exists for.
+export async function scQueriesForPage(accountId: string, siteUrl: string, pageUrl: string, days: number) {
+  const at = await freshAccessToken(accountId)
+  const range = rangeDays(days)
+  const j = await gapi(`https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`, at, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...range, dimensions: ['query'], rowLimit: 20,
+      dimensionFilterGroups: [{ filters: [{ dimension: 'page', operator: 'equals', expression: pageUrl }] }],
+    }),
+  })
+  return (j.rows || [])
+    .map((r: any) => ({ query: r.keys[0] as string, clicks: r.clicks, impressions: r.impressions, position: r.position }))
+    .sort((a: any, b: any) => b.clicks - a.clicks || b.impressions - a.impressions)
+}
+
 // Content OPPORTUNITIES: queries you already rank for but not at the top
 // (position ~4–20) with real impressions — the sweet spot for a dedicated,
 // keyword-optimised article that could jump into the top results.

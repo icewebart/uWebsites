@@ -6,7 +6,7 @@ import { AppShell } from '@/components/AppShell'
 import { TabBar } from '@/components/TabBar'
 
 type SeoCheck = { id: string; label: string; pass: boolean; hint?: string }
-type Page = { id: string; type: string; slug: string; title: string; status: string; updatedAt?: string; seo?: { wp_imported?: { link?: string }; wordpress?: { link?: string; status?: string }; customDelivery?: { connectionName: string; remoteId: string; status: string; deliveredAt: string } }; seoScore?: { score: number; checks: SeoCheck[] } }
+type Page = { id: string; type: string; slug: string; title: string; status: string; updatedAt?: string; seo?: { keyword?: string; wp_imported?: { link?: string }; wordpress?: { link?: string; status?: string }; customDelivery?: { connectionName: string; remoteId: string; status: string; deliveredAt: string } }; seoScore?: { score: number; checks: SeoCheck[] } }
 type PagesResp = { workspace: { id: string; name: string; slug: string }; pages: Page[] }
 
 // Types that belong in the Articles hub (everything editorial / long-form).
@@ -115,6 +115,23 @@ export default function ArticlesPage() {
       setNote(`Improved “${r.title}” for “${r.keyword}”${perf}.${wp}${r.changes?.length ? ' Changes: ' + r.changes.slice(0, 3).join('; ') : ''}`)
       await load()
     } catch (e: any) { setErr(e.message || 'Could not improve that article') } finally { setBusyId(null) }
+  }
+
+  // For articles with no target keyword (mostly imported/legacy content) —
+  // suggest one from real Search Console query data when available, AI
+  // content analysis otherwise. Always review-before-save, never silent.
+  async function suggestKeyword(p: Page) {
+    setBusyId(p.id); setNote(''); setErr('')
+    try {
+      const r = await api<{ keyword: string; reason: string; source: 'search-console' | 'ai' }>(
+        '/ai/suggest-keyword', { method: 'POST', body: JSON.stringify({ pageId: p.id }) })
+      const src = r.source === 'search-console' ? 'from real Search Console query data' : 'from the article\'s own content (no Search Console data for this one)'
+      const chosen = window.prompt(`Suggested keyword (${src}):\n${r.reason}\n\nEdit if needed, or Cancel to skip:`, r.keyword)
+      if (!chosen || !chosen.trim()) return
+      await api(`/pages/${p.id}`, { method: 'PUT', body: JSON.stringify({ seo: { keyword: chosen.trim() } }) })
+      setNote(`Keyword “${chosen.trim()}” saved for “${p.title}”.`)
+      await load()
+    } catch (e: any) { setErr(e.message || 'Could not suggest a keyword') } finally { setBusyId(null) }
   }
 
   async function normalise(p: Page) {
@@ -265,6 +282,9 @@ export default function ArticlesPage() {
                           title={`Deliver this article to ${customConn.name} — it arrives as a draft in their moderation queue, never live automatically`}>
                           {busyId === p.id ? '…' : p.seo?.customDelivery ? `↻ Update on ${customConn.name}` : `↗ Send to ${customConn.name}`}
                         </button>
+                      )}
+                      {!p.seo?.keyword && (
+                        <button className="btn-mini" disabled={busyId === p.id} onClick={() => suggestKeyword(p)} title="No target keyword yet — suggest one from real Search Console data (if linked) or the article's own content">{busyId === p.id ? '…' : '🎯 Suggest keyword'}</button>
                       )}
                       <button className="btn-mini" disabled={busyId === p.id} onClick={() => structureOne(p)} title="Apply the article layout using existing content — free, instant">{busyId === p.id ? '…' : '⚡ Structure'}</button>
                       <button className="btn-mini" disabled={busyId === p.id} onClick={() => normalise(p)} title="AI cleanup of messy body markup — costs credits">{busyId === p.id ? '…' : '✦ AI clean'}</button>
