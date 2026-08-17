@@ -70,35 +70,34 @@ code{background:var(--lime-light);color:var(--forest);padding:2px 6px;border-rad
 .topbar-search{width:200px;height:36px;font-family:inherit;font-size:13px;color:var(--text);background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--r-sm);padding:0 14px;flex:0 1 auto;min-width:80px}
 .topbar-search:focus{outline:none;border-color:var(--forest);background:var(--surface)}
 
-/* product switcher — Website Builder vs SEO & Content, mutually exclusive views.
-   Each mode gets its own solid two-tone badge (never grey-on-grey) so it stays
-   legible even on its own active/selected row. A stroked SVG icon at this size
-   kept coming out either invisible or a blurry blob (thin strokes on a small
-   badge don't survive anti-aliasing) — a single bold letter can't have that
-   problem, same trick the workspace/profile avatar chips already use. */
+/* product switcher — copied directly from uReferrals' RoleSwitcher.tsx
+   (~/Projects/uReferrals/apps/web/src/components/RoleSwitcher.tsx), not
+   redesigned from scratch: same 22px/radius-6/solid-fill badge, same
+   trigger geometry, same "Current view" (static) / "Switch to" (clickable)
+   split panel. Every prior version of this broke because it kept reaching
+   for something OTHER than a plain solid fill for the third ("Both") badge
+   — an outline, a bigger box, a gradient — and that's exactly the one thing
+   uReferrals never does. All three badges here are solid fills, same size,
+   no exceptions. */
 .mode-switch{position:relative}
-.mode-chip{display:inline-flex;align-items:center;gap:8px;height:36px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:0 10px 0 5px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;white-space:nowrap}
+.mode-chip{display:inline-flex;align-items:center;gap:8px;height:38px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:var(--r-md);padding:0 12px 0 6px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;white-space:nowrap}
 .mode-chip:hover{border-color:var(--border-strong)}
 .mode-chip .chev{color:var(--text-faint);font-size:10px}
-.mode-chip-ico{flex:0 0 auto;width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:12px;line-height:1}
-.mode-chip-ico.site{background:var(--lime);color:var(--forest)}
-.mode-chip-ico.content{background:var(--forest);color:#fff}
-/* "Both" gets an outline instead of a third fill color (palette only has two)
-   — legible on any background, and reads as visually distinct from either
-   solid badge rather than a muddy blend of them. */
-.mode-chip-ico.both{background:var(--surface);border:1.5px solid var(--forest);color:var(--forest)}
-.mode-menu{position:absolute;top:calc(100% + 8px);left:0;width:264px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow-md);padding:6px;z-index:100}
-.mode-item{display:flex;align-items:center;gap:10px;width:100%;padding:7px 8px;border-radius:var(--r-sm);text-align:left;background:transparent;border:0;cursor:pointer;font-family:inherit}
-.mode-item:hover{background:var(--bg-subtle)}
-.mode-item.active{background:var(--lime-light)}
-.mode-item-ico{flex:0 0 auto;width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:12.5px;line-height:1}
-.mode-item-ico.site{background:var(--lime);color:var(--forest)}
-.mode-item-ico.content{background:var(--forest);color:#fff}
-.mode-item-ico.both{background:var(--surface);border:1.5px solid var(--forest);color:var(--forest)}
-.mode-item-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+.mode-chip-ico,.mode-item-ico{flex:0 0 auto;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;line-height:1}
+.mode-chip-ico.site,.mode-item-ico.site{background:var(--lime);color:var(--forest)}
+.mode-chip-ico.content,.mode-item-ico.content{background:var(--forest);color:#fff}
+/* A true neutral (not var(--text), which is dark NAVY like --forest and
+   measurably too close to it at this size — checked pixel distance, not
+   just eyeballed) so "Both" reads as its own thing, not a shade of content's. */
+.mode-chip-ico.both,.mode-item-ico.both{background:#1A1A1A;color:#fff}
+.mode-menu{position:absolute;top:calc(100% + 6px);left:0;min-width:220px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-md);z-index:200;padding:6px}
+.mode-menu-label{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);padding:4px 8px 2px}
+.mode-item{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;border-radius:var(--r-sm);text-align:left;background:transparent;border:0;cursor:pointer;font-family:inherit;color:var(--text);font-size:13px;font-weight:500}
+.mode-item:not(.current):hover{background:var(--border)}
+.mode-item.current{background:var(--bg-subtle);cursor:default}
+.mode-item-text{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
 .mode-item-text b{font-size:13px;color:var(--text)}
 .mode-item-text span{font-size:11.5px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mode-item .check{margin-left:auto;color:var(--forest);font-weight:700;flex:0 0 auto}
 
 /* workspace switcher */
 .ws-switch{position:relative}

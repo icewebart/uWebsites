@@ -221,13 +221,19 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
               </button>
               {modeOpen && (
                 <div className="mode-menu">
-                  {(Object.keys(PRODUCT_INFO) as ProductMode[]).map((key) => {
+                  <div className="mode-menu-label">Current view</div>
+                  <div className="mode-item current">
+                    <span className={`mode-item-ico ${productMode}`}>{PRODUCT_INFO[productMode].label[0]}</span>
+                    <span className="mode-item-text"><b>{PRODUCT_INFO[productMode].label}</b><span>{PRODUCT_INFO[productMode].desc}</span></span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12" /></svg>
+                  </div>
+                  <div className="mode-menu-label" style={{ marginTop: 8 }}>Switch to</div>
+                  {(Object.keys(PRODUCT_INFO) as ProductMode[]).filter((key) => key !== productMode).map((key) => {
                     const info = PRODUCT_INFO[key]
                     return (
-                      <button key={key} type="button" className={`mode-item${key === productMode ? ' active' : ''}`} onClick={() => switchProduct(key)}>
+                      <button key={key} type="button" className="mode-item" onClick={() => switchProduct(key)}>
                         <span className={`mode-item-ico ${key}`}>{info.label[0]}</span>
                         <span className="mode-item-text"><b>{info.label}</b><span>{info.desc}</span></span>
-                        {key === productMode && <span className="check">✓</span>}
                       </button>
                     )
                   })}
