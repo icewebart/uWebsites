@@ -242,6 +242,18 @@ export default function WorkspaceHome() {
   }
 
   async function publish() {
+    // The product switcher (see AppShell) makes it a one-click flip from "SEO &
+    // Content" into "Website Builder" — if this workspace is ALSO wired to
+    // deliver content elsewhere (WordPress/Custom API), publishing here stands
+    // up a second, separate live site. Cheap to check, easy to fat-finger.
+    try {
+      const [wp, custom] = await Promise.all([
+        api<{ siteUrl: string } | null>(`/workspaces/${slug}/wordpress`).catch(() => null),
+        api<{ name: string } | null>(`/workspaces/${slug}/custom-connection`).catch(() => null),
+      ])
+      const target = wp?.siteUrl || custom?.name
+      if (target && !window.confirm(`This workspace also delivers content to ${target}. Publishing here creates a separate, live uWebsites site — continue?`)) return
+    } catch { /* connection checks are a courtesy, never block publish on their failure */ }
     setPubErr(''); setPublishing(true); setPublishedUrl('')
     try {
       // Safety net: make sure every link to the original site is internal before

@@ -14,11 +14,11 @@ const SERVER_IP = process.env.SERVER_IP || '75.119.159.89'
 const CF_API = 'https://api.cloudflare.com/client/v4'
 const HOSTNAME_RE = /^(?!-)[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63})+$/
 
-async function getSettings(accountId: string): Promise<any> {
+export async function getSettings(accountId: string): Promise<any> {
   const [a] = await db.select({ settings: accounts.settings }).from(accounts).where(eq(accounts.id, accountId)).limit(1)
   return (a?.settings as any) || {}
 }
-async function saveSettings(accountId: string, settings: any) {
+export async function saveSettings(accountId: string, settings: any) {
   await db.update(accounts).set({ settings }).where(eq(accounts.id, accountId))
 }
 async function cfToken(accountId: string): Promise<string | null> {
@@ -80,6 +80,22 @@ accountRouter.delete('/integrations/mailjet', requireAuth, async (req: AuthReque
   delete s.mailjet
   await saveSettings(req.user!.accountId, s)
   res.json({ ok: true })
+})
+
+// ---------------- Preferences ----------------
+// Small account-level toggles that don't warrant their own table. Currently
+// just the dashboard AI-suggestions call (GET /ai/dashboard-suggestions) —
+// it burns a real LLM call on every dashboard load, so it's opt-out-able.
+// Undefined = on, matching the feature's existing default behavior.
+accountRouter.get('/preferences', requireAuth, async (req: AuthRequest, res) => {
+  const s = await getSettings(req.user!.accountId)
+  res.json({ ok: true, data: { dashboardSuggestions: s?.preferences?.dashboardSuggestions !== false } })
+})
+accountRouter.put('/preferences', requireAuth, async (req: AuthRequest, res) => {
+  const s = await getSettings(req.user!.accountId)
+  const dashboardSuggestions = !!req.body?.dashboardSuggestions
+  await saveSettings(req.user!.accountId, { ...s, preferences: { ...(s.preferences || {}), dashboardSuggestions } })
+  res.json({ ok: true, data: { dashboardSuggestions } })
 })
 
 // ---------------- Google (Search Console + Analytics) ----------------

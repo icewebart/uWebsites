@@ -15,6 +15,7 @@ import { getGoogleConn, hasScope, SCOPE_SEARCH, scOpportunities, scQuery } from 
 import { guardWriteArticle } from '../lib/entitlements.js'
 import { fetchSerp, serpPromptBlock } from '../lib/serp.js'
 import { publishArticle as wpPublishArticle, linkTargets as wpLinkTargets, type WpConn } from '../lib/wordpress.js'
+import { getSettings } from './account.js'
 
 // Default rules the AI follows when writing an article (the Rules page can
 // override these per workspace via tokens.article_rules).
@@ -2081,7 +2082,9 @@ aiRouter.post('/generate-nav', requireAuth, async (req: AuthRequest, res) => {
 
 // GET /ai/dashboard-suggestions — Claude looks at the account state (page
 // counts, last publish, missing pieces) and returns 3–5 prioritized next-step
-// suggestions. Cached client-side; the dashboard hits this once per load.
+// suggestions. Fires on every dashboard load (no caching) — one real LLM call
+// each time, so it's gated behind account.settings.preferences.dashboardSuggestions
+// (see /account/preferences), default on.
 const SUGGEST_SCHEMA = {
   type: 'object',
   properties: {
@@ -2104,6 +2107,8 @@ const SUGGEST_SCHEMA = {
 }
 
 aiRouter.get('/dashboard-suggestions', requireAuth, async (req: AuthRequest, res) => {
+  const settings = await getSettings(req.user!.accountId)
+  if (settings?.preferences?.dashboardSuggestions === false) return res.json({ ok: true, data: { suggestions: [], disabled: true } })
   const a = ai()
   if (!a) return res.json({ ok: true, data: { suggestions: [] } })
   const wss = await db.select().from(workspaces).where(eq(workspaces.accountId, req.user!.accountId))

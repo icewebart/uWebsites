@@ -43,7 +43,24 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [suggestLoading, setSuggestLoading] = useState(true)
+  // Off by default until we know better — costs a real LLM call every load,
+  // so don't fire it before /account/preferences says it's wanted.
+  const [suggestOn, setSuggestOn] = useState(false)
   const [prompt, setPrompt] = useState('')
+
+  function fetchSuggestions() {
+    setSuggestLoading(true)
+    api<{ suggestions: Suggestion[] }>('/ai/dashboard-suggestions')
+      .then((s) => setSuggestions(s.suggestions || []))
+      .catch(() => {})
+      .finally(() => setSuggestLoading(false))
+  }
+  function toggleSuggestions(next: boolean) {
+    setSuggestOn(next)
+    api('/account/preferences', { method: 'PUT', body: JSON.stringify({ dashboardSuggestions: next }) }).catch(() => {})
+    if (next) fetchSuggestions()
+    else { setSuggestions([]); setSuggestLoading(false) }
+  }
 
   useEffect(() => {
     (async () => {
@@ -55,9 +72,10 @@ export default function Dashboard() {
         setMe(user); setItems(overview.items); setTotals(overview.totals); setAi(overview.ai)
       } catch { router.push('/login') } finally { setLoading(false) }
       try {
-        const s = await api<{ suggestions: Suggestion[] }>('/ai/dashboard-suggestions')
-        setSuggestions(s.suggestions || [])
-      } catch { /* non-fatal */ } finally { setSuggestLoading(false) }
+        const p = await api<{ dashboardSuggestions: boolean }>('/account/preferences')
+        setSuggestOn(p.dashboardSuggestions)
+        if (p.dashboardSuggestions) fetchSuggestions(); else setSuggestLoading(false)
+      } catch { setSuggestLoading(false) }
     })()
   }, [])
 
@@ -108,8 +126,16 @@ export default function Dashboard() {
           </div>
 
           {/* MIDDLE — AI suggestions */}
-          <div className="dash-h" style={{ marginTop: 28 }}>What to do next</div>
-          {suggestLoading ? (
+          <div className="dash-h" style={{ marginTop: 28, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>What to do next</span>
+            <label className="tgl-wrap" title="Uses an AI call on every dashboard visit">
+              AI suggestions
+              <span className="tgl"><input type="checkbox" checked={suggestOn} onChange={(e) => toggleSuggestions(e.target.checked)} /><span className="tgl-slider" /></span>
+            </label>
+          </div>
+          {!suggestOn ? (
+            <div className="ai-sug-card empty-state"><div>Turned off — flip the switch above to get AI next-step suggestions again.</div></div>
+          ) : suggestLoading ? (
             <div className="ai-sug-card sk">
               <div className="sk-line" /><div className="sk-line short" /><div className="sk-line" />
             </div>
