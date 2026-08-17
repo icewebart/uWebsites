@@ -1,11 +1,12 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 import { TabBar } from '@/components/TabBar'
 
-type Page = { id: string; type: string; slug: string; title: string; status: string; updatedAt?: string; seo?: { wp_imported?: { link?: string }; wordpress?: { link?: string; status?: string }; customDelivery?: { connectionName: string; remoteId: string; status: string; deliveredAt: string } } }
+type SeoCheck = { id: string; label: string; pass: boolean; hint?: string }
+type Page = { id: string; type: string; slug: string; title: string; status: string; updatedAt?: string; seo?: { wp_imported?: { link?: string }; wordpress?: { link?: string; status?: string }; customDelivery?: { connectionName: string; remoteId: string; status: string; deliveredAt: string } }; seoScore?: { score: number; checks: SeoCheck[] } }
 type PagesResp = { workspace: { id: string; name: string; slug: string }; pages: Page[] }
 
 // Types that belong in the Articles hub (everything editorial / long-form).
@@ -22,6 +23,8 @@ export default function ArticlesPage() {
 
   const [wpConnected, setWpConnected] = useState(false)
   const [customConn, setCustomConn] = useState<{ name: string } | null>(null)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const toggleExpanded = (id: string) => setExpanded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   function load() {
     return api<PagesResp>(`/workspaces/${slug}/pages`).then(setData).catch(() => router.push(`/w/${slug}`))
   }
@@ -225,10 +228,11 @@ export default function ArticlesPage() {
       ) : (
         <div className="tblwrap">
           <table className="tbl">
-            <thead><tr><th>Title</th><th style={{ width: 110 }}>Type</th><th style={{ width: 100 }}>Status</th><th style={{ width: 220 }}>Actions</th></tr></thead>
+            <thead><tr><th>Title</th><th style={{ width: 110 }}>Type</th><th style={{ width: 100 }}>Status</th><th style={{ width: 64 }}>SEO</th><th style={{ width: 220 }}>Actions</th></tr></thead>
             <tbody>
               {articles.map((p) => (
-                <tr key={p.id}>
+                <Fragment key={p.id}>
+                <tr>
                   <td>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                       <a href={`/w/${slug}/p/${p.id}`} style={{ fontWeight: 500, color: 'var(--text)', textDecoration: 'none' }}>{p.title || '(untitled)'}</a>
@@ -239,6 +243,14 @@ export default function ArticlesPage() {
                   </td>
                   <td><span className="muted" style={{ fontSize: 12 }}>{p.type}</span></td>
                   <td><span className={`status-pill ${p.status === 'published' ? 'live' : 'draft'}`}>{p.status}</span></td>
+                  <td>
+                    {p.seoScore ? (
+                      <button className={`seo-score-pill ${p.seoScore.score >= 80 ? 'good' : p.seoScore.score >= 50 ? 'ok' : 'bad'}`}
+                        onClick={() => toggleExpanded(p.id)} title="Click for the checklist">
+                        {p.seoScore.score}
+                      </button>
+                    ) : <span className="muted" style={{ fontSize: 12 }}>—</span>}
+                  </td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <a className="btn-mini" href={`/w/${slug}/p/${p.id}`}>Edit</a>
@@ -261,6 +273,21 @@ export default function ArticlesPage() {
                     </div>
                   </td>
                 </tr>
+                {expanded.has(p.id) && p.seoScore && (
+                  <tr>
+                    <td colSpan={5} style={{ background: 'var(--bg-subtle)', padding: '10px 16px' }}>
+                      <div className="seo-checklist">
+                        {p.seoScore.checks.map((c) => (
+                          <div key={c.id} className={`seo-check ${c.pass ? 'pass' : 'fail'}`}>
+                            <span>{c.pass ? '✓' : '✗'}</span> {c.label}
+                            {!c.pass && c.hint && <span className="muted" style={{ marginLeft: 6 }}>— {c.hint}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>

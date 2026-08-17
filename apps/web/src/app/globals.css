@@ -731,6 +731,15 @@ textarea.inp{resize:vertical;min-height:110px;font-family:inherit;line-height:1.
 .status-pill{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:var(--r-md)}
 .status-pill.draft{background:var(--bg-subtle);color:var(--text-faint)}
 .status-pill.live{background:var(--lime-light);color:var(--forest)}
+/* on-page SEO score — RankMath-style checklist, click the pill to expand */
+.seo-score-pill{display:inline-flex;align-items:center;justify-content:center;width:34px;height:24px;border-radius:var(--r-md);font-size:12px;font-weight:800;border:0;cursor:pointer;font-family:'Space Grotesk',sans-serif}
+.seo-score-pill.good{background:var(--lime-light);color:var(--forest)}
+.seo-score-pill.ok{background:#FCEFC7;color:#8A6D1D}
+.seo-score-pill.bad{background:#FBDADA;color:#B42318}
+.seo-checklist{display:flex;flex-direction:column;gap:5px}
+.seo-check{font-size:12.5px}
+.seo-check.pass span:first-child{color:var(--forest);font-weight:700}
+.seo-check.fail span:first-child{color:#B42318;font-weight:700}
 @media(max-width:760px){.menu-row{grid-template-columns:1fr}}
 .ev-actions-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 

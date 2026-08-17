@@ -5,6 +5,7 @@ import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
 import { db, workspaces, memberships, pages, brandingTokens, builds, domains, aiJobs, menus, collections, collectionItems, media, redirects } from '@uwebsites/db'
 import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { guardCreateWorkspace } from '../lib/entitlements.js'
+import { scoreArticleSeo } from '../lib/seo-score.js'
 
 export const workspacesRouter = Router()
 
@@ -218,15 +219,29 @@ workspacesRouter.get('/overview', requireAuth, async (req: AuthRequest, res) => 
   res.json({ ok: true, data: { items, totals, ai } })
 })
 
-// GET /workspaces/:slug/pages — list pages in a workspace (account-scoped)
+// GET /workspaces/:slug/pages — list pages in a workspace (account-scoped).
+// Attaches an on-page SEO score (RankMath/Yoast-style checklist, see
+// lib/seo-score.ts) to every 'article' page — computed fresh on each read so
+// it always reflects the CURRENT title/meta/body/keyword, not a stale
+// snapshot from whenever the article was written.
 workspacesRouter.get('/:slug/pages', requireAuth, async (req: AuthRequest, res) => {
   const [ws] = await db.select().from(workspaces)
     .where(and(eq(workspaces.slug, String(req.params.slug)), eq(workspaces.accountId, req.user!.accountId))).limit(1)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
-  const rows = await db.select({ id: pages.id, type: pages.type, slug: pages.slug, title: pages.title, status: pages.status, seo: pages.seo })
+  const rows = await db.select({ id: pages.id, type: pages.type, slug: pages.slug, title: pages.title, status: pages.status, seo: pages.seo, blocks: pages.blocks })
     .from(pages).where(eq(pages.workspaceId, ws.id)).orderBy(pages.type)
   const modes = await productModesFor([ws.id])
-  res.json({ ok: true, data: { workspace: { id: ws.id, name: ws.name, slug: ws.slug, product: modes.get(ws.id) || 'site' }, pages: rows } })
+  const out = rows.map(({ blocks, ...row }) => {
+    if (row.type !== 'article') return row
+    const b: any[] = Array.isArray(blocks) ? blocks : []
+    const html = b.find((x) => x?.type === 'article-body')?.props?.html
+      || b.filter((x) => typeof x?.props?.html === 'string').map((x) => x.props.html).join('\n')
+    const imageAlts = b.map((x) => x?.props?.image_alt).filter((a): a is string => typeof a === 'string')
+    const seo: any = row.seo || {}
+    const seoScore = scoreArticleSeo({ title: row.title, metaDescription: seo.description, keyword: seo.keyword, html: html || '', slug: row.slug, imageAlts })
+    return { ...row, seoScore }
+  })
+  res.json({ ok: true, data: { workspace: { id: ws.id, name: ws.name, slug: ws.slug, product: modes.get(ws.id) || 'site' }, pages: out } })
 })
 
 // GET /workspaces/:slug/branding — design tokens (defaults if unset)
