@@ -2,17 +2,21 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
-import { IconDashboard, IconWebsite, IconArticles, IconBranding, IconStats, IconTracking, IconAi, IconMenu, IconFooter } from './icons'
+import { IconDashboard, IconWebsite, IconArticles, IconBranding, IconStats, IconTracking, IconAi, IconMenu, IconFooter, IconLayers } from './icons'
 import { ChatPanel } from './ChatPanel'
 
-type Workspace = { id: string; name: string; slug: string; product?: 'content' | 'site' }
+type Workspace = { id: string; name: string; slug: string; product?: 'content' | 'site' | 'both' }
 type Me = { user: { id: string; name?: string; email: string } }
 
 // `group` = a collapsible header (toggles, never navigates). `parent` = a child
 // shown only while its group is open. The group's own destination lives as a
 // normal child ("Website overview" / "All articles") so the header is purely a
 // toggle and the general page is still one click away.
-type ProductMode = 'site' | 'content'
+// 'both' exists for the same-site hybrid: a uWebsites-built site whose own
+// content pipeline writes articles onto it (no external WordPress/Custom API
+// delivery) — that customer needs both halves of the nav at once, not a
+// binary either/or.
+type ProductMode = 'site' | 'content' | 'both'
 // `product` on a group tags which side of the Website Builder / SEO & Content
 // switcher it belongs to; its children inherit that tag (see productOf below).
 // Entries with no tag at all (Dashboard) are account-level and always show.
@@ -38,11 +42,12 @@ const NAV: NavEntry[] = [
   { label: 'Format', Icon: IconArticles, parent: 'Website Content' },
   { label: 'WordPress', Icon: IconArticles, parent: 'Website Content' },
   { label: 'Custom API', Icon: IconArticles, parent: 'Website Content' },
-  // Tracking connects the data (Search Console/GA); Insights reads it — both
-  // feed the opportunity/decay engine, so they live with content, not design.
-  { label: 'Performance', Icon: IconTracking, parent: 'Website Content', divider: true },
-  { label: 'Tracking', Icon: IconTracking, parent: 'Website Content' },
-  { label: 'Insights', Icon: IconStats, parent: 'Website Content' },
+  // Traffic/search data matters to a Website-Builder-only customer just as
+  // much as a content-only one (indexing, visits) — always visible, like
+  // Dashboard, not locked behind either side of the switcher.
+  { label: 'Performance', Icon: IconTracking, group: true },
+  { label: 'Tracking', Icon: IconTracking, parent: 'Performance' },
+  { label: 'Insights', Icon: IconStats, parent: 'Performance' },
 ]
 // A child's product tag is whichever group it's nested under.
 function productOf(entry: NavEntry): ProductMode | undefined {
@@ -53,6 +58,7 @@ function productOf(entry: NavEntry): ProductMode | undefined {
 const PRODUCT_INFO: Record<ProductMode, { label: string; desc: string; Icon: (p: { size?: number }) => React.JSX.Element }> = {
   site: { label: 'Website Builder', desc: 'Pages, menu, footer & CTAs', Icon: IconWebsite },
   content: { label: 'SEO & Content', desc: 'Plan, write & publish articles', Icon: IconArticles },
+  both: { label: 'Both', desc: 'Everything, nothing hidden', Icon: IconLayers },
 }
 // Pages still pass their old active= labels — map those onto the new nav labels
 // so nothing had to be edited page by page.
@@ -97,10 +103,10 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
   // Website Builder and SEO & Content are two different products sharing one
   // nav — the switcher (topbar, right after search) decides which half shows.
   // Unlabelled entries (Dashboard) are account-level and always visible.
-  const productMode: ProductMode = current?.product === 'content' ? 'content' : 'site'
+  const productMode: ProductMode = current?.product === 'content' ? 'content' : current?.product === 'both' ? 'both' : 'site'
   const visibleNav = NAV.filter((n) => {
     const p = productOf(n)
-    return !p || p === productMode
+    return !p || productMode === 'both' || p === productMode
   })
   const displayName = me?.user?.name?.trim() || (me?.user?.email ? me.user.email.split('@')[0] : 'You')
 
@@ -111,7 +117,8 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
 
   // Optimistic: flip the chip and navigate immediately, persist in the
   // background. It's a per-workspace preference, not a destructive action —
-  // worst case a slow save just re-syncs on the next page load.
+  // worst case a slow save just re-syncs on the next page load. "Both" is a
+  // superset of wherever you already are, so it never needs to redirect you.
   function switchProduct(next: ProductMode) {
     if (!current) return
     setModeOpen(false)
@@ -119,7 +126,8 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
     const slug = current.slug
     setWorkspaces((ws) => ws.map((w) => (w.id === current.id ? { ...w, product: next } : w)))
     api(`/workspaces/${slug}/product-mode`, { method: 'PUT', body: JSON.stringify({ product: next }) }).catch(() => {})
-    router.push(next === 'content' ? `/w/${slug}/content` : `/w/${slug}`)
+    if (next === 'content') router.push(`/w/${slug}/content`)
+    else if (next === 'site') router.push(`/w/${slug}`)
   }
 
   // Collapsible nav groups. Remembered across pages, and the group holding the

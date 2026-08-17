@@ -5,7 +5,7 @@ import { api, API_URL } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 
 type Page = { id: string; type: string; slug: string; title: string; status: string; seo?: { import_source?: { url: string } } }
-type PagesResp = { workspace: { id: string; name: string; slug: string; product?: 'content' | 'site' }; pages: Page[] }
+type PagesResp = { workspace: { id: string; name: string; slug: string; product?: 'content' | 'site' | 'both' }; pages: Page[] }
 
 export default function WorkspaceHome() {
   const { slug } = useParams<{ slug: string }>()

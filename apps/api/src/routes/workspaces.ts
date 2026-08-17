@@ -28,8 +28,11 @@ async function ownedWorkspace(slug: string, accountId: string) {
 // pattern as article_plan/business_brief/voice. Default is 'site' — every
 // workspace that predates this field already used the builder, so it must
 // keep seeing it; only newly-created content-only workspaces opt in.
-export type ProductMode = 'content' | 'site'
-const productModeOf = (tokens: any): ProductMode => (tokens?.product === 'content' ? 'content' : 'site')
+// 'both' = the same-site hybrid: a uWebsites-built site whose own content
+// pipeline writes articles onto it (no external WordPress/Custom API
+// delivery) — needs the full nav, not an either/or.
+export type ProductMode = 'content' | 'site' | 'both'
+const productModeOf = (tokens: any): ProductMode => (tokens?.product === 'content' ? 'content' : tokens?.product === 'both' ? 'both' : 'site')
 
 // Fetch product mode for a set of workspace ids in one query, so list/pages
 // endpoints can attach it without an N+1.
@@ -259,7 +262,7 @@ workspacesRouter.get('/:slug/product-mode', requireAuth, async (req: AuthRequest
 workspacesRouter.put('/:slug/product-mode', requireAuth, async (req: AuthRequest, res) => {
   const ws = await ownedWorkspace(String(req.params.slug), req.user!.accountId)
   if (!ws) return res.status(404).json({ ok: false, error: 'workspace not found' })
-  const product: ProductMode = req.body?.product === 'content' ? 'content' : 'site'
+  const product: ProductMode = req.body?.product === 'content' ? 'content' : req.body?.product === 'both' ? 'both' : 'site'
   const [existing] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, ws.id)).limit(1)
   const tokens = { ...((existing?.tokens as any) || {}), product }
   if (existing) await db.update(brandingTokens).set({ tokens }).where(eq(brandingTokens.id, existing.id))

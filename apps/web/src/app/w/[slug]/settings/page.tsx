@@ -6,7 +6,7 @@ import { AppShell } from '@/components/AppShell'
 
 type Workspace = { id: string; name: string; slug: string }
 type Me = { user: { id: string; name: string; email: string } }
-type ProductMode = 'content' | 'site'
+type ProductMode = 'content' | 'site' | 'both'
 
 export default function WorkspaceSettings() {
   const { slug } = useParams<{ slug: string }>()
@@ -121,11 +121,14 @@ export default function WorkspaceSettings() {
           <p className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
             {product === 'content'
               ? 'Content mode — this workspace plans and writes articles into your own WordPress site. No canvas, menu or footer here.'
+              : product === 'both'
+              ? 'Both — this workspace builds a site with uWebsites AND writes articles onto that same site. Nothing hidden.'
               : 'Site mode — this workspace builds and hosts a site with uWebsites (design canvas, menu, footer).'}
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
             <button className={`btn ${product === 'content' ? 'btn-primary' : 'btn-secondary'}`} disabled={productBusy} onClick={() => setProductMode('content')}>📝 Content only</button>
             <button className={`btn ${product === 'site' ? 'btn-primary' : 'btn-secondary'}`} disabled={productBusy} onClick={() => setProductMode('site')}>🎨 Full site builder</button>
+            <button className={`btn ${product === 'both' ? 'btn-primary' : 'btn-secondary'}`} disabled={productBusy} onClick={() => setProductMode('both')}>🔀 Both</button>
           </div>
         </div>
 
