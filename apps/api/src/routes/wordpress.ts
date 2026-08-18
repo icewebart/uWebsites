@@ -5,7 +5,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js'
 import { verifyConnection, publishArticle, fetchPosts, fetchPublicPosts, normaliseSiteUrl, decodeConnectionCode, listCategories, resolveTagIds, type WpConn } from '../lib/wordpress.js'
 import { pages } from '@uwebsites/db'
 import { articleBlocksFromImport } from './import.js'
-import { ai, MODEL } from './ai.js'
+import { ai, MODEL, suggestKeywordForPage } from './ai.js'
 
 // Pick ONE existing category (never invents a new one — categories are a
 // curated, fixed set on most sites) + a few tags (reused when they fit,
@@ -40,22 +40,57 @@ async function classify(conn: WpConn, title: string, excerpt: string): Promise<{
 
 // Shared importer for both the connected pull and the public onboarding pull.
 // Dedupes on the native WP post id so re-running updates in place, never dupes.
-async function importPosts(workspaceId: string, posts: Array<{ id: number; title: string; link: string; html: string; excerpt: string; slug: string }>) {
+//
+// After the import itself, runs the keyword pass automatically — the
+// fundamental first step of the analysis, not an optional extra: an imported
+// article with no target keyword can't be scored, can't feed the opportunity
+// engine, can't be improved. Every article that doesn't already have one
+// (imported now OR left over from an earlier import) gets one assigned in
+// the background, so importing a site is genuinely "one step" — not import,
+// then separately remember to go suggest 17 keywords by hand. Not mandatory
+// in the sense that a workspace with nothing to import just does nothing here.
+async function importPosts(workspaceId: string, accountId: string, posts: Array<{ id: number; title: string; link: string; html: string; excerpt: string; slug: string }>) {
   const existing = await db.select({ id: pages.id, seo: pages.seo, slug: pages.slug }).from(pages).where(eq(pages.workspaceId, workspaceId))
   const byWpId = new Map<number, string>()
   for (const p of existing) { const wid = (p.seo as any)?.wp_imported?.postId; if (wid) byWpId.set(Number(wid), p.id) }
   let imported = 0, updated = 0
+  const needsKeyword: string[] = []
   for (const post of posts) {
     const blocks = articleBlocksFromImport(post.title, post.html)
     const seo: any = { description: post.excerpt.slice(0, 300), wp_imported: { postId: post.id, link: post.link, importedAt: new Date().toISOString() } }
     const hitId = byWpId.get(post.id)
-    if (hitId) { await db.update(pages).set({ title: post.title, blocks: blocks as any, seo, updatedAt: new Date() }).where(eq(pages.id, hitId)); updated++ }
-    else {
+    if (hitId) {
+      const prevSeo: any = existing.find((e) => e.id === hitId)?.seo || {}
+      if (prevSeo.keyword) seo.keyword = prevSeo.keyword // never clobber one already assigned
+      await db.update(pages).set({ title: post.title, blocks: blocks as any, seo, updatedAt: new Date() }).where(eq(pages.id, hitId))
+      updated++
+      if (!seo.keyword) needsKeyword.push(hitId)
+    } else {
       const base = (post.slug || post.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')).replace(/^-+|-+$/g, '').slice(0, 60) || 'post'
       const slug = existing.some((e) => e.slug === base) ? `${base}-wp${post.id}` : base
-      await db.insert(pages).values({ workspaceId, type: 'article' as any, slug, title: post.title, status: 'published', blocks: blocks as any, seo: seo as any })
+      const [created] = await db.insert(pages).values({ workspaceId, type: 'article' as any, slug, title: post.title, status: 'published', blocks: blocks as any, seo: seo as any }).returning({ id: pages.id })
       imported++
+      if (created?.id) needsKeyword.push(created.id)
     }
+  }
+  // Also sweep anything from a PRIOR import that still has no keyword — the
+  // first import predates this pass, so its 17 articles need it too.
+  for (const p of existing) {
+    if (!(p.seo as any)?.keyword && (p.seo as any)?.wp_imported && !needsKeyword.includes(p.id)) needsKeyword.push(p.id)
+  }
+  if (needsKeyword.length) {
+    void (async () => {
+      for (const pageId of needsKeyword) {
+        try {
+          const [row] = await db.select({ id: pages.id, title: pages.title, blocks: pages.blocks, seo: pages.seo, wsId: pages.workspaceId }).from(pages).where(eq(pages.id, pageId)).limit(1)
+          if (!row || (row.seo as any)?.keyword) continue
+          const suggestion = await suggestKeywordForPage(accountId, row)
+          if (suggestion?.keyword) {
+            await db.update(pages).set({ seo: { ...(row.seo as any || {}), keyword: suggestion.keyword, keywordSource: suggestion.source } }).where(eq(pages.id, pageId))
+          }
+        } catch { /* one bad article shouldn't stop the batch */ }
+      }
+    })()
   }
   return { imported, updated, total: posts.length }
 }
@@ -184,7 +219,7 @@ wordpressRouter.post('/:slug/wordpress/pull', requireAuth, async (req: AuthReque
   if (!c) return res.status(404).json({ ok: false, error: 'not connected' })
   try {
     const posts = await fetchPosts(c as WpConn, 200)
-    res.json({ ok: true, data: await importPosts(ws.id, posts) })
+    res.json({ ok: true, data: await importPosts(ws.id, req.user!.accountId, posts) })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: `Pull failed: ${e?.message || 'unknown'}` })
   }
@@ -204,7 +239,7 @@ wordpressRouter.post('/:slug/wordpress/pull-public', requireAuth, async (req: Au
     if (!posts.length) {
       return res.json({ ok: true, data: { imported: 0, updated: 0, total: 0, note: 'No published posts were found at that address (the site may not be WordPress, or its API is disabled).' } })
     }
-    res.json({ ok: true, data: await importPosts(ws.id, posts) })
+    res.json({ ok: true, data: await importPosts(ws.id, req.user!.accountId, posts) })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: `Couldn't read articles from that site: ${e?.message || 'unknown'}` })
   }

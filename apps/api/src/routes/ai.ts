@@ -2518,28 +2518,21 @@ HOW TO IMPROVE IT:
   }
 })
 
-// POST /ai/suggest-keyword — for an article with NO target keyword (mainly
-// imported/legacy content that was never assigned one). Ground truth beats
-// guessing: if this article already has a real indexed URL and the workspace
-// has Search Console linked, pull the queries that ACTUALLY drive clicks to
-// it first. AI only fills the gap when there's no query data (or none linked).
-// Suggests only — never writes seo.keyword itself; save via PUT /pages/:id.
-aiRouter.post('/suggest-keyword', requireAuth, async (req: AuthRequest, res) => {
+// Shared by the manual "Suggest keyword" button AND the automated pass that
+// runs once right after a WordPress import (see wordpress.ts) — same logic,
+// one place. Ground truth beats guessing: prefers real Search Console query
+// data for this exact URL when the workspace has it linked, AI content
+// analysis otherwise. Returns null rather than throwing on any failure —
+// callers decide whether that's worth surfacing (the route does; the
+// automated batch pass just skips that one article and keeps going).
+export async function suggestKeywordForPage(accountId: string, row: { id: string; title: string; blocks: unknown; seo: unknown; wsId: string }): Promise<{ keyword: string; reason: string; source: 'search-console' | 'ai' } | null> {
   const a = ai()
-  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
-  const { pageId } = req.body ?? {}
-  if (!pageId) return res.status(400).json({ ok: false, error: 'pageId required' })
-
-  const [row] = await db.select({
-    id: pages.id, title: pages.title, blocks: pages.blocks, seo: pages.seo, wsId: pages.workspaceId, accId: workspaces.accountId,
-  }).from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id)).where(eq(pages.id, String(pageId))).limit(1)
-  if (!row || row.accId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'page not found' })
-
+  if (!a) return null
   const blocks = (Array.isArray(row.blocks) ? row.blocks : []) as any[]
   const html = blocks.find((b) => b?.type === 'article-body')?.props?.html
     || blocks.filter((b) => typeof b?.props?.html === 'string').map((b) => b.props.html).join('\n')
   const text = String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-  if (!text) return res.status(400).json({ ok: false, error: 'This article has no body text to analyse.' })
+  if (!text) return null
 
   // Real indexed URL, if this article has one — an imported/delivered post,
   // not a local-only draft (those aren't indexed anywhere, so there's no
@@ -2552,9 +2545,9 @@ aiRouter.post('/suggest-keyword', requireAuth, async (req: AuthRequest, res) => 
     try {
       const [tok] = await db.select().from(brandingTokens).where(eq(brandingTokens.workspaceId, row.wsId)).limit(1)
       const scProperty = (tok?.tokens as any)?.analytics?.scProperty
-      const conn = await getGoogleConn(req.user!.accountId)
+      const conn = await getGoogleConn(accountId)
       if (scProperty && conn && hasScope(conn, SCOPE_SEARCH)) {
-        scQueries = await scQueriesForPage(req.user!.accountId, scProperty, liveUrl, 90)
+        scQueries = await scQueriesForPage(accountId, scProperty, liveUrl, 90)
       }
     } catch { /* SC data is a bonus, never blocks the suggestion */ }
   }
@@ -2578,9 +2571,34 @@ aiRouter.post('/suggest-keyword', requireAuth, async (req: AuthRequest, res) => 
         + (scQueries.length ? `\n\nSearch Console queries for this URL (last 90 days):\n${scQueries.slice(0, 10).map((q) => `- "${q.query}" — ${q.clicks} clicks, ${q.impressions} impressions, avg position ${q.position.toFixed(1)}`).join('\n')}` : '') }],
     })
     const tu = r.content.find((b: any) => b.type === 'tool_use') as any
-    if (!tu) return res.status(502).json({ ok: false, error: 'No suggestion returned — try again.' })
+    if (!tu) return null
     const { keyword, reason } = tu.input as { keyword: string; reason: string }
-    res.json({ ok: true, data: { keyword, reason, source: scQueries.length ? 'search-console' : 'ai', queries: scQueries.slice(0, 10) } })
+    return { keyword, reason, source: scQueries.length ? 'search-console' : 'ai' }
+  } catch { return null }
+}
+
+// POST /ai/suggest-keyword — for an article with NO target keyword (mainly
+// imported/legacy content that was never assigned one). Suggests only —
+// never writes seo.keyword itself; save via PUT /pages/:id.
+aiRouter.post('/suggest-keyword', requireAuth, async (req: AuthRequest, res) => {
+  const a = ai()
+  if (!a) return res.status(503).json({ ok: false, error: 'AI not configured — set ANTHROPIC_API_KEY on the server.' })
+  const { pageId } = req.body ?? {}
+  if (!pageId) return res.status(400).json({ ok: false, error: 'pageId required' })
+
+  const [row] = await db.select({
+    id: pages.id, title: pages.title, blocks: pages.blocks, seo: pages.seo, wsId: pages.workspaceId, accId: workspaces.accountId,
+  }).from(pages).innerJoin(workspaces, eq(pages.workspaceId, workspaces.id)).where(eq(pages.id, String(pageId))).limit(1)
+  if (!row || row.accId !== req.user!.accountId) return res.status(404).json({ ok: false, error: 'page not found' })
+
+  const blocks = (Array.isArray(row.blocks) ? row.blocks : []) as any[]
+  const hasText = !!(blocks.find((b) => b?.type === 'article-body')?.props?.html || blocks.some((b) => typeof b?.props?.html === 'string'))
+  if (!hasText) return res.status(400).json({ ok: false, error: 'This article has no body text to analyse.' })
+
+  try {
+    const result = await suggestKeywordForPage(req.user!.accountId, row)
+    if (!result) return res.status(502).json({ ok: false, error: 'No suggestion returned — try again.' })
+    res.json({ ok: true, data: result })
   } catch (e: any) {
     res.status(502).json({ ok: false, error: 'Suggestion failed: ' + (e?.message || 'unknown') })
   }
