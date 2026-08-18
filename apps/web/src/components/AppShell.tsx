@@ -216,7 +216,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
             {current && (
             <div className="mode-switch">
               <button className="mode-chip" onClick={() => setModeOpen((o) => !o)} onBlur={() => setTimeout(() => setModeOpen(false), 150)}>
-                <span className={`mode-chip-ico ${productMode}`}>{PRODUCT_INFO[productMode].label[0]}</span>
+                <span className={`mode-chip-ico mode-${productMode}`}>{PRODUCT_INFO[productMode].label[0]}</span>
                 <span className="mode-chip-name">{PRODUCT_INFO[productMode].label}</span> <span className="chev">▾</span>
               </button>
               {modeOpen && (
@@ -226,7 +226,7 @@ export function AppShell({ title, currentSlug, active = 'Dashboard', children, c
                     const isCurrent = key === productMode
                     return (
                       <button key={key} type="button" className={`mode-item${isCurrent ? ' current' : ''}`} onClick={() => switchProduct(key)}>
-                        <span className={`mode-item-ico ${key}`}>{info.label[0]}</span>
+                        <span className={`mode-item-ico mode-${key}`}>{info.label[0]}</span>
                         <span className="mode-item-label">{info.label}</span>
                         {isCurrent && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--forest)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12" /></svg>}
                       </button>
